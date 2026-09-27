@@ -1,0 +1,23 @@
+# dependencias
+node_modules/
+
+# next.js
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# datos locales (PGlite, documentos privados). Nunca versionar.
+.data/
+
+# entorno
+.env
+.env.*
+!.env.example
+
+# logs
+npm-debug.log*
+*.log
+
+.DS_Store
