@@ -204,18 +204,22 @@ export const DOCUMENT_TYPES = [
   "curp",
   "quote_pdf",
   "other",
+  "employment_letter",
+  "credit_application",
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   ine: "INE",
   proof_of_address: "Comprobante de domicilio",
-  proof_of_income: "Comprobante de ingresos",
+  proof_of_income: "Nómina / comprobante de ingresos",
   bank_statement: "Estados de cuenta",
-  tax_id: "Constancia de situación fiscal (RFC)",
+  tax_id: "Constancia de situación fiscal",
   curp: "CURP",
   quote_pdf: "Cotización PDF",
   other: "Otro",
+  employment_letter: "Carta laboral",
+  credit_application: "Solicitud de crédito",
 };
 
 export const MESSAGE_SENDERS = ["customer", "sofia", "mario", "system"] as const;
@@ -226,3 +230,84 @@ export type ControlMode = (typeof CONTROL_MODES)[number];
 
 export const ACTOR_TYPES = ["sofia", "mario", "system", "customer"] as const;
 export type ActorType = (typeof ACTOR_TYPES)[number];
+
+// ───────────────────────── Sprint 2 ─────────────────────────
+
+/** Estado de un hecho del perfil (provenance). `retracted` se conserva de Sprint 1. */
+export const FACT_STATUSES = ["observed", "confirmed", "conflicting", "historical", "superseded", "retracted"] as const;
+export type FactStatus = (typeof FACT_STATUSES)[number];
+/** Estados que cuentan como "valor vigente" del perfil (los conflictivos NO). */
+export const CURRENT_FACT_STATUSES: FactStatus[] = ["observed", "confirmed"];
+
+export const FACT_SOURCE_TYPES = ["customer_message", "mario_capture", "credit_application", "document", "import"] as const;
+export type FactSourceType = (typeof FACT_SOURCE_TYPES)[number];
+export const FACT_SOURCE_LABELS: Record<FactSourceType, string> = {
+  customer_message: "Conversación",
+  mario_capture: "Captura de Mario",
+  credit_application: "Solicitud de crédito",
+  document: "Documento",
+  import: "Importación",
+};
+
+export const DOCUMENT_STATUSES = ["missing", "requested", "received", "needs_review", "accepted", "rejected"] as const;
+export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
+export const DOCUMENT_STATUS_LABELS: Record<DocumentStatus, string> = {
+  missing: "Falta",
+  requested: "Solicitado",
+  received: "Recibido",
+  needs_review: "Por revisar",
+  accepted: "Aceptado",
+  rejected: "Rechazado",
+};
+
+export const CREDIT_APPLICATION_STATUSES = [
+  "draft",
+  "missing_information",
+  "conflict",
+  "ready_for_review",
+  "ready_for_signature",
+  "submitted",
+  "approved",
+  "rejected",
+  "cancelled",
+] as const;
+export type CreditApplicationStatus = (typeof CREDIT_APPLICATION_STATUSES)[number];
+export const CREDIT_APPLICATION_STATUS_LABELS: Record<CreditApplicationStatus, string> = {
+  draft: "Borrador",
+  missing_information: "Faltan datos",
+  conflict: "Con conflicto",
+  ready_for_review: "Lista para revisión",
+  ready_for_signature: "Lista para firma",
+  submitted: "Enviada",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+  cancelled: "Cancelada",
+};
+
+/** Clasificación de cada campo de una solicitud. */
+export const FIELD_CLASSES = ["AUTO_FILL", "ASK_IF_MISSING", "CONDITIONAL", "HUMAN_CONFIRMATION", "SIGNATURE"] as const;
+export type FieldClass = (typeof FIELD_CLASSES)[number];
+
+export const SALE_STATUSES = [
+  "prospect",
+  "negotiation",
+  "credit_process",
+  "approved",
+  "order_created",
+  "invoiced",
+  "delivery_pending",
+  "delivered",
+  "cancelled",
+] as const;
+export type SaleStatus = (typeof SALE_STATUSES)[number];
+export const SALE_STATUS_LABELS: Record<SaleStatus, string> = {
+  prospect: "Prospecto",
+  negotiation: "Negociación",
+  credit_process: "En crédito",
+  approved: "Aprobada",
+  order_created: "Pedido creado",
+  invoiced: "Facturada",
+  delivery_pending: "Por entregar",
+  delivered: "Entregada",
+  cancelled: "Cancelada",
+};

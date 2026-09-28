@@ -57,7 +57,7 @@ describe("fusión de perfil (persistencia)", () => {
       .where(and(eq(s.customerFacts.customerId, p.customer.id), eq(s.customerFacts.factKey, "budget")));
     expect(budgetRows.map((r) => [r.value, r.status]).sort()).toEqual([
       [350_000, "superseded"],
-      [380_000, "active"],
+      [380_000, "observed"],
     ]);
     expect(budgetRows.every((r) => r.sourceMessageId)).toBe(true);
   });

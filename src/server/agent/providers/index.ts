@@ -5,7 +5,7 @@ import type { LlmProvider } from "./types";
 
 /**
  * Selección de proveedor:
- * - demo: motor determinista (sin red).
+ * - demo: motor determinista (sin red). Valor por defecto: la app funciona sin credenciales de IA.
  * - anthropic: Claude (usa las credenciales estándar del SDK).
  * - auto: Claude si hay ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN; si no, demo.
  */

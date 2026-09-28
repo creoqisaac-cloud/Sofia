@@ -20,7 +20,9 @@ import {
   type EscalationTrigger,
   type Temperature,
 } from "@/domain/enums";
-import { formatFactValue, mergeProfile, type CustomerProfile, type FactChange } from "@/domain/facts";
+import { FACT_DEFS, formatFactValue, mergeProfile, type CustomerProfile, type FactChange } from "@/domain/facts";
+import { decideIncoming } from "@/domain/provenance";
+import { rebuildProfile } from "../services/profile";
 import { amountsMatch, formatMXN, parseMoneyMentions } from "@/domain/money";
 import { buildDeterministicSummary } from "@/domain/summary";
 import { isKnownTag, type Tag } from "@/domain/tags";
@@ -33,7 +35,7 @@ import type { TurnContext } from "./turn-context";
 import { turnQuotes, type AcceptedFact, type RejectedProposal, type ValidatedKnowledgeRef } from "./validation";
 
 export interface AppliedEffects {
-  facts: { changes: Array<{ key: string; action: FactChange["action"]; previous: string | null; next: string | null }>; rejected: RejectedProposal[] };
+  facts: { changes: Array<{ key: string; action: FactChange["action"] | "conflict"; previous: string | null; next: string | null }>; rejected: RejectedProposal[] };
   crm: {
     stageFrom: CrmStage;
     stageTo: CrmStage;
@@ -83,12 +85,50 @@ async function audit(tx: Db, workspaceId: string, customerId: string, actorType:
 // ─────────────── hechos → perfil ───────────────
 
 async function persistFacts(input: EffectsInput): Promise<{ profile: CustomerProfile; changes: AppliedEffects["facts"]["changes"] }> {
-  const { tx, ctx, workspaceId, acceptedFacts, runId } = input;
-  const { profile, changes } = mergeProfile(
+  const { tx, ctx, workspaceId, runId } = input;
+  const out: AppliedEffects["facts"]["changes"] = [];
+
+  // Sprint 2: lo que dice el cliente nunca pisa un dato CONFIRMADO por Mario ni un conflicto abierto:
+  // se registra como candidato en conflicto para que Mario decida.
+  const singleValued = input.acceptedFacts.filter((f) => FACT_DEFS[f.key].kind !== "list");
+  const existingRows = singleValued.length
+    ? await tx
+        .select()
+        .from(s.customerFacts)
+        .where(and(eq(s.customerFacts.customerId, ctx.customerId), inArray(s.customerFacts.factKey, singleValued.map((f) => f.key))))
+    : [];
+  const diverted = new Set<string>();
+  for (const f of singleValued) {
+    const rows = existingRows.filter((r) => r.factKey === f.key);
+    if (!rows.some((r) => r.status === "confirmed" || r.status === "conflicting")) continue;
+    const decision = decideIncoming(rows, { value: f.value, sourceType: "customer_message" });
+    diverted.add(f.key);
+    if (decision.action !== "conflict") continue;
+    await tx.insert(s.customerFacts).values({
+      workspaceId,
+      customerId: ctx.customerId,
+      factKey: f.key,
+      value: f.value,
+      valueText: f.valueText,
+      confidence: f.confidence,
+      source: "customer_message",
+      sourceMessageId: f.sourceMessageId,
+      sourceLabel: "Conversación",
+      evidence: truncate(f.evidence, 200),
+      status: "conflicting",
+      agentRunId: runId,
+    });
+    if (decision.markConflicting.length) {
+      await tx.update(s.customerFacts).set({ status: "conflicting" }).where(inArray(s.customerFacts.id, decision.markConflicting));
+    }
+    out.push({ key: f.key, action: "conflict", previous: null, next: null });
+  }
+  const acceptedFacts = input.acceptedFacts.filter((f) => !diverted.has(f.key));
+
+  const { changes } = mergeProfile(
     ctx.profile,
     acceptedFacts.map((f) => ({ key: f.key, value: f.value })),
   );
-  const out: AppliedEffects["facts"]["changes"] = [];
   for (const change of changes) {
     if (change.action === "reinforced") continue;
     const fact = acceptedFacts.find((f) => f.key === change.key);
@@ -96,14 +136,14 @@ async function persistFacts(input: EffectsInput): Promise<{ profile: CustomerPro
       await tx
         .update(s.customerFacts)
         .set({ status: "retracted" })
-        .where(and(eq(s.customerFacts.customerId, ctx.customerId), eq(s.customerFacts.factKey, change.key), eq(s.customerFacts.status, "active")));
+        .where(and(eq(s.customerFacts.customerId, ctx.customerId), eq(s.customerFacts.factKey, change.key), eq(s.customerFacts.status, "observed")));
     } else if (fact) {
       const previousActive =
         change.action === "superseded"
           ? await tx
               .select({ id: s.customerFacts.id })
               .from(s.customerFacts)
-              .where(and(eq(s.customerFacts.customerId, ctx.customerId), eq(s.customerFacts.factKey, change.key), eq(s.customerFacts.status, "active")))
+              .where(and(eq(s.customerFacts.customerId, ctx.customerId), eq(s.customerFacts.factKey, change.key), eq(s.customerFacts.status, "observed")))
           : [];
       const [row] = await tx
         .insert(s.customerFacts)
@@ -116,6 +156,7 @@ async function persistFacts(input: EffectsInput): Promise<{ profile: CustomerPro
           confidence: fact.confidence,
           source: "customer_message",
           sourceMessageId: fact.sourceMessageId,
+          sourceLabel: "Conversación",
           evidence: truncate(fact.evidence, 200),
           agentRunId: runId,
         })
@@ -127,7 +168,7 @@ async function persistFacts(input: EffectsInput): Promise<{ profile: CustomerPro
             ? await tx
                 .select({ id: s.customerFacts.id })
                 .from(s.customerFacts)
-                .where(and(eq(s.customerFacts.customerId, ctx.customerId), eq(s.customerFacts.factKey, change.key), eq(s.customerFacts.status, "active")))
+                .where(and(eq(s.customerFacts.customerId, ctx.customerId), eq(s.customerFacts.factKey, change.key), eq(s.customerFacts.status, "observed")))
             : [];
         const toSupersede = [...ids, ...listPrev.map((p) => p.id)].filter((id) => id !== row!.id);
         if (toSupersede.length) {
@@ -142,17 +183,8 @@ async function persistFacts(input: EffectsInput): Promise<{ profile: CustomerPro
       next: change.next !== undefined ? formatFactValue(change.key, change.next) : null,
     });
   }
-  if (out.length) {
-    const [existing] = await tx.select().from(s.customerProfiles).where(eq(s.customerProfiles.customerId, ctx.customerId));
-    if (existing) {
-      await tx
-        .update(s.customerProfiles)
-        .set({ data: profile as Record<string, unknown>, version: existing.version + 1, updatedAt: new Date() })
-        .where(eq(s.customerProfiles.id, existing.id));
-    } else {
-      await tx.insert(s.customerProfiles).values({ workspaceId, customerId: ctx.customerId, data: profile as Record<string, unknown> });
-    }
-  }
+  // La proyección se recalcula desde la bitácora (excluye campos en conflicto).
+  const profile = out.length ? ((await rebuildProfile(tx, workspaceId, ctx.customerId)) as CustomerProfile) : ctx.profile;
   return { profile, changes: out };
 }
 

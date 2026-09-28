@@ -20,7 +20,8 @@ export interface StoredObjectRef {
 }
 
 export interface DocumentStorage {
-  put(workspaceId: string, customerId: string, bytes: Uint8Array, mimeType: string): Promise<StoredObjectRef>;
+  /** `folder` es una ruta lógica opaca (p. ej. "templates" o "generated/<customerId>"). */
+  put(workspaceId: string, folder: string, bytes: Uint8Array, mimeType: string): Promise<StoredObjectRef>;
   get(ref: Pick<StoredObjectRef, "bucket" | "key">): Promise<Uint8Array>;
   remove(ref: Pick<StoredObjectRef, "bucket" | "key">): Promise<void>;
 }
@@ -36,10 +37,11 @@ export class LocalPrivateStorage implements DocumentStorage {
     return full;
   }
 
-  async put(workspaceId: string, customerId: string, bytes: Uint8Array, mimeType: string): Promise<StoredObjectRef> {
+  async put(workspaceId: string, folder: string, bytes: Uint8Array, mimeType: string): Promise<StoredObjectRef> {
     const ext = mimeType === "application/pdf" ? ".pdf" : mimeType.startsWith("image/") ? `.${mimeType.split("/")[1]}` : ".bin";
     // Llave opaca: no contiene nombre del cliente ni tipo de documento.
-    const key = `${customerId}/${randomUUID()}${ext}`;
+    const safeFolder = folder.replace(/[^a-zA-Z0-9/_-]/g, "_").replace(/^\/+|\.\./g, "");
+    const key = `${safeFolder}/${randomUUID()}${ext}`;
     const file = this.resolve(workspaceId, key);
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     await fs.writeFile(file, bytes, { mode: 0o600 });

@@ -7,6 +7,7 @@ import { loadConfig, type AppConfig } from "./config";
 import { createPgliteHandle, createPostgresHandle, type Db, type DbHandle } from "./db/client";
 import * as s from "./db/schema";
 import { DEMO_WORKSPACE_SLUG, seedDemo } from "./db/seed";
+import { seedDemoSprint2 } from "./db/seed-sprint2";
 import { createProvider, type LlmProvider } from "./agent/providers";
 import { systemClock, type Clock } from "./lib/clock";
 import { logger } from "./lib/logger";
@@ -42,7 +43,7 @@ export async function createAppContext(opts: {
     workspaceId = ws.id;
   }
   const [advisor] = await opts.handle.db.select().from(s.users).where(eq(s.users.workspaceId, workspaceId)).limit(1);
-  return {
+  const app: AppContext = {
     db: opts.handle.db,
     dbKind: opts.handle.kind,
     clock,
@@ -52,6 +53,9 @@ export async function createAppContext(opts: {
     storage: opts.storage ?? new LocalPrivateStorage(".data/private-docs"),
     close: () => opts.handle.close(),
   };
+  // Sprint 2: financieras, plantillas sintéticas y clientes DEMO (idempotente).
+  if (opts.seed ?? true) await seedDemoSprint2(app);
+  return app;
 }
 
 export function createHandleFromConfig(config: AppConfig): DbHandle {

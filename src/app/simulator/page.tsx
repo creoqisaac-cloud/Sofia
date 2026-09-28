@@ -3,8 +3,10 @@ import { SimulatorApp } from "@/components/simulator/SimulatorApp";
 
 export default function SimulatorPage() {
   return (
-    <Suspense>
-      <SimulatorApp />
-    </Suspense>
+    <div className="legacy-tool">
+      <Suspense>
+        <SimulatorApp />
+      </Suspense>
+    </div>
   );
 }

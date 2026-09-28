@@ -293,3 +293,24 @@ export function calculateQuote(req: QuoteRequest): QuoteResult {
     },
   };
 }
+
+/**
+ * Memoria comercial: recupera una corrida previamente validada SOLO si el escenario
+ * coincide exactamente (versión, enganche ±1 peso, plazo) y sigue vigente.
+ * Nunca interpola ni ajusta una corrida para otro enganche/plazo.
+ */
+export function findExactValidatedTemplate(
+  templates: QuoteTemplateLike[],
+  scenario: { versionId: string; downPayment: number; termMonths: number },
+  now: Date,
+): { template: QuoteTemplateLike; reason: "match" } | { template: null; reason: "no_exact_scenario" | "only_historical" } {
+  const sameScenario = templates.filter(
+    (t) => t.versionId === scenario.versionId && Math.abs(t.downPayment - scenario.downPayment) <= 1 && t.termMonths === scenario.termMonths,
+  );
+  const current = sameScenario.find((t) => {
+    const eff = effectiveStatus(t, now);
+    return eff.presentableAsCurrent && eff.status === "validated_quote";
+  });
+  if (current) return { template: current, reason: "match" };
+  return { template: null, reason: sameScenario.length ? "only_historical" : "no_exact_scenario" };
+}

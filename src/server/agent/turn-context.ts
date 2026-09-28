@@ -259,7 +259,8 @@ export async function buildTurnContext(
     provisionalProfile,
     knownFacts: (Object.entries(profile) as Array<[FactKey, FactValue]>)
       .filter(([k]) => isFactKey(k))
-      .map(([k, v]) => ({ key: k, label: FACT_DEFS[k].label, value: formatFactValue(k, v) })),
+      // PII (RFC, CURP, domicilio, ingresos, teléfonos…) nunca va en claro al modelo.
+      .map(([k, v]) => ({ key: k, label: FACT_DEFS[k].label, value: FACT_DEFS[k].sensitive ? "(registrado)" : formatFactValue(k, v) })),
     missingFacts: computeMissingFacts(provisionalProfile, { nameKnown, hybridAvailableForInterest: Boolean(interest?.hasHybrid) }),
     crm: { stage, temperature, since: crmRow?.createdAt ?? customer.createdAt, reason: crmRow?.reason ?? "" },
     tags: tags.map((t) => t.tag),

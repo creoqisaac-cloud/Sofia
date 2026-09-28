@@ -1,16 +1,32 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 html,
 body {
   height: 100%;
+  background-color: #09090b;
 }
 
 body {
-  @apply bg-slate-100 text-slate-900 antialiased;
+  @apply bg-zinc-950 text-zinc-100 antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* iOS: inputs < 16px provocan zoom automático al enfocar. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+/* Herramientas técnicas de Sprint 1 (tema claro, zona secundaria). */
+.legacy-tool {
+  @apply h-full bg-slate-100 text-slate-900;
+  color-scheme: light;
 }
 
 .chat-bg {

@@ -1,0 +1,136 @@
+/**
+ * PDFs de solicitud (AcroForm) con pdf-lib. Determinista, sin OCR ni coordenadas.
+ *
+ *  - `inspectPdfFields`: lista los campos reales de un PDF (para construir el mapeo).
+ *  - `buildDemoTemplate`: genera una plantilla AcroForm SINTÉTICA (DEMO) cuyo nombre
+ *    de campo = slot del adaptador. No es el formato real de ninguna financiera.
+ *  - `fillPdf`: carga la plantilla y produce una COPIA nueva con los valores del plan.
+ *    Nunca aplana ni toca campos que no estén en el plan (consentimientos, PEP, firmas).
+ */
+import { PDFButton, PDFCheckBox, PDFDocument, PDFDropdown, PDFRadioGroup, PDFSignature, PDFTextField, StandardFonts, rgb } from "pdf-lib";
+import type { CreditAdapter, FillInstruction } from "@/domain/credit";
+import { normalize } from "@/domain/text";
+
+export interface PdfFieldInfo {
+  name: string;
+  type: "text" | "checkbox" | "radio" | "dropdown" | "signature" | "button" | "other";
+}
+
+export async function inspectPdfFields(bytes: Uint8Array): Promise<PdfFieldInfo[]> {
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  return doc
+    .getForm()
+    .getFields()
+    .map((f) => {
+      const type: PdfFieldInfo["type"] =
+        f instanceof PDFTextField ? "text" : f instanceof PDFCheckBox ? "checkbox" : f instanceof PDFRadioGroup ? "radio" : f instanceof PDFDropdown ? "dropdown" : f instanceof PDFSignature ? "signature" : f instanceof PDFButton ? "button" : "other";
+      return { name: f.getName(), type };
+    });
+}
+
+/**
+ * Sugerencia de mapeo slot → campo real por similitud de nombres (para revisión humana).
+ * Nunca se usa sin que Mario/desarrollo lo revise y lo guarde en la plantilla.
+ */
+export function suggestMapping(adapter: CreditAdapter, fields: PdfFieldInfo[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  const tokens = (s: string) => normalize(s).replace(/[^a-z0-9]+/g, " ").split(" ").filter((t) => t.length > 2);
+  for (const slot of adapter.slots) {
+    const exact = fields.find((f) => f.name === slot.slot);
+    if (exact) {
+      out[slot.slot] = exact.name;
+      continue;
+    }
+    const want = new Set([...tokens(slot.label), ...tokens(slot.slot.split(".").slice(1).join(" "))]);
+    let best: { name: string; score: number } | null = null;
+    for (const f of fields) {
+      if ((slot.pdfType === "checkbox") !== (f.type === "checkbox")) continue;
+      const have = tokens(f.name);
+      const score = have.filter((t) => want.has(t)).length / Math.max(1, want.size);
+      if (score > 0.5 && (!best || score > best.score)) best = { name: f.name, score };
+    }
+    if (best) out[slot.slot] = best.name;
+  }
+  return out;
+}
+
+export async function buildDemoTemplate(adapter: CreditAdapter): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const form = doc.getForm();
+  doc.setTitle(`PLANTILLA DEMO ${adapter.institutionName} — no es el formato real`);
+  doc.setProducer("Sofía (plantilla DEMO sintética)");
+  let page = doc.addPage([612, 792]);
+  let y = 750;
+  const header = () => {
+    page.drawText(`PLANTILLA DEMO — Solicitud de crédito ${adapter.institutionName}`, { x: 40, y: 765, size: 12, font: bold, color: rgb(0.5, 0, 0) });
+    page.drawText("Estructura sintética para pruebas. NO es el formato real de la financiera.", { x: 40, y: 752, size: 8, font, color: rgb(0.4, 0.4, 0.4) });
+    y = 730;
+  };
+  header();
+  for (const section of adapter.sections) {
+    const slots = adapter.slots.filter((s) => s.section === section.id);
+    if (y < 80) {
+      page = doc.addPage([612, 792]);
+      header();
+    }
+    page.drawText(section.label.toUpperCase(), { x: 40, y, size: 9, font: bold });
+    y -= 16;
+    for (const slot of slots) {
+      if (y < 50) {
+        page = doc.addPage([612, 792]);
+        header();
+      }
+      page.drawText(slot.label.slice(0, 60), { x: 40, y: y + 3, size: 7, font });
+      if (slot.pdfType === "checkbox") {
+        const cb = form.createCheckBox(slot.slot);
+        cb.addToPage(page, { x: 330, y, width: 10, height: 10 });
+      } else {
+        const tf = form.createTextField(slot.slot);
+        tf.addToPage(page, { x: 330, y: y - 2, width: 240, height: 14, font });
+        tf.setFontSize(8);
+      }
+      y -= 18;
+    }
+    y -= 8;
+  }
+  return doc.save();
+}
+
+export interface FillResult {
+  bytes: Uint8Array;
+  filled: FillInstruction[];
+  missingInPdf: string[];
+}
+
+/** Llena una COPIA de la plantilla. Los bytes de entrada nunca se modifican. */
+export async function fillPdf(templateBytes: Uint8Array, plan: FillInstruction[], meta: { title: string }): Promise<FillResult> {
+  const doc = await PDFDocument.load(templateBytes.slice(), { ignoreEncryption: true });
+  const form = doc.getForm();
+  const byName = new Map(form.getFields().map((f) => [f.getName(), f]));
+  const filled: FillInstruction[] = [];
+  const missingInPdf: string[] = [];
+  for (const instr of plan) {
+    const field = byName.get(instr.pdfField);
+    if (!field) {
+      missingInPdf.push(instr.slot);
+      continue;
+    }
+    if (instr.pdfType === "checkbox" && field instanceof PDFCheckBox) {
+      if (instr.checked) field.check();
+      filled.push(instr);
+    } else if (instr.pdfType === "text" && field instanceof PDFTextField) {
+      const max = field.getMaxLength();
+      field.setText(max ? (instr.value ?? "").slice(0, max) : (instr.value ?? ""));
+      filled.push(instr);
+    } else {
+      missingInPdf.push(instr.slot);
+    }
+  }
+  doc.setTitle(meta.title);
+  doc.setSubject("BORRADOR prellenado por Sofía — revisar, completar confirmaciones personales y firmar a mano.");
+  // No se aplana: Mario puede terminar de capturar en el PDF.
+  const bytes = await doc.save({ updateFieldAppearances: true });
+  return { bytes, filled, missingInPdf };
+}

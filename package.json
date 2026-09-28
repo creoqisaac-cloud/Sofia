@@ -19,13 +19,17 @@
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:seed": "tsx scripts/db-seed.ts",
     "db:reset": "tsx scripts/db-reset.ts",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "pdf:inspect": "tsx scripts/pdf-inspect.ts",
+    "pdf:register": "tsx scripts/pdf-register.ts",
+    "qa:mobile": "node scripts/qa-mobile.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@electric-sql/pglite": "^0.5.8",
     "drizzle-orm": "^0.45.3",
     "next": "^16.3.6",
+    "pdf-lib": "^1.17.1",
     "postgres": "^3.4.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -39,6 +43,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.6",
+    "playwright": "^1.56.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "5.9",

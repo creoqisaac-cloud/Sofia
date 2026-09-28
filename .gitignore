@@ -21,3 +21,13 @@ npm-debug.log*
 *.log
 
 .DS_Store
+
+# Archivos reales de clientes / financieras (PII). Nunca versionar.
+*.pdf
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+/private/
+/archivos-reales/
+/qa-screenshots/

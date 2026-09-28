@@ -15,6 +15,7 @@ import {
   bigserial,
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -30,6 +31,8 @@ import {
   ACTION_TOOLS,
   ACTOR_TYPES,
   APPROVAL_ACTION_TYPES,
+  CREDIT_APPLICATION_STATUSES,
+  SALE_STATUSES,
   CONTROL_MODES,
   CRM_STAGES,
   DOCUMENT_TYPES,
@@ -61,6 +64,18 @@ export const controlModeEnum = pgEnum("control_mode", CONTROL_MODES);
 export const actorTypeEnum = pgEnum("actor_type", ACTOR_TYPES);
 
 // ───────────────────────────── helpers ─────────────────────────────
+
+/**
+ * Valor JSON guardado como texto. Evita un problema real: con PGlite, Drizzle vuelve a
+ * hacer JSON.parse sobre `jsonb` de primer nivel, y cadenas como "5550000001" o "10"
+ * regresaban como número. Con texto la ida y vuelta es idéntica en PGlite y PostgreSQL.
+ */
+const jsonText = <T>(name: string) =>
+  customType<{ data: T; driverData: string }>({
+    dataType: () => "text",
+    toDriver: (value) => JSON.stringify(value),
+    fromDriver: (value) => JSON.parse(value) as T,
+  })(name);
 
 const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -202,16 +217,24 @@ export const customerFacts = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     factKey: text("fact_key").notNull(),
-    value: jsonb("value").$type<unknown>().notNull(),
+    value: jsonText<unknown>("value").notNull(),
     valueText: text("value_text").notNull(),
     confidence: text("confidence").notNull().default("medium"), // high | medium | low
-    source: text("source").notNull(), // customer_message | mario | sofia_inference | manual
+    /** Tipo de fuente: customer_message | mario_capture | credit_application | document | import */
+    source: text("source").notNull(),
     sourceMessageId: uuid("source_message_id").references(() => messages.id, { onDelete: "set null" }),
+    /** Referencia a la fuente concreta (p. ej. id de solicitud o documento) y etiqueta legible ("Solicitud BBVA"). */
+    sourceRefId: uuid("source_ref_id"),
+    sourceLabel: text("source_label"),
     evidence: text("evidence"),
-    status: text("status").notNull().default("active"), // active | superseded | retracted
+    /** observed | confirmed | conflicting | historical | superseded | retracted */
+    status: text("status").notNull().default("observed"),
     supersededBy: uuid("superseded_by"),
+    confirmedBy: uuid("confirmed_by").references(() => users.id, { onDelete: "set null" }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     agentRunId: uuid("agent_run_id"),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
   (t) => [index("customer_facts_customer_key_idx").on(t.customerId, t.factKey, t.status)],
 );
@@ -557,7 +580,9 @@ export const documents = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     docType: documentTypeEnum("doc_type").notNull(),
-    status: text("status").notNull().default("requested"), // requested | received | validated | rejected | expired
+    status: text("status").notNull().default("requested"), // missing | requested | received | needs_review | accepted | rejected
+    creditApplicationId: uuid("credit_application_id"),
+    reviewNotes: text("review_notes"),
     isSensitive: boolean("is_sensitive").notNull().default(true),
     storageProvider: text("storage_provider"), // local_private | supabase_storage
     storageBucket: text("storage_bucket"),
@@ -685,3 +710,271 @@ export const auditEvents = pgTable(
   },
   (t) => [index("audit_events_customer_idx").on(t.customerId, t.createdAt)],
 );
+
+// ───────────────────────────── Sprint 2: crédito ─────────────────────────────
+
+export const creditApplicationStatusEnum = pgEnum("credit_application_status", CREDIT_APPLICATION_STATUSES);
+export const saleStatusEnum = pgEnum("sale_status", SALE_STATUSES);
+
+/** Financieras disponibles (BBVA, Banorte, …). Agregar una nueva = una fila + un adaptador. */
+export const creditInstitutions = pgTable(
+  "credit_institutions",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    code: text("code").notNull(), // BBVA | BANORTE | …
+    name: text("name").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("credit_institutions_ws_code_uq").on(t.workspaceId, t.code)],
+);
+
+/**
+ * Plantillas de solicitud (PDF AcroForm original). La plantilla nunca se modifica:
+ * cada solicitud genera una copia nueva. `field_mapping` traduce los slots del
+ * adaptador a los nombres reales de campo del PDF.
+ */
+export const applicationTemplates = pgTable("application_templates", {
+  id: id(),
+  workspaceId: workspaceId(),
+  institutionId: uuid("institution_id")
+    .notNull()
+    .references(() => creditInstitutions.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  version: text("version").notNull(),
+  /** Referencia en almacenamiento privado ({provider,bucket,key}) + hash del original. */
+  sourceDocument: jsonb("source_document").$type<{ provider: string; bucket: string; key: string; sha256: string; sizeBytes: number; fileName: string }>().notNull(),
+  active: boolean("active").notNull().default(true),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  /** slot del adaptador → nombre de campo AcroForm. */
+  fieldMapping: jsonb("field_mapping").$type<Record<string, string>>().notNull().default({}),
+  notes: text("notes"),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: createdAt(),
+});
+
+/** Un cliente puede tener muchas solicitudes (BBVA rechazada, Banorte aprobada…). */
+export const creditApplications = pgTable(
+  "credit_applications",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    institutionId: uuid("institution_id")
+      .notNull()
+      .references(() => creditInstitutions.id),
+    templateId: uuid("template_id").references(() => applicationTemplates.id, { onDelete: "set null" }),
+    quoteId: uuid("quote_id").references(() => quotes.id, { onDelete: "set null" }),
+    status: creditApplicationStatusEnum("status").notNull().default("draft"),
+    statusReason: text("status_reason"),
+    /** Datos propios de la solicitud que no son del perfil universal (p. ej. monto solicitado). */
+    answers: jsonb("answers").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: actorTypeEnum("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("credit_applications_customer_idx").on(t.customerId)],
+);
+
+export const creditApplicationEvents = pgTable(
+  "credit_application_events",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => creditApplications.id, { onDelete: "cascade" }),
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    fromStatus: creditApplicationStatusEnum("from_status"),
+    toStatus: creditApplicationStatusEnum("to_status").notNull(),
+    reason: text("reason"),
+    actorType: actorTypeEnum("actor_type").notNull(),
+    actorId: uuid("actor_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("credit_application_events_app_idx").on(t.applicationId, t.seq)],
+);
+
+/** PDFs generados (borradores). Se registran nombres de campo y fuentes, nunca valores. */
+export const generatedDocuments = pgTable(
+  "generated_documents",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    applicationId: uuid("application_id").references(() => creditApplications.id, { onDelete: "cascade" }),
+    templateId: uuid("template_id").references(() => applicationTemplates.id, { onDelete: "set null" }),
+    kind: text("kind").notNull().default("credit_application_draft"),
+    storage: jsonb("storage").$type<{ provider: string; bucket: string; key: string; sha256: string; sizeBytes: number }>().notNull(),
+    fieldsFilled: jsonb("fields_filled").$type<Array<{ slot: string; pdfField: string; profileKey: string }>>().notNull().default([]),
+    fieldsSkipped: jsonb("fields_skipped").$type<Array<{ slot: string; reason: string }>>().notNull().default([]),
+    sourcesUsed: jsonb("sources_used").$type<Array<{ factId: string; profileKey: string; sourceLabel: string | null; status: string }>>().notNull().default([]),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+    generatedBy: uuid("generated_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [index("generated_documents_app_idx").on(t.applicationId)],
+);
+
+/**
+ * Reglas documentales por financiera y tipo de cliente. NO se generalizan
+ * automáticamente de una financiera a otra.
+ */
+export const documentRequirements = pgTable("document_requirements", {
+  id: id(),
+  workspaceId: workspaceId(),
+  institutionId: uuid("institution_id")
+    .notNull()
+    .references(() => creditInstitutions.id, { onDelete: "cascade" }),
+  customerType: text("customer_type").notNull(), // employed | self_employed | business_owner | all
+  documentType: documentTypeEnum("document_type").notNull(),
+  requiredIf: jsonb("required_if").$type<Record<string, unknown> | null>(),
+  description: text("description"),
+  source: text("source").notNull(),
+  version: text("version").notNull(),
+  validFrom: timestamp("valid_from", { withTimezone: true }),
+  validTo: timestamp("valid_to", { withTimezone: true }),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: createdAt(),
+});
+
+// ───────────────────────────── Sprint 2: control de ventas ─────────────────────────────
+
+/**
+ * Control de ventas de Mario. Conserva TODAS las columnas de su archivo
+ * operativo. Es una entidad distinta de la cotización, relacionada con
+ * cliente, cotización, solicitud de crédito y vehículo.
+ */
+export const saleRecords = pgTable(
+  "sale_records",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    quoteId: uuid("quote_id").references(() => quotes.id, { onDelete: "set null" }),
+    creditApplicationId: uuid("credit_application_id").references(() => creditApplications.id, { onDelete: "set null" }),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "set null" }),
+    versionId: uuid("version_id").references(() => vehicleVersions.id, { onDelete: "set null" }),
+    // Columnas del control de ventas de Mario
+    customerName: text("customer_name").notNull(),
+    customerNumber: text("customer_number"),
+    orderNumber: text("order_number"),
+    invoiceNumber: text("invoice_number"),
+    unitDescription: text("unit_description"),
+    bonus: money("bonus"),
+    downPayment: money("down_payment"),
+    invoiceValue: money("invoice_value"),
+    invoiceDate: timestamp("invoice_date", { withTimezone: true }),
+    deliveryDate: timestamp("delivery_date", { withTimezone: true }),
+    extras: text("extras"),
+    extrasAmount: money("extras_amount"),
+    warrantyAmount: money("warranty_amount"),
+    warrantyYears: integer("warranty_years"),
+    openingCommission: money("opening_commission"),
+    insuranceAmount: money("insurance_amount"),
+    bonusUsage: text("bonus_usage"),
+    agreements: text("agreements"),
+    // Técnicos
+    status: saleStatusEnum("status").notNull().default("prospect"),
+    source: text("source").notNull().default("manual"), // manual | quote | import
+    notes: text("notes"),
+    createdBy: actorTypeEnum("created_by").notNull(),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("sale_records_ws_status_idx").on(t.workspaceId, t.status), index("sale_records_customer_idx").on(t.customerId)],
+);
+
+/** Historial de cambios de la venta (valores comerciales críticos nunca se sobrescriben en silencio). */
+export const saleRecordChanges = pgTable(
+  "sale_record_changes",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    saleId: uuid("sale_id")
+      .notNull()
+      .references(() => saleRecords.id, { onDelete: "cascade" }),
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    field: text("field").notNull(),
+    oldValue: jsonText<unknown>("old_value"),
+    newValue: jsonText<unknown>("new_value"),
+    reason: text("reason"),
+    actorType: actorTypeEnum("actor_type").notNull(),
+    actorId: uuid("actor_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("sale_record_changes_sale_idx").on(t.saleId, t.seq)],
+);
+
+// ───────────────────────────── Comisiones: SOLO estructura ─────────────────────────────
+// Mario explicará sus reglas más adelante. No hay fórmulas ni cálculos todavía:
+// estas tablas existen para que el control de ventas no tenga que rediseñarse.
+
+export const commissionRules = pgTable("commission_rules", {
+  id: id(),
+  workspaceId: workspaceId(),
+  name: text("name").notNull(),
+  /** Definición declarativa confirmada por Mario (formato por definir). */
+  definition: jsonb("definition").$type<Record<string, unknown>>().notNull().default({}),
+  confirmedBy: uuid("confirmed_by").references(() => users.id, { onDelete: "set null" }),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  validFrom: timestamp("valid_from", { withTimezone: true }),
+  validTo: timestamp("valid_to", { withTimezone: true }),
+  active: boolean("active").notNull().default(false),
+  notes: text("notes"),
+  createdAt: createdAt(),
+});
+
+export const commissionPeriods = pgTable("commission_periods", {
+  id: id(),
+  workspaceId: workspaceId(),
+  startsOn: timestamp("starts_on", { withTimezone: true }).notNull(),
+  endsOn: timestamp("ends_on", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("open"), // open | closed
+  createdAt: createdAt(),
+});
+
+export const commissionCalculations = pgTable("commission_calculations", {
+  id: id(),
+  workspaceId: workspaceId(),
+  saleId: uuid("sale_id")
+    .notNull()
+    .references(() => saleRecords.id, { onDelete: "cascade" }),
+  periodId: uuid("period_id").references(() => commissionPeriods.id, { onDelete: "set null" }),
+  ruleId: uuid("rule_id").references(() => commissionRules.id, { onDelete: "set null" }),
+  amount: money("amount"),
+  /** Entradas usadas y traza del motor determinista (futuro). */
+  inputs: jsonb("inputs").$type<Record<string, unknown>>().notNull().default({}),
+  trace: jsonb("trace").$type<string[]>().notNull().default([]),
+  status: text("status").notNull().default("pending"), // pending | confirmed | paid
+  createdAt: createdAt(),
+});
+
+export const commissionAdjustments = pgTable("commission_adjustments", {
+  id: id(),
+  workspaceId: workspaceId(),
+  calculationId: uuid("calculation_id")
+    .notNull()
+    .references(() => commissionCalculations.id, { onDelete: "cascade" }),
+  amount: money("amount").notNull(),
+  reason: text("reason").notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+});
+
+export const commissionPayments = pgTable("commission_payments", {
+  id: id(),
+  workspaceId: workspaceId(),
+  periodId: uuid("period_id").references(() => commissionPeriods.id, { onDelete: "set null" }),
+  amount: money("amount").notNull(),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  reference: text("reference"),
+  createdAt: createdAt(),
+});

@@ -1,4 +1,8 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { desc, eq } from "drizzle-orm";
+import { LocalPrivateStorage } from "@/server/storage/documents";
 import { createPgliteHandle } from "@/server/db/client";
 import * as s from "@/server/db/schema";
 import { createAppContext, type AppContext } from "@/server/app";
@@ -16,7 +20,8 @@ export type TestApp = AppContext & { testClock: ReturnType<typeof fixedClock> };
 /** Contexto aislado: PGlite en memoria + migraciones + datos DEMO + reloj fijo. */
 export async function makeApp(provider: LlmProvider = new DemoProvider(), dataDir?: string): Promise<TestApp> {
   const clock = fixedClock(TEST_NOW);
-  const app = await createAppContext({ handle: createPgliteHandle(dataDir), provider, clock });
+  const storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "sofia-docs-"));
+  const app = await createAppContext({ handle: createPgliteHandle(dataDir), provider, clock, storage: new LocalPrivateStorage(dataDir ? `${dataDir}-docs` : storageDir) });
   return Object.assign(app, { testClock: clock });
 }
 

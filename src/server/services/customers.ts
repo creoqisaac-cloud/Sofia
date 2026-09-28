@@ -8,14 +8,8 @@ import type { Db } from "../db/client";
 import * as s from "../db/schema";
 import { loadCatalog, toCatalogVehicles } from "../commercial/catalog";
 
-export class ServiceError extends Error {
-  constructor(
-    message: string,
-    readonly status: number = 400,
-  ) {
-    super(message);
-  }
-}
+import { ServiceError } from "./errors";
+export { ServiceError };
 
 export async function createCustomer(app: AppContext, input: { displayName: string; phone?: string | null }) {
   const displayName = input.displayName.trim();

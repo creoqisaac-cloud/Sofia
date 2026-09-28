@@ -9,9 +9,10 @@
  *   ser compatible y se retira (a menos que llegue una versión nueva).
  */
 import { parseMoneyMentions } from "./money";
+import { PROFILE_FIELD_DEFS, PROFILE_FIELD_KEYS } from "./profile-fields";
 import { normalize } from "./text";
 
-export const FACT_KEYS = [
+const CONVERSATION_FACT_KEYS = [
   "name",
   "phone",
   "vehicle_interest",
@@ -34,9 +35,12 @@ export const FACT_KEYS = [
   "objections",
   "interest_signals",
 ] as const;
+
+/** Memoria conversacional (Sprint 1) + perfil universal para crédito/venta (Sprint 2). */
+export const FACT_KEYS = [...CONVERSATION_FACT_KEYS, ...PROFILE_FIELD_KEYS] as const;
 export type FactKey = (typeof FACT_KEYS)[number];
 
-export type FactKind = "text" | "number" | "money" | "enum" | "list";
+export type FactKind = "text" | "number" | "money" | "enum" | "list" | "date" | "email" | "phone";
 export type FactValue = string | number | string[];
 export type CustomerProfile = Partial<Record<FactKey, FactValue>>;
 
@@ -55,6 +59,11 @@ export interface FactDef {
   min?: number;
   max?: number;
   dependsOn?: FactKey;
+  /** Validación de formato para texto (RFC, CURP, CP…). */
+  pattern?: RegExp;
+  upper?: boolean;
+  /** PII: nunca se envía en claro al modelo ni a logs. */
+  sensitive?: boolean;
 }
 
 const USAGE = ["personal", "family", "work", "rideshare"] as const;
@@ -64,7 +73,7 @@ const POWERTRAIN = ["hybrid", "gas", "open"] as const;
 const PAYMENT = ["cash", "financing", "undecided"] as const;
 const TIMING = ["immediate", "this_month", "1_3_months", "3_6_months", "exploring"] as const;
 
-export const FACT_DEFS: Record<FactKey, FactDef> = {
+const CONVERSATION_FACT_DEFS: Record<(typeof CONVERSATION_FACT_KEYS)[number], FactDef> = {
   name: {
     key: "name",
     label: "Nombre",
@@ -259,6 +268,8 @@ export const FACT_DEFS: Record<FactKey, FactDef> = {
   },
 };
 
+export const FACT_DEFS: Record<FactKey, FactDef> = { ...CONVERSATION_FACT_DEFS, ...(PROFILE_FIELD_DEFS as Record<string, FactDef>) } as Record<FactKey, FactDef>;
+
 export function isFactKey(key: string): key is FactKey {
   return (FACT_KEYS as readonly string[]).includes(key);
 }
@@ -281,12 +292,13 @@ export function normalizeFactValue(key: FactKey, rawValue: string, numericValue:
       if (n === null || !Number.isFinite(n)) {
         const money = parseMoneyMentions(text)[0]?.value;
         const plain = Number(text.replace(/[^\d.]/g, ""));
-        n = money ?? (Number.isFinite(plain) && plain > 0 ? plain : null);
+        const cleaned = text.replace(/[^\d.]/g, "");
+        n = money ?? (cleaned !== "" && Number.isFinite(plain) && (plain > 0 || /^0+(\.0+)?$/.test(cleaned)) ? plain : null);
       }
       if (n === null) return { ok: false, reason: `valor numérico inválido para ${key}` };
       if (def.min !== undefined && n < def.min) return { ok: false, reason: `${key} fuera de rango (${n})` };
       if (def.max !== undefined && n > def.max) return { ok: false, reason: `${key} fuera de rango (${n})` };
-      const rounded = def.kind === "money" ? Math.round(n) : Math.round(n);
+      const rounded = def.kind === "money" ? Math.round(n * 100) / 100 : Math.round(n);
       return { ok: true, value: rounded, valueText: String(rounded) };
     }
     case "enum": {
@@ -310,7 +322,29 @@ export function normalizeFactValue(key: FactKey, rawValue: string, numericValue:
     case "text": {
       if (!text) return { ok: false, reason: `texto vacío para ${key}` };
       if (text.length > 120) return { ok: false, reason: `texto demasiado largo para ${key}` };
-      return { ok: true, value: text, valueText: text };
+      const v = def.upper ? text.toUpperCase().replace(/\s+/g, "") : text.replace(/\s+/g, " ");
+      if (def.pattern && !def.pattern.test(v)) return { ok: false, reason: `formato inválido para ${def.label}` };
+      return { ok: true, value: v, valueText: v };
+    }
+    case "date": {
+      const m = text.match(/^(\d{4})-(\d{2})-(\d{2})$/) ?? text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+      if (!m) return { ok: false, reason: `fecha inválida para ${def.label}` };
+      const [y, mo, d] = m[1]!.length === 4 ? [m[1]!, m[2]!, m[3]!] : [m[3]!, m[2]!, m[1]!];
+      const iso = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+      const date = new Date(`${iso}T00:00:00Z`);
+      if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso) return { ok: false, reason: `fecha inválida para ${def.label}` };
+      return { ok: true, value: iso, valueText: iso };
+    }
+    case "email": {
+      const v = text.toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) return { ok: false, reason: `correo inválido` };
+      return { ok: true, value: v, valueText: v };
+    }
+    case "phone": {
+      let digits = text.replace(/\D/g, "");
+      if (digits.length === 12 && digits.startsWith("52")) digits = digits.slice(2);
+      if (digits.length !== 10) return { ok: false, reason: `teléfono inválido para ${def.label} (10 dígitos)` };
+      return { ok: true, value: digits, valueText: digits };
     }
   }
 }
@@ -385,6 +419,10 @@ export function formatFactValue(key: FactKey, value: FactValue): string {
   const def = FACT_DEFS[key];
   if (Array.isArray(value)) return value.map((v) => def.enumLabels?.[v] ?? v).join(", ");
   if (def.kind === "money" && typeof value === "number") return `$${value.toLocaleString("es-MX")}`;
+  if (def.kind === "date" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [y, m, d] = value.split("-");
+    return `${d}/${m}/${y}`;
+  }
   if (typeof value === "string" && def.enumLabels?.[value]) return def.enumLabels[value]!;
   return String(value);
 }

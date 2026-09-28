@@ -313,8 +313,8 @@ export function InsightPanel({ state, onChanged, onError }: { state: State; onCh
       <Section title="Bitácora de hechos" defaultOpen={false}>
         <ul className="space-y-1 text-xs">
           {state.profile.factHistory.map((f) => (
-            <li key={f.id} className={f.status !== "active" ? "text-slate-400 line-through" : ""}>
-              <b>{f.label}</b>: {f.value} <Badge tone={f.status === "active" ? "green" : "gray"}>{f.status}</Badge>
+            <li key={f.id} className={!["observed","confirmed"].includes(f.status) ? "text-slate-400 line-through" : ""}>
+              <b>{f.label}</b>: {f.value} <Badge tone={["observed","confirmed"].includes(f.status) ? "green" : "gray"}>{f.status}</Badge>
               {f.evidence && <span className="text-slate-400"> · “{f.evidence}”</span>}
             </li>
           ))}

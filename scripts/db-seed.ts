@@ -1,11 +1,10 @@
-/** Aplica migraciones y siembra los datos DEMO si la base está vacía. */
+/** Aplica migraciones y siembra los datos DEMO (Sprint 1 y 2) si faltan. Idempotente. */
+import { createAppContext, createHandleFromConfig } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
-import { createHandleFromConfig } from "../src/server/app";
-import { seedDemo } from "../src/server/db/seed";
+import { DemoProvider } from "../src/server/agent/providers/demo";
+import { LocalPrivateStorage } from "../src/server/storage/documents";
 
 const config = loadConfig();
-const handle = createHandleFromConfig(config);
-await handle.migrate();
-const res = await seedDemo(handle.db, { now: new Date() });
-console.log(res.created ? `Datos DEMO sembrados (workspace ${res.workspaceId}).` : "Los datos DEMO ya existían; no se modificó nada.");
-await handle.close();
+const app = await createAppContext({ handle: createHandleFromConfig(config), provider: new DemoProvider(), migrate: true, seed: true, storage: new LocalPrivateStorage(config.SOFIA_PRIVATE_STORAGE_DIR) });
+console.log(`Datos DEMO listos (workspace ${app.workspaceId}).`);
+await app.close();
