@@ -37,8 +37,8 @@ interface Spec {
 }
 
 const GENDER = { male: "Masculino", female: "Femenino" };
-const MARITAL = { single: "Soltero(a)", married: "Casado(a)", divorced: "Divorciado(a)", widowed: "Viudo(a)", free_union: "Unión libre" };
-const EDUCATION = { primary: "Primaria", secondary: "Secundaria", high_school: "Preparatoria", technical: "Técnica", bachelor: "Licenciatura", postgraduate: "Posgrado" };
+const MARITAL = { single: "Soltero(a)", married: "Casado(a) (régimen sin especificar)", married_joint: "Casado(a) bienes mancomunados / sociedad conyugal", married_separate: "Casado(a) separación de bienes", divorced: "Divorciado(a)", separated: "Separado(a)", widowed: "Viudo(a)", free_union: "Unión libre" };
+const EDUCATION = { none: "Sin estudios", primary: "Primaria", secondary: "Secundaria", high_school: "Preparatoria", technical: "Técnica", bachelor: "Licenciatura / universidad", masters: "Maestría", doctorate: "Doctorado", postgraduate: "Posgrado (sin especificar)" };
 const HOUSING = { owned: "Propia", mortgaged: "Propia (hipotecada)", rented: "Rentada", family: "Familiar", other: "Otra" };
 const COMPANY_TYPE = { private: "Privada", public: "Pública / gobierno", own_business: "Negocio propio", other: "Otra" };
 const EMPLOYMENT_STATUS = { employed: "Asalariado", self_employed: "Independiente / honorarios", business_owner: "Empresario (PFAE)", retired: "Jubilado / pensionado", other: "Otra" };
@@ -78,6 +78,7 @@ const SPECS: Spec[] = [
   { key: "postal_code", label: "Código postal", section: "address", pattern: /^\d{5}$/, inputMode: "numeric" },
   { key: "housing_status", label: "Tipo de vivienda", kind: "enum", section: "address", enumValues: Object.keys(HOUSING), enumLabels: HOUSING },
   { key: "residence_years", label: "Años en el domicilio", kind: "number", section: "address", min: 0, max: 99, inputMode: "numeric" },
+  { key: "monthly_rent", label: "Renta mensual", kind: "money", section: "address", min: 0, max: 1_000_000, sensitive: true, inputMode: "decimal" },
   { key: "residence_months", label: "Meses en el domicilio", kind: "number", section: "address", min: 0, max: 11, inputMode: "numeric" },
   // Empleo actual
   { key: "company_name", label: "Empresa", section: "employment" },
@@ -107,12 +108,17 @@ const SPECS: Spec[] = [
   { key: "previous_employment_years", label: "Antigüedad anterior (años)", kind: "number", section: "previous_employment", min: 0, max: 60, inputMode: "numeric" },
   { key: "previous_employment_months", label: "Antigüedad anterior (meses)", kind: "number", section: "previous_employment", min: 0, max: 11, inputMode: "numeric" },
   // Referencias
-  { key: "reference_1_name", label: "Referencia 1 · nombre", section: "references", sensitive: true },
-  { key: "reference_1_phone", label: "Referencia 1 · teléfono", kind: "phone", section: "references", sensitive: true, inputMode: "tel" },
-  { key: "reference_1_relationship", label: "Referencia 1 · parentesco", section: "references" },
-  { key: "reference_2_name", label: "Referencia 2 · nombre", section: "references", sensitive: true },
-  { key: "reference_2_phone", label: "Referencia 2 · teléfono", kind: "phone", section: "references", sensitive: true, inputMode: "tel" },
-  { key: "reference_2_relationship", label: "Referencia 2 · parentesco", section: "references" },
+  { key: "reference_1_name", label: "Referencia familiar · nombre", section: "references", sensitive: true },
+  { key: "reference_1_phone", label: "Referencia familiar · teléfono", kind: "phone", section: "references", sensitive: true, inputMode: "tel" },
+  { key: "reference_1_relationship", label: "Referencia familiar · parentesco", section: "references" },
+  { key: "reference_1_address", label: "Referencia familiar · dirección", section: "references", sensitive: true },
+  { key: "reference_2_name", label: "Referencia personal (conocido) · nombre", section: "references", sensitive: true },
+  { key: "reference_2_phone", label: "Referencia personal · teléfono", kind: "phone", section: "references", sensitive: true, inputMode: "tel" },
+  { key: "reference_2_relationship", label: "Referencia personal · relación", section: "references" },
+  { key: "reference_2_address", label: "Referencia personal · dirección", section: "references", sensitive: true },
+  { key: "landlord_name", label: "Arrendador · nombre (si renta)", section: "references", sensitive: true },
+  { key: "landlord_phone", label: "Arrendador · teléfono", kind: "phone", section: "references", sensitive: true, inputMode: "tel" },
+  { key: "landlord_address", label: "Arrendador · dirección", section: "references", sensitive: true },
   // Condicionales
   { key: "has_coborrower", label: "¿Tendrá coacreditado?", kind: "enum", section: "conditional", enumValues: Object.keys(YES_NO), enumLabels: YES_NO },
   { key: "has_joint_obligor", label: "¿Tendrá obligado solidario?", kind: "enum", section: "conditional", enumValues: Object.keys(YES_NO), enumLabels: YES_NO },
@@ -123,13 +129,14 @@ export const PROFILE_FIELD_KEYS = SPECS.map((s) => s.key) as unknown as readonly
   "nationality", "gender", "marital_status", "dependents", "rfc", "curp", "nss", "profession", "education_level",
   "mobile_phone", "home_phone", "email",
   "street", "exterior_number", "interior_number", "neighborhood", "municipality", "city", "state", "postal_code", "housing_status",
-  "residence_years", "residence_months",
+  "residence_years", "monthly_rent", "residence_months",
   "company_name", "company_activity", "company_type", "employment_status", "occupation_type", "job_title", "monthly_fixed_income",
   "monthly_variable_income", "employment_years", "employment_months", "employment_start_date", "work_phone", "work_extension",
   "work_street", "work_exterior_number", "work_interior_number", "work_neighborhood", "work_municipality", "work_city", "work_state",
   "work_postal_code",
   "previous_company", "previous_phone", "previous_employment_years", "previous_employment_months",
-  "reference_1_name", "reference_1_phone", "reference_1_relationship", "reference_2_name", "reference_2_phone", "reference_2_relationship",
+  "reference_1_name", "reference_1_phone", "reference_1_relationship", "reference_1_address", "reference_2_name", "reference_2_phone", "reference_2_relationship",
+  "reference_2_address", "landlord_name", "landlord_phone", "landlord_address",
   "has_coborrower", "has_joint_obligor",
 ];
 export type ProfileFieldKey = (typeof PROFILE_FIELD_KEYS)[number];

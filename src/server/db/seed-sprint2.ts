@@ -31,7 +31,7 @@ function person(n: number, first: string, paternal: string, extra: Entries = {})
     birth_date: `1990-01-${d}`,
     nationality: "Mexicana",
     gender: "male",
-    marital_status: "married",
+    marital_status: "married_joint",
     dependents: 2,
     rfc: `DEMO9001${d}AB1`,
     curp: `DEMO9001${d}HDFXXX0${n % 10}`,
@@ -73,6 +73,8 @@ function person(n: number, first: string, paternal: string, extra: Entries = {})
     reference_2_name: "Referencia Dos Demo",
     reference_2_phone: "5550002002",
     reference_2_relationship: "Amigo",
+    reference_1_address: "Calle Referencia Demo 1",
+    reference_2_address: "Calle Referencia Demo 2",
     ...extra,
   };
 }

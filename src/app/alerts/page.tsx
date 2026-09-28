@@ -27,7 +27,7 @@ export default async function AlertsPage() {
           <SectionCard title={`Aprobaciones pendientes (${inbox.approvals.length})`}>
             <ul className="space-y-3">
               {inbox.approvals.map((a) => (
-                <li key={a.id} className="rounded-xl bg-zinc-950/60 p-3">
+                <li key={a.id} className="rounded-xl bg-ink/60 p-3">
                   <div className="text-base font-semibold text-zinc-100">{a.actionLabel}</div>
                   <div className="text-sm text-zinc-400">
                     {a.customerName} · {a.reason}

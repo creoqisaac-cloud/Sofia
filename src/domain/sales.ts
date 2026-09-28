@@ -8,8 +8,8 @@ export type SaleFieldType = "text" | "money" | "date" | "int" | "longtext";
 
 export interface SaleFieldDef {
   key: SaleFieldKey;
-  /** Nombre de la columna en el control original de Mario. */
-  column: string;
+  /** Encabezado EXACTO de la columna en el Excel real de Mario (control_de_ventas_Mario.xlsx). null = dato interno. */
+  column: string | null;
   label: string;
   type: SaleFieldType;
   section: SaleSection;
@@ -51,30 +51,40 @@ export const SALE_FIELD_KEYS = [
   "insuranceAmount",
   "bonusUsage",
   "agreements",
+  "vin",
 ] as const;
 export type SaleFieldKey = (typeof SALE_FIELD_KEYS)[number];
 
-/** Las 17 columnas del control de Mario (+ monto de adicionales para reportes futuros). */
+/** Las 17 columnas del Excel de Mario (+ monto de adicionales y VIN, internos). */
 export const SALE_FIELDS: SaleFieldDef[] = [
-  { key: "customerName", column: "customer", label: "Cliente", type: "text", section: "cliente", critical: false },
-  { key: "customerNumber", column: "customer_number", label: "Número de cliente", type: "text", section: "cliente", critical: false },
-  { key: "unitDescription", column: "vehicle/unit", label: "Unidad", type: "text", section: "vehiculo", critical: true },
-  { key: "downPayment", column: "down_payment", label: "Enganche", type: "money", section: "montos", critical: true },
-  { key: "invoiceValue", column: "invoice_value", label: "Valor factura", type: "money", section: "montos", critical: true },
-  { key: "openingCommission", column: "opening_commission", label: "Comisión por apertura", type: "money", section: "montos", critical: true },
-  { key: "bonus", column: "bonus", label: "Bono", type: "money", section: "bono", critical: true },
-  { key: "bonusUsage", column: "bonus_usage", label: "Uso del bono", type: "longtext", section: "bono", critical: true },
-  { key: "insuranceAmount", column: "insurance_amount", label: "Seguro", type: "money", section: "seguro", critical: true },
-  { key: "warrantyAmount", column: "warranty_amount", label: "Garantía (monto)", type: "money", section: "garantia", critical: true },
-  { key: "warrantyYears", column: "warranty_years", label: "Garantía (años)", type: "int", section: "garantia", critical: true },
-  { key: "extras", column: "extras", label: "Adicionales", type: "longtext", section: "adicionales", critical: true },
-  { key: "extrasAmount", column: "extras (monto)", label: "Monto de adicionales", type: "money", section: "adicionales", critical: true },
-  { key: "orderNumber", column: "order_number", label: "Número de pedido", type: "text", section: "facturacion", critical: true },
-  { key: "invoiceNumber", column: "invoice_number", label: "Número de factura", type: "text", section: "facturacion", critical: true },
-  { key: "invoiceDate", column: "invoice_date", label: "Fecha de factura", type: "date", section: "facturacion", critical: true },
-  { key: "deliveryDate", column: "delivery_date", label: "Fecha de entrega", type: "date", section: "entrega", critical: true },
-  { key: "agreements", column: "agreements", label: "Acuerdos", type: "longtext", section: "acuerdos", critical: true },
+  { key: "customerName", column: "CLIENTE", label: "Cliente", type: "text", section: "cliente", critical: false },
+  { key: "customerNumber", column: "# DE CLIENTE", label: "Número de cliente", type: "text", section: "cliente", critical: false },
+  { key: "vin", column: null, label: "VIN", type: "text", section: "vehiculo", critical: true },
+  { key: "unitDescription", column: "UNIDAD", label: "Unidad", type: "text", section: "vehiculo", critical: true },
+  { key: "downPayment", column: "ENGANCHE", label: "Enganche", type: "money", section: "montos", critical: true },
+  { key: "invoiceValue", column: "VALOR FACTURA", label: "Valor factura", type: "money", section: "montos", critical: true },
+  { key: "openingCommission", column: "COMISIÓN X APERTURA", label: "Comisión por apertura", type: "money", section: "montos", critical: true },
+  { key: "bonus", column: "BONO", label: "Bono", type: "money", section: "bono", critical: true },
+  { key: "bonusUsage", column: "COMO SE USARÁ EL BONO", label: "Uso del bono", type: "longtext", section: "bono", critical: true },
+  { key: "insuranceAmount", column: "MONTO DEL SEGURO", label: "Seguro", type: "money", section: "seguro", critical: true },
+  { key: "warrantyAmount", column: "MONTO DE GARANTIA", label: "Garantía (monto)", type: "money", section: "garantia", critical: true },
+  { key: "warrantyYears", column: "AÑOS DE GARANTIA", label: "Garantía (años)", type: "int", section: "garantia", critical: true },
+  { key: "extras", column: "ADICIONALES", label: "Adicionales", type: "longtext", section: "adicionales", critical: true },
+  { key: "extrasAmount", column: null, label: "Monto de adicionales", type: "money", section: "adicionales", critical: true },
+  { key: "orderNumber", column: "# DE PEDIDO", label: "Número de pedido", type: "text", section: "facturacion", critical: true },
+  { key: "invoiceNumber", column: "# FACTURA", label: "Número de factura", type: "text", section: "facturacion", critical: true },
+  { key: "invoiceDate", column: "FECHA DE FACTURA", label: "Fecha de factura", type: "date", section: "facturacion", critical: true },
+  { key: "deliveryDate", column: "FECHA DE ENTREGA", label: "Fecha de entrega", type: "date", section: "entrega", critical: true },
+  { key: "agreements", column: "ACUERDOS", label: "Acuerdos", type: "longtext", section: "acuerdos", critical: true },
 ];
+
+/** Orden de columnas del Excel de Mario (para exportar igual que su control). */
+export const EXCEL_COLUMNS = ["CLIENTE", "# DE CLIENTE", "# DE PEDIDO", "# FACTURA", "UNIDAD", "BONO", "ENGANCHE", "VALOR FACTURA", "FECHA DE FACTURA", "FECHA DE ENTREGA", "ADICIONALES", "MONTO DE GARANTIA", "AÑOS DE GARANTIA", "COMISIÓN X APERTURA", "MONTO DEL SEGURO", "COMO SE USARÁ EL BONO", "ACUERDOS"] as const;
+
+export function excelFieldFor(header: string): SaleFieldDef | undefined {
+  const h = header.trim().toUpperCase();
+  return SALE_FIELDS.find((f) => f.column === h);
+}
 
 export const SALE_STATUS_ORDER: SaleStatus[] = ["prospect", "negotiation", "credit_process", "approved", "order_created", "invoiced", "delivery_pending", "delivered"];
 

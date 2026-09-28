@@ -15,6 +15,13 @@
       "when": 1790623040929,
       "tag": "0001_sprint2_credit_sales",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790634718144,
+      "tag": "0002_sprint3_pilot",
+      "breakpoints": true
     }
   ]
 }

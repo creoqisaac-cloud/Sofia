@@ -8,6 +8,7 @@ import { createPgliteHandle, createPostgresHandle, type Db, type DbHandle } from
 import * as s from "./db/schema";
 import { DEMO_WORKSPACE_SLUG, seedDemo } from "./db/seed";
 import { seedDemoSprint2 } from "./db/seed-sprint2";
+import { seedDemoSprint3 } from "./db/seed-sprint3";
 import { createProvider, type LlmProvider } from "./agent/providers";
 import { systemClock, type Clock } from "./lib/clock";
 import { logger } from "./lib/logger";
@@ -54,7 +55,11 @@ export async function createAppContext(opts: {
     close: () => opts.handle.close(),
   };
   // Sprint 2: financieras, plantillas sintéticas y clientes DEMO (idempotente).
-  if (opts.seed ?? true) await seedDemoSprint2(app);
+  if (opts.seed ?? true) {
+    await seedDemoSprint2(app);
+    // Sprint 3: cotizador V2, placas, seguimiento (idempotente).
+    await seedDemoSprint3(app);
+  }
   return app;
 }
 

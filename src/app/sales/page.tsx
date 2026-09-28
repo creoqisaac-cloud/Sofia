@@ -12,7 +12,12 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
   const sales = await listSales(app, filter);
   return (
     <>
-      <MobileHeader title="Ventas" subtitle={`${sales.length} ${SALE_FILTERS[filter].label.toLowerCase()}`} action={<Link href="/sales/table" className="hidden text-sm text-emerald-400 md:inline">Tabla de control</Link>} />
+      <MobileHeader title="Ventas" subtitle={`${sales.length} ${SALE_FILTERS[filter].label.toLowerCase()}`} action={
+          <span className="flex gap-3 text-sm">
+            <a href="/api/sales/export" className="text-sand">Exportar Excel</a>
+            <Link href="/sales/table" className="hidden text-sand md:inline">Tabla de control</Link>
+          </span>
+        } />
       <Page>
         <ChipNav active={filter} items={Object.entries(SALE_FILTERS).map(([key, v]) => ({ key, label: v.label, href: key === "all" ? "/sales" : `/sales?f=${key}` }))} />
         {sales.length === 0 ? (

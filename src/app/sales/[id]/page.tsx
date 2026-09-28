@@ -40,7 +40,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   const sectionView = (section: SaleSection) => {
     const fields = SALE_FIELDS.filter((f) => f.section === section);
     return (
-      <SectionCard key={section} id={section} title={SALE_SECTION_LABELS[section]} action={editing === section ? <Link href={`/sales/${id}#${section}`} className="text-sm text-zinc-400">Cerrar</Link> : <Link href={`/sales/${id}?edit=${section}#${section}`} className="text-sm text-emerald-400">Editar</Link>}>
+      <SectionCard key={section} id={section} title={SALE_SECTION_LABELS[section]} action={editing === section ? <Link href={`/sales/${id}#${section}`} className="text-sm text-zinc-400">Cerrar</Link> : <Link href={`/sales/${id}?edit=${section}#${section}`} className="text-sm text-sand">Editar</Link>}>
         {editing === section ? (
           <SaleSectionForm saleId={id} section={section} fields={fields.map((f) => ({ key: f.key, label: f.label, type: f.type, value: val(f.key) }))} />
         ) : (
@@ -82,14 +82,14 @@ export default async function SalePage({ params, searchParams }: { params: Promi
               ))}
             </div>
           )}
-          <p className="mt-3 text-xs text-zinc-500">Comisión: pendiente de reglas de Mario (no se calcula).</p>
+          <p className="mt-3 text-xs text-faint">Comisión: pendiente de reglas de Mario (no se calcula).</p>
         </SectionCard>
         <SectionCard title="Estado">
           <SaleStatusForm saleId={id} current={sale.status} options={SALE_STATUSES.map((s) => ({ value: s, label: SALE_STATUS_LABELS[s] }))} />
         </SectionCard>
         <SectionCard title="Cliente">
-          <KeyValue items={[{ k: "Cliente", v: <Link href={`/customers/${d.customer.id}`} className="text-emerald-400">{d.customer.displayName}</Link> }, { k: "Celular", v: d.customer.phone ?? "—" }, { k: "Número de cliente", v: sale.customerNumber ?? "—" }]} />
-          <Link href={`/sales/${id}?edit=cliente#cliente`} className="mt-2 block text-sm text-emerald-400">Editar datos de cliente en la venta</Link>
+          <KeyValue items={[{ k: "Cliente", v: <Link href={`/customers/${d.customer.id}`} className="text-sand">{d.customer.displayName}</Link> }, { k: "Celular", v: d.customer.phone ?? "—" }, { k: "Número de cliente", v: sale.customerNumber ?? "—" }]} />
+          <Link href={`/sales/${id}?edit=cliente#cliente`} className="mt-2 block text-sm text-sand">Editar datos de cliente en la venta</Link>
         </SectionCard>
         {editing === "cliente" && sectionView("cliente")}
         {sectionView("vehiculo")}
@@ -105,7 +105,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
               ]}
             />
           ) : (
-            <p className="text-sm text-zinc-500">Venta sin cotización asociada.</p>
+            <p className="text-sm text-faint">Venta sin cotización asociada.</p>
           )}
         </SectionCard>
         <SectionCard title="Crédito">
@@ -115,7 +115,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
               <Pill>{CREDIT_APPLICATION_STATUS_LABELS[d.credit.application.status]}</Pill>
             </Link>
           ) : (
-            <p className="text-sm text-zinc-500">Sin solicitud de crédito asociada.</p>
+            <p className="text-sm text-faint">Sin solicitud de crédito asociada.</p>
           )}
         </SectionCard>
         {(["montos", "bono", "seguro", "garantia", "adicionales", "facturacion", "entrega", "acuerdos"] as SaleSection[]).map(sectionView)}

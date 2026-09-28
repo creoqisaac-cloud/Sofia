@@ -22,7 +22,9 @@
     "check": "npm run typecheck && npm run lint && npm run test",
     "pdf:inspect": "tsx scripts/pdf-inspect.ts",
     "pdf:register": "tsx scripts/pdf-register.ts",
-    "qa:mobile": "node scripts/qa-mobile.mjs"
+    "qa:mobile": "node scripts/qa-mobile.mjs",
+    "pdf:compare": "tsx scripts/pdf-compare.ts",
+    "demo:iphone": "node scripts/demo-iphone.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

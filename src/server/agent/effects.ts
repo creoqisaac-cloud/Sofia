@@ -405,7 +405,7 @@ async function handleActions(
             conversationId: ctx.conversationId,
             kind: req.tool === "schedule_test_drive" ? "test_drive" : "visit",
             requestedWindow: req.arguments.requested_window ? truncate(req.arguments.requested_window, 160) : null,
-            status: "proposed",
+            status: "scheduled",
             notes: req.reason ? truncate(req.reason, 300) : null,
             createdBy: "sofia",
           })

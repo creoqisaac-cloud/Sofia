@@ -37,9 +37,9 @@ export function SummaryTab({ o }: { o: O }) {
             ))}
           </ul>
         ) : null}
-        {o.crm.reason && <p className="mt-2 text-xs text-zinc-500">Último cambio de etapa: {o.crm.reason}</p>}
+        {o.crm.reason && <p className="mt-2 text-xs text-faint">Último cambio de etapa: {o.crm.reason}</p>}
       </SectionCard>
-      <SectionCard title="Perfil" action={<Link href={`/customers/${o.customer.id}?tab=datos`} className="text-sm text-emerald-400">Editar</Link>}>
+      <SectionCard title="Perfil" action={<Link href={`/customers/${o.customer.id}?tab=datos`} className="text-sm text-sand">Editar</Link>}>
         <KeyValue
           items={[
             { k: "Nombre", v: o.fullName },
@@ -147,7 +147,7 @@ export function DataTab({ o, section }: { o: O; section: string }) {
             {observed.map((f) => (
               <li key={f.key} className="flex items-center gap-3 py-2">
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs text-zinc-500">
+                  <div className="text-xs text-faint">
                     {f.label} · {f.state.sourceLabel ?? "sin fuente"}
                   </div>
                   <div className="break-all text-base text-zinc-100">{f.state.display}</div>
@@ -174,7 +174,7 @@ export function ConversationTab({ o }: { o: O }) {
         <div className="space-y-2">
           {o.messages.map((m) =>
             m.sender === "system" ? (
-              <p key={m.id} className="text-center text-xs text-zinc-500">
+              <p key={m.id} className="text-center text-xs text-faint">
                 {m.body}
               </p>
             ) : (
@@ -182,7 +182,7 @@ export function ConversationTab({ o }: { o: O }) {
                 <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.sender === "customer" ? "bg-zinc-800 text-zinc-100" : m.sender === "mario" ? "bg-sky-900/60 text-sky-50" : "bg-emerald-900/50 text-emerald-50"}`}>
                   {m.sender !== "customer" && <div className="text-[10px] font-semibold uppercase text-zinc-400">{m.sender === "mario" ? "Mario" : "Sofía"}</div>}
                   <div className="whitespace-pre-wrap">{m.body}</div>
-                  <div className="mt-0.5 text-right text-[10px] text-zinc-500">{fmtDate(m.createdAt, true)}</div>
+                  <div className="mt-0.5 text-right text-[10px] text-faint">{fmtDate(m.createdAt, true)}</div>
                 </div>
               </div>
             ),
@@ -269,7 +269,7 @@ export function AppointmentsTab({ o }: { o: O }) {
                 <div className="text-zinc-100">
                   {a.kind === "test_drive" ? "Prueba de manejo" : a.kind === "delivery" ? "Entrega" : "Visita"} · {a.scheduledAt ? fmtDate(a.scheduledAt, true) : (a.requestedWindow ?? "sin horario")}
                 </div>
-                <div className="text-zinc-500">
+                <div className="text-faint">
                   {a.status}
                   {a.notes ? ` · ${a.notes}` : ""}
                 </div>
@@ -286,7 +286,7 @@ export function AppointmentsTab({ o }: { o: O }) {
             {o.followups.map((f) => (
               <li key={f.id} className="py-2 text-sm">
                 <div className="text-zinc-100">{f.reason}</div>
-                <div className="text-zinc-500">
+                <div className="text-faint">
                   {f.status}
                   {f.dueAt ? ` · vence ${fmtDate(f.dueAt)}` : ""}
                 </div>

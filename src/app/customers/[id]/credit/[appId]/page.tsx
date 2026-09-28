@@ -65,7 +65,7 @@ export default async function ApplicationPage({ params, searchParams }: { params
         subtitle={
           <span className="flex flex-wrap items-center gap-1.5 pt-1">
             <Pill tone={APP_TONE[status]}>{CREDIT_APPLICATION_STATUS_LABELS[status]}</Pill>
-            {template && <span className="text-xs text-zinc-500">{template.name}</span>}
+            {template && <span className="text-xs text-faint">{template.name}</span>}
             <DemoPill show={Boolean(template?.isDemo)} />
           </span>
         }
@@ -85,8 +85,8 @@ export default async function ApplicationPage({ params, searchParams }: { params
                 ["⚠️", "Conflictos", t.conflicts],
                 ["⬜", "Faltantes", t.missing],
               ].map(([i, l, n]) => (
-                <div key={String(l)} className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-3">
-                  <div className="text-2xl font-bold text-zinc-50">{n}</div>
+                <div key={String(l)} className="rounded-2xl bg-panel p-3">
+                  <div className="text-2xl font-bold text-ivory">{n}</div>
                   <div className="text-xs text-zinc-400">
                     {i} {l}
                   </div>
@@ -104,7 +104,7 @@ export default async function ApplicationPage({ params, searchParams }: { params
             const slots = analysis.slots.filter((s) => s.category === g.category);
             if (!slots.length) return null;
             return (
-              <details key={g.category} open={g.category !== "confirmed" && g.category !== "not_applicable"} className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+              <details key={g.category} open={g.category !== "confirmed" && g.category !== "not_applicable"} className="rounded-2xl bg-panel p-4">
                 <summary className="flex min-h-8 cursor-pointer items-center justify-between text-base font-semibold text-zinc-100">
                   <span>
                     {g.icon} {g.label}
@@ -115,8 +115,8 @@ export default async function ApplicationPage({ params, searchParams }: { params
                   {slots.map((s) => (
                     <li key={s.slot.slot}>
                       {s.slot.label}
-                      {s.slot.condition && <span className="text-zinc-500"> — {s.slot.condition.description}</span>}
-                      {s.slot.note && g.category !== "confirmed" && <span className="block text-xs text-zinc-500">{s.slot.note}</span>}
+                      {s.slot.condition && <span className="text-faint"> — {s.slot.condition.description}</span>}
+                      {s.slot.note && g.category !== "confirmed" && <span className="block text-xs text-faint">{s.slot.note}</span>}
                     </li>
                   ))}
                 </ul>
@@ -144,7 +144,7 @@ export default async function ApplicationPage({ params, searchParams }: { params
                     return (
                       <li key={k} className="flex items-center gap-3 py-2">
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs text-zinc-500">
+                          <div className="text-xs text-faint">
                             {f.label} · {f.state.sourceLabel}
                           </div>
                           <div className="break-all text-base text-zinc-100">{f.state.display}</div>
@@ -163,7 +163,7 @@ export default async function ApplicationPage({ params, searchParams }: { params
             ))}
             {!analysis.conflictKeys.length && !analysis.confirmKeys.length && !toFill.length && <EmptyState>No falta ningún dato del perfil. Revisa la vista previa.</EmptyState>}
             {analysis.slots.some((s) => s.category === "missing" && !(s.slot.profileKeys ?? []).length) && (
-              <p className="text-xs text-zinc-500">Los datos de coacreditado/obligado solidario se capturan directamente en el formato por ahora.</p>
+              <p className="text-xs text-faint">Los datos de coacreditado/obligado solidario se capturan directamente en el formato por ahora.</p>
             )}
           </>
         )}
@@ -178,7 +178,7 @@ export default async function ApplicationPage({ params, searchParams }: { params
                 <li>👤 Confirmaciones manuales: {t.human}</li>
                 <li>✍️ Firmas: {t.signatures}</li>
               </ul>
-              <p className="mt-2 text-xs text-zinc-500">El PDF es un borrador: las confirmaciones personales (PEP, salud, autorizaciones) y las firmas las completa el cliente.</p>
+              <p className="mt-2 text-xs text-faint">El PDF es un borrador: las confirmaciones personales (PEP, salud, autorizaciones) y las firmas las completa el cliente.</p>
             </SectionCard>
             {bySection(analysis.slots).map((g) => (
               <SectionCard key={g.id} title={g.label}>
@@ -214,11 +214,11 @@ export default async function ApplicationPage({ params, searchParams }: { params
                     <li key={g.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                       <div>
                         <div className="text-zinc-100">{fmtDate(g.generatedAt, true)}</div>
-                        <div className="text-xs text-zinc-500">
+                        <div className="text-xs text-faint">
                           {g.fieldsFilled.length} campos llenados · {g.fieldsSkipped.length} vacíos · fuentes: {Array.from(new Set(g.sourcesUsed.map((x) => x.sourceLabel).filter(Boolean))).join(", ")}
                         </div>
                       </div>
-                      <a href={`/api/documents/generated/${g.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-emerald-400">
+                      <a href={`/api/documents/generated/${g.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-sand">
                         Abrir
                       </a>
                     </li>

@@ -12,6 +12,7 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigserial,
   boolean,
   check,
@@ -139,6 +140,10 @@ export const customers = pgTable(
     displayName: text("display_name").notNull(),
     phone: text("phone"),
     source: text("source").notNull().default("simulator"), // simulator | whatsapp | manual
+    /** Último contacto registrado por Mario (llamada, visita…); los mensajes cuentan aparte. */
+    lastContactAt: timestamp("last_contact_at", { withTimezone: true }),
+    /** none | waiting_customer | waiting_mario */
+    responseStatus: text("response_status").notNull().default("none"),
     isDemo: boolean("is_demo").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -504,6 +509,8 @@ export const quotes = pgTable(
     validUntil: timestamp("valid_until", { withTimezone: true }),
     sourceId: uuid("source_id").references(() => knowledgeSources.id, { onDelete: "set null" }),
     templateId: uuid("template_id").references(() => quoteTemplates.id, { onDelete: "set null" }),
+    /** Sprint 3: corrida del motor V2 (programa validado contra corridas reales) de la que proviene. */
+    quoteRunId: uuid("quote_run_id").references((): AnyPgColumn => quoteRuns.id, { onDelete: "set null" }),
     financingRuleId: uuid("financing_rule_id").references(() => financingRules.id, { onDelete: "set null" }),
     calculationTrace: jsonb("calculation_trace").$type<string[]>().notNull().default([]),
     createdBy: actorTypeEnum("created_by").notNull(),
@@ -521,7 +528,7 @@ export const quotes = pgTable(
     // Una plantilla validada siempre referencia la plantilla de origen.
     check(
       "quotes_template_requires_template_id",
-      sql`${t.calculationType} <> 'validated_template' OR ${t.templateId} IS NOT NULL`,
+      sql`${t.calculationType} <> 'validated_template' OR ${t.templateId} IS NOT NULL OR ${t.quoteRunId} IS NOT NULL`,
     ),
   ],
 );
@@ -540,7 +547,8 @@ export const appointments = pgTable(
     kind: text("kind").notNull(), // visit | test_drive | delivery | call
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     requestedWindow: text("requested_window"),
-    status: text("status").notNull().default("proposed"), // proposed | confirmed | done | cancelled | no_show
+    status: text("status").notNull().default("scheduled"), // scheduled | confirmed | completed | cancelled | no_show
+    location: text("location"),
     notes: text("notes"),
     createdBy: actorTypeEnum("created_by").notNull(),
     createdAt: createdAt(),
@@ -561,6 +569,11 @@ export const followups = pgTable(
     dueAt: timestamp("due_at", { withTimezone: true }),
     reason: text("reason").notNull(),
     status: text("status").notNull().default("pending"), // pending | done | cancelled
+    /** Acción concreta: llamar, enviar documento, confirmar cita… */
+    action: text("action"),
+    /** Mario se comprometió con el cliente (promesa pendiente). */
+    promisedByMario: boolean("promised_by_mario").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
     createdBy: actorTypeEnum("created_by").notNull(),
     createdAt: createdAt(),
   },
@@ -881,6 +894,7 @@ export const saleRecords = pgTable(
     bonusUsage: text("bonus_usage"),
     agreements: text("agreements"),
     // Técnicos
+    vin: text("vin"),
     status: saleStatusEnum("status").notNull().default("prospect"),
     source: text("source").notNull().default("manual"), // manual | quote | import
     notes: text("notes"),
@@ -977,4 +991,202 @@ export const commissionPayments = pgTable("commission_payments", {
   paidAt: timestamp("paid_at", { withTimezone: true }),
   reference: text("reference"),
   createdAt: createdAt(),
+});
+
+// ───────────────────────────── Sprint 3: cotizador V2 ─────────────────────────────
+
+/** Lista de precios con fuente y vigencia (p. ej. "Lista Honda septiembre"). */
+export const priceBooks = pgTable("price_books", {
+  id: id(),
+  workspaceId: workspaceId(),
+  name: text("name").notNull(),
+  ...knowledgeMeta(),
+});
+
+export const vehiclePrices = pgTable(
+  "vehicle_prices",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    priceBookId: uuid("price_book_id")
+      .notNull()
+      .references(() => priceBooks.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => vehicleVersions.id, { onDelete: "cascade" }),
+    listPrice: money("list_price").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("vehicle_prices_book_version_uq").on(t.priceBookId, t.versionId)],
+);
+
+/**
+ * Programa de financiamiento. Cada parámetro NULL significa "la fuente no lo define":
+ * el motor no lo supone y la corrida queda incompleta.
+ */
+export const financePrograms = pgTable("finance_programs", {
+  id: id(),
+  workspaceId: workspaceId(),
+  lender: text("lender").notNull(),
+  name: text("name").notNull(),
+  calibrationStatus: text("calibration_status").notNull().default("unverified"), // unverified | calibrating | validated | expired
+  calibrationReport: jsonb("calibration_report").$type<Record<string, unknown>>(),
+  calibratedAt: timestamp("calibrated_at", { withTimezone: true }),
+  bonusApplication: text("bonus_application"), // price_reduction | down_payment
+  ivaOnInterest: boolean("iva_on_interest"),
+  ivaRate: rate("iva_rate"),
+  openingCommissionRate: rate("opening_commission_rate"),
+  openingCommissionFinanced: boolean("opening_commission_financed"),
+  openingCommissionIva: boolean("opening_commission_iva"),
+  insuranceMode: text("insurance_mode"), // cash | financed | not_included
+  minDownPaymentRate: rate("min_down_payment_rate"),
+  ...knowledgeMeta(),
+});
+
+export const financeTerms = pgTable(
+  "finance_terms",
+  {
+    id: id(),
+    programId: uuid("program_id")
+      .notNull()
+      .references(() => financePrograms.id, { onDelete: "cascade" }),
+    termMonths: integer("term_months").notNull(),
+    annualRate: rate("annual_rate"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("finance_terms_program_term_uq").on(t.programId, t.termMonths)],
+);
+
+/** Conceptos con monto respaldado por fuente: seguro, garantía, accesorios, cargos. */
+export const quoteComponentsConfig = pgTable("quote_components", {
+  id: id(),
+  workspaceId: workspaceId(),
+  kind: text("kind").notNull(), // insurance | warranty | accessory | fee
+  label: text("label").notNull(),
+  amount: money("amount").notNull(),
+  termMonths: integer("term_months"),
+  ...knowledgeMeta(),
+});
+
+/** Corridas reales de Mario usadas para calibrar programas. */
+export const validatedQuoteExamples = pgTable("validated_quote_examples", {
+  id: id(),
+  workspaceId: workspaceId(),
+  programId: uuid("program_id").references(() => financePrograms.id, { onDelete: "set null" }),
+  versionId: uuid("version_id").references(() => vehicleVersions.id, { onDelete: "set null" }),
+  label: text("label").notNull(),
+  downPayment: money("down_payment").notNull(),
+  termMonths: integer("term_months").notNull(),
+  vehiclePrice: money("vehicle_price").notNull(),
+  bonus: money("bonus").notNull().default(0),
+  insurance: money("insurance"),
+  expected: jsonb("expected").$type<Record<string, number>>().notNull(),
+  quotedAt: timestamp("quoted_at", { withTimezone: true }),
+  sourceLabel: text("source_label").notNull(),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: createdAt(),
+});
+
+/** Cada cotización calculada (auditable): entradas, componentes con fuente y faltantes. */
+export const quoteRuns = pgTable(
+  "quote_runs",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    versionId: uuid("version_id").references(() => vehicleVersions.id, { onDelete: "set null" }),
+    programId: uuid("program_id").references(() => financePrograms.id, { onDelete: "set null" }),
+    vehicleLabel: text("vehicle_label").notNull(),
+    downPayment: money("down_payment").notNull(),
+    termMonths: integer("term_months").notNull(),
+    exactness: text("exactness").notNull(), // exact | unvalidated | incomplete | validated_example
+    monthlyPayment: money("monthly_payment"),
+    components: jsonb("components").$type<Array<Record<string, unknown>>>().notNull(),
+    missing: jsonb("missing").$type<string[]>().notNull().default([]),
+    saved: boolean("saved").notNull().default(false),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdBy: actorTypeEnum("created_by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("quote_runs_customer_idx").on(t.customerId, t.createdAt)],
+);
+
+// ───────────────────────────── Sprint 3: operación ─────────────────────────────
+
+/** Requisitos de placas CON FUENTE (los captura Mario; no se inventan requisitos oficiales). */
+export const plateRequirements = pgTable("plate_requirements", {
+  id: id(),
+  workspaceId: workspaceId(),
+  label: text("label").notNull(),
+  sourceLabel: text("source_label").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: createdAt(),
+});
+
+export const plateCases = pgTable(
+  "plate_cases",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    saleId: uuid("sale_id").references(() => saleRecords.id, { onDelete: "set null" }),
+    vehicleLabel: text("vehicle_label"),
+    vin: text("vin"),
+    status: text("status").notNull().default("not_started"), // not_started | collecting_documents | ready | submitted | waiting | completed | problem
+    requirements: jsonb("requirements").$type<Array<{ id: string; label: string; source: string; received: boolean; receivedAt?: string | null }>>().notNull().default([]),
+    nextStep: text("next_step"),
+    dueDate: timestamp("due_date", { withTimezone: true }),
+    notes: text("notes"),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("plate_cases_customer_idx").on(t.customerId)],
+);
+
+/** Correos: borradores y envíos. Nunca se envía sin confirmación explícita. */
+export const emailMessages = pgTable(
+  "email_messages",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+    plateCaseId: uuid("plate_case_id").references(() => plateCases.id, { onDelete: "set null" }),
+    saleId: uuid("sale_id").references(() => saleRecords.id, { onDelete: "set null" }),
+    purpose: text("purpose").notNull(), // plates | documents | quote | general
+    toAddress: text("to_address"),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    attachments: jsonb("attachments").$type<Array<{ documentId: string; label: string }>>().notNull().default([]),
+    status: text("status").notNull().default("draft"), // draft | sent | cancelled | failed | opened_in_mail
+    provider: text("provider"),
+    providerMessageId: text("provider_message_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    error: text("error"),
+    createdBy: actorTypeEnum("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("email_messages_customer_idx").on(t.customerId)],
+);
+
+/** Devoluciones: estructura mínima. El proceso está pendiente de definición por Mario. */
+export const returnCases = pgTable("return_cases", {
+  id: id(),
+  workspaceId: workspaceId(),
+  customerId: uuid("customer_id")
+    .notNull()
+    .references(() => customers.id, { onDelete: "cascade" }),
+  saleId: uuid("sale_id").references(() => saleRecords.id, { onDelete: "set null" }),
+  type: text("type").notNull().default("por_definir"),
+  reason: text("reason"),
+  status: text("status").notNull().default("open"), // open | resolved | cancelled
+  amount: money("amount"),
+  notes: text("notes"),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
 });

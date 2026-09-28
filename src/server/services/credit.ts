@@ -7,7 +7,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { AUTO_STATUSES, MANUAL_TRANSITIONS, analyzeApplication, buildFillPlan, getAdapter, type ApplicationAnalysis, type FieldStates } from "@/domain/credit";
 import { CREDIT_APPLICATION_STATUS_LABELS, type CreditApplicationStatus } from "@/domain/enums";
 import type { AppContext } from "../app";
-import { buildDemoTemplate, fillPdf, inspectPdfFields, suggestMapping } from "../credit/pdf";
+import { buildDemoTemplate, matchesRealMapping, realMapping, fillPdf, inspectPdfFields, suggestMapping } from "../credit/pdf";
 import type { Db } from "../db/client";
 import * as s from "../db/schema";
 import { ServiceError } from "./errors";
@@ -45,7 +45,8 @@ export async function registerTemplate(
   if (fields.length === 0) throw new ServiceError("El PDF no tiene campos AcroForm; no se usa OCR ni coordenadas.");
   const institution = await ensureInstitution(app.db, app.workspaceId, adapter.institutionCode, adapter.institutionName);
   const ref = await app.storage.put(app.workspaceId, "templates", input.bytes, "application/pdf");
-  const mapping = input.fieldMapping ?? suggestMapping(adapter, fields);
+  // Versión conocida del PDF real → mapeo exacto campo por campo; si no, sugerencia para revisión.
+  const mapping = input.fieldMapping ?? (matchesRealMapping(adapter, fields) ? realMapping(adapter) : suggestMapping(adapter, fields));
   const [row] = await app.db
     .insert(s.applicationTemplates)
     .values({
@@ -77,8 +78,9 @@ export async function ensureDemoTemplates(app: AppContext) {
       version: "demo-1",
       bytes,
       fileName: `demo-${code.toLowerCase()}.pdf`,
-      fieldMapping: Object.fromEntries(adapter.slots.map((sl) => [sl.slot, sl.slot])),
-      notes: "Plantilla SINTÉTICA para pruebas. Sustituir por el PDF real registrándolo con `npm run pdf:register`.",
+      // Mismos nombres de campo que el PDF real → se prueba el mapeo real sin versionar el PDF.
+      fieldMapping: realMapping(adapter),
+      notes: "Plantilla SINTÉTICA con los nombres de campo del PDF real. Para usar el formato real: `npm run pdf:register`.",
       isDemo: true,
     });
   }

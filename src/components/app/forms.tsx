@@ -31,11 +31,11 @@ import type { ProfileSection } from "@/domain/profile-fields";
 import type { SaleSection } from "@/domain/sales";
 import { buttonClass, fmtMoney, Pill } from "./ui";
 
-const INPUT = "block w-full min-h-12 rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-base text-zinc-50 placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+const INPUT = "block w-full min-h-12 rounded-xl border border-zinc-700 bg-ink px-3 text-base text-ivory placeholder:text-zinc-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
 export function FormMessage({ state }: { state: ActionState }) {
   if (!state) return null;
-  return <p className={`text-sm ${state.ok ? "text-emerald-400" : "text-rose-400"}`}>{state.ok ? (state.message ?? "Listo") : state.error}</p>;
+  return <p className={`text-sm ${state.ok ? "text-sand" : "text-rose-400"}`}>{state.ok ? (state.message ?? "Listo") : state.error}</p>;
 }
 
 function Label({ label, children, hint }: { label: string; children: ReactNode; hint?: ReactNode }) {
@@ -54,7 +54,7 @@ export function MoneyInput({ name, defaultValue, label }: { name: string; defaul
   return (
     <Label label={label}>
       <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">$</span>
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint">$</span>
         <input name={name} inputMode="decimal" autoComplete="off" defaultValue={defaultValue ?? ""} className={`${INPUT} pl-7`} placeholder="0" />
       </div>
     </Label>
@@ -130,7 +130,7 @@ export function ProfileSectionForm({ customerId, section, fields, submitLabel = 
         </button>
       </div>
       <FormMessage state={state} />
-      <p className="text-xs text-zinc-500">Al guardar, Mario confirma estos datos (quedan con fuente “Captura de Mario”, usuario y fecha).</p>
+      <p className="text-xs text-faint">Al guardar, Mario confirma estos datos (quedan con fuente “Captura de Mario”, usuario y fecha).</p>
     </form>
   );
 }
@@ -172,10 +172,10 @@ export function ConflictCard({ customerId, fieldKey, label, candidates }: { cust
       <p className="text-sm font-semibold text-amber-300">⚠️ Conflicto de información · {label}</p>
       <ul className="mt-3 space-y-2">
         {candidates.map((c) => (
-          <li key={c.factId} className="flex flex-col gap-2 rounded-xl bg-zinc-950/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <li key={c.factId} className="flex flex-col gap-2 rounded-xl bg-ink/60 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="text-xs text-zinc-400">{c.sourceLabel ?? "Sin fuente"}</div>
-              <div className="break-words font-mono text-base font-medium text-zinc-50">{c.display}</div>
+              <div className="break-words font-mono text-base font-medium text-ivory">{c.display}</div>
             </div>
             <button type="button" disabled={pending} onClick={() => choose({ factId: c.factId })} className={`${buttonClass("secondary")} shrink-0 px-3 text-sm`}>
               Usar {c.sourceLabel?.replace(/^Solicitud /, "").replace(/ \(.*\)$/, "") ?? "este"}
@@ -216,11 +216,11 @@ export function DocumentChecklist({ customerId, items }: { customerId: string; i
     <ul className="divide-y divide-zinc-800">
       {items.map((d) => (
         <li key={d.docType} className="flex items-center gap-3 py-3">
-          <span className={`text-lg ${d.status === "accepted" ? "text-emerald-400" : "text-zinc-600"}`}>{d.status === "accepted" ? "✓" : "○"}</span>
+          <span className={`text-lg ${d.status === "accepted" ? "text-sand" : "text-zinc-600"}`}>{d.status === "accepted" ? "✓" : "○"}</span>
           <div className="min-w-0 flex-1">
             <div className="text-base text-zinc-100">{d.label}</div>
             {d.requiredBy.length > 0 && (
-              <div className="text-xs text-zinc-500">
+              <div className="text-xs text-faint">
                 Requerido por {d.requiredBy.map((r) => r.institution).join(", ")}
                 {d.requiredBy.some((r) => r.isDemo) ? " (regla DEMO)" : ""}
               </div>
@@ -231,7 +231,7 @@ export function DocumentChecklist({ customerId, items }: { customerId: string; i
             disabled={pending}
             defaultValue={d.status === "requested" ? "missing" : d.status}
             onChange={(e) => start(async () => void (await setDocumentStatusAction(customerId, d.docType, e.target.value)))}
-            className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-2 text-base text-zinc-100"
+            className="min-h-11 rounded-xl border border-zinc-700 bg-ink px-2 text-base text-zinc-100"
           >
             {DOC_OPTIONS.map(([v, l]) => (
               <option key={v} value={v}>
@@ -337,7 +337,7 @@ export function ImportApplicationForm({ customerId, institutions }: { customerId
         {pending ? "Leyendo…" : "Leer solicitud previa"}
       </button>
       <FormMessage state={state} />
-      <p className="text-xs text-zinc-500">Solo lee campos AcroForm (sin OCR). Los datos distintos a los existentes quedan como conflicto para que tú decidas.</p>
+      <p className="text-xs text-faint">Solo lee campos AcroForm (sin OCR). Los datos distintos a los existentes quedan como conflicto para que tú decidas.</p>
     </form>
   );
 }

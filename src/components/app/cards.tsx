@@ -5,7 +5,7 @@ import { DemoPill, fmtDate, fmtMoney, Pill, relativeTime, StageBadge, Temperatur
 
 function CardLink({ href, children, accent }: { href: string; children: ReactNode; accent?: boolean }) {
   return (
-    <Link href={href} className={`block rounded-2xl border bg-zinc-900/70 p-4 active:bg-zinc-800 ${accent ? "border-rose-500/50" : "border-zinc-800 hover:border-zinc-700"}`}>
+    <Link href={href} className={`block rounded-2xl bg-panel p-4 active:bg-raise ${accent ? "shadow-[inset_3px_0_0_var(--color-alert)]" : ""}`}>
       {children}
     </Link>
   );
@@ -22,13 +22,13 @@ export function CustomerCard({
     <CardLink href={`/customers/${c.id}`} accent={c.openAlerts > 0}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-semibold text-zinc-50">
+          <div className="truncate text-base font-semibold text-ivory">
             {c.openAlerts > 0 && "🔥 "}
             {c.displayName}
           </div>
           <div className="truncate text-sm text-zinc-400">{c.vehicle ?? "Sin modelo de interés"}</div>
         </div>
-        <span className="shrink-0 text-xs text-zinc-500">{relativeTime(c.lastContactAt, now)}</span>
+        <span className="shrink-0 text-xs text-faint">{relativeTime(c.lastContactAt, now)}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         <StageBadge stage={c.stage} />
@@ -57,27 +57,20 @@ export const SALE_TONE: Record<SaleStatus, Tone> = {
 export function SaleCard({
   s,
 }: {
-  s: { id: string; customerName: string; unitDescription: string | null; status: SaleStatus; invoiceValue: number | null; downPayment: number | null; invoiceDate: Date | null; deliveryDate: Date | null; pending: string[]; isDemo: boolean };
+  s: { id: string; customerName: string; unitDescription: string | null; status: SaleStatus; invoiceDate: Date | null; deliveryDate: Date | null; pending: string[]; isDemo: boolean; orderNumber?: string | null; invoiceNumber?: string | null };
 }) {
   const date = s.deliveryDate ? `Entrega ${fmtDate(s.deliveryDate)}` : s.invoiceDate ? `Factura ${fmtDate(s.invoiceDate)}` : null;
   return (
     <CardLink href={`/sales/${s.id}`} accent={s.pending.some((p) => p.includes("vencida"))}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-semibold text-zinc-50">{s.customerName}</div>
+          <div className="truncate text-base font-semibold text-ivory">{s.customerName}</div>
           <div className="truncate text-sm text-zinc-400">{s.unitDescription ?? "Unidad por definir"}</div>
         </div>
         <Pill tone={SALE_TONE[s.status]}>{SALE_STATUS_LABELS[s.status]}</Pill>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <div className="text-xs text-zinc-500">Valor factura</div>
-          <div className="text-zinc-100">{fmtMoney(s.invoiceValue)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-zinc-500">Enganche</div>
-          <div className="text-zinc-100">{fmtMoney(s.downPayment)}</div>
-        </div>
+      <div className="mt-2 text-[14px] text-dim">
+        {s.orderNumber || s.invoiceNumber ? `Pedido ${s.orderNumber ?? "—"} · Factura ${s.invoiceNumber ?? "—"}` : "Sin pedido ni factura"}
       </div>
       {(date || s.pending.length > 0 || s.isDemo) && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -103,33 +96,33 @@ export function QuoteCard({
 }) {
   const tone: Tone = q.expired ? "neutral" : q.calculationType === "official" ? "green" : q.calculationType === "validated_template" ? "teal" : "amber";
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+    <div className="rounded-2xl bg-panel p-4">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-base font-semibold text-zinc-50">{q.vehicleLabel}</div>
-          <div className="text-xs text-zinc-500">{fmtDate(q.createdAt, true)}</div>
+          <div className="text-base font-semibold text-ivory">{q.vehicleLabel}</div>
+          <div className="text-xs text-faint">{fmtDate(q.createdAt, true)}</div>
         </div>
         <Pill tone={tone}>{q.effectiveLabel}</Pill>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
         <div>
-          <div className="text-xs text-zinc-500">Enganche</div>
+          <div className="text-xs text-faint">Enganche</div>
           {fmtMoney(q.downPayment)}
         </div>
         <div>
-          <div className="text-xs text-zinc-500">Plazo</div>
+          <div className="text-xs text-faint">Plazo</div>
           {q.termMonths ? `${q.termMonths} m` : "Contado"}
         </div>
         <div>
-          <div className="text-xs text-zinc-500">Mensualidad</div>
+          <div className="text-xs text-faint">Mensualidad</div>
           {fmtMoney(q.monthlyPayment)}
         </div>
         <div>
-          <div className="text-xs text-zinc-500">Precio</div>
+          <div className="text-xs text-faint">Precio</div>
           {fmtMoney(q.vehiclePrice)}
         </div>
         <div>
-          <div className="text-xs text-zinc-500">Bono</div>
+          <div className="text-xs text-faint">Bono</div>
           {fmtMoney(q.bonus)}
         </div>
         <div className="flex items-end">
@@ -137,7 +130,7 @@ export function QuoteCard({
         </div>
       </div>
       {q.saleId ? (
-        <Link href={`/sales/${q.saleId}`} className="mt-3 block text-sm text-emerald-400">
+        <Link href={`/sales/${q.saleId}`} className="mt-3 block text-sm text-sand">
           Ver venta asociada →
         </Link>
       ) : (
@@ -169,10 +162,10 @@ export function CreditApplicationCard({
   return (
     <CardLink href={`/customers/${customerId}/credit/${a.id}`} accent={a.status === "conflict"}>
       <div className="flex items-center gap-2">
-        <div className="flex-1 text-base font-semibold text-zinc-50">Solicitud {a.institutionName}</div>
+        <div className="flex-1 text-base font-semibold text-ivory">Solicitud {a.institutionName}</div>
         <Pill tone={APP_TONE[a.status]}>{CREDIT_APPLICATION_STATUS_LABELS[a.status]}</Pill>
       </div>
-      <div className="mt-1 text-xs text-zinc-500">Creada {fmtDate(a.createdAt)}</div>
+      <div className="mt-1 text-xs text-faint">Creada {fmtDate(a.createdAt)}</div>
       {a.totals && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           <Pill tone="green">✅ {a.totals.confirmed}</Pill>
@@ -190,11 +183,11 @@ export function CreditApplicationCard({
 export function AlertCard({ title, detail, customerName, href, severity, children }: { title: string; detail?: string; customerName: string; href: string; severity: "high" | "medium" | "low"; children?: ReactNode }) {
   const border = severity === "high" ? "border-rose-500/50" : severity === "medium" ? "border-amber-500/40" : "border-zinc-800";
   return (
-    <div className={`rounded-2xl border ${border} bg-zinc-900/70 p-4`}>
+    <div className={`rounded-2xl border ${border} bg-panel p-4`}>
       <Link href={href} className="block">
-        <div className="text-base font-semibold text-zinc-50">{title}</div>
+        <div className="text-base font-semibold text-ivory">{title}</div>
         <div className="text-sm text-zinc-300">{customerName}</div>
-        {detail && <div className="mt-1 text-sm text-zinc-500">{detail}</div>}
+        {detail && <div className="mt-1 text-sm text-faint">{detail}</div>}
       </Link>
       {children && <div className="mt-3">{children}</div>}
     </div>
@@ -248,7 +241,7 @@ export function ApplicationProgress({ sections }: { sections: Array<{ id: string
 }
 
 export function StatusTimeline({ items }: { items: Array<{ id: string; title: string; detail?: string | null; at: Date; actor?: string | null }> }) {
-  if (!items.length) return <p className="text-sm text-zinc-500">Sin historial.</p>;
+  if (!items.length) return <p className="text-sm text-faint">Sin historial.</p>;
   return (
     <ol className="relative space-y-4 border-l border-zinc-800 pl-4">
       {items.map((it) => (
@@ -256,7 +249,7 @@ export function StatusTimeline({ items }: { items: Array<{ id: string; title: st
           <span className="absolute -left-[5px] mt-1.5 h-2.5 w-2.5 rounded-full bg-zinc-600" />
           <div className="text-sm text-zinc-100">{it.title}</div>
           {it.detail && <div className="text-sm text-zinc-400">{it.detail}</div>}
-          <div className="text-xs text-zinc-500">
+          <div className="text-xs text-faint">
             {fmtDate(it.at, true)}
             {it.actor ? ` · ${it.actor}` : ""}
           </div>

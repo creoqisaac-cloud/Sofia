@@ -6,6 +6,11 @@ import { listInstitutions } from "@/server/services/credit";
 import * as s from "@/server/db/schema";
 
 const LINKS = [
+  { href: "/quote", title: "Cotizar", detail: "Corrida con fuentes; dice exactamente qué falta" },
+  { href: "/plates", title: "Placas", detail: "Trámites, requisitos con fuente y correo al gestor" },
+  { href: "/returns", title: "Devoluciones", detail: "Pendiente de definición por Mario (registro mínimo)" },
+  { href: "/alerts", title: "Alertas", detail: "Mario, entra tú · alertas operativas" },
+  { href: "/programs", title: "Programas de financiamiento", detail: "Calibración contra corridas reales" },
   { href: "/rules", title: "Reglas comerciales", detail: "Precios, bonos, tasas y vigencias (DEMO) + probador de reglas" },
   { href: "/sales/table", title: "Control de ventas (tabla)", detail: "Vista de escritorio con todas las columnas" },
   { href: "/simulator", title: "Simulador de Sofía", detail: "Herramienta técnica: conversar como cliente sin WhatsApp" },
@@ -19,12 +24,12 @@ export default async function MorePage() {
     <>
       <MobileHeader title="Más" />
       <Page>
-        <nav className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/70">
+        <nav className="overflow-hidden rounded-2xl bg-panel">
           {LINKS.map((l) => (
-            <Link key={l.href} href={l.href} className="flex min-h-16 items-center gap-3 border-b border-zinc-800 px-4 py-3 last:border-0 active:bg-zinc-800">
+            <Link key={l.href} href={l.href} className="flex min-h-16 items-center gap-3 border-b border-line px-4 py-3 last:border-0 active:bg-raise">
               <div className="min-w-0 flex-1">
-                <div className="text-base text-zinc-100">{l.title}</div>
-                <div className="text-sm text-zinc-500">{l.detail}</div>
+                <div className="text-base text-ivory">{l.title}</div>
+                <div className="text-sm text-faint">{l.detail}</div>
               </div>
               <span className="text-xl text-zinc-600">›</span>
             </Link>
@@ -37,7 +42,7 @@ export default async function MorePage() {
                 <div className="flex items-center gap-2 text-zinc-100">
                   {institutions.find((i) => i.id === t.institutionId)?.name} · {t.name} {t.isDemo && <Pill tone="violet">DEMO</Pill>} {!t.active && <Pill>inactiva</Pill>}
                 </div>
-                <div className="text-xs text-zinc-500">
+                <div className="text-xs text-faint">
                   versión {t.version} · {Object.keys(t.fieldMapping).length} campos mapeados
                 </div>
               </li>
@@ -48,7 +53,7 @@ export default async function MorePage() {
           <p className="text-sm text-zinc-400">
             Cerebro: {app.provider.name === "anthropic" ? "Claude" : "motor demo (sin IA externa)"} · Base de datos: {app.dbKind === "pglite" ? "local (PGlite)" : "PostgreSQL"}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">Comisiones: estructura preparada, sin reglas hasta que Mario las confirme.</p>
+          <p className="mt-1 text-xs text-faint">Comisiones: estructura preparada, sin reglas hasta que Mario las confirme.</p>
         </SectionCard>
       </Page>
     </>

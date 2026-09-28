@@ -28,7 +28,7 @@ export default async function SalesTablePage() {
             {sales.map((s) => (
               <tr key={s.id} className="border-b border-zinc-900 hover:bg-zinc-900/60">
                 <td className="px-3 py-2">
-                  <Link href={`/sales/${s.id}`} className="text-emerald-400">
+                  <Link href={`/sales/${s.id}`} className="text-sand">
                     {SALE_STATUS_LABELS[s.status]}
                   </Link>
                 </td>
@@ -44,7 +44,7 @@ export default async function SalesTablePage() {
             ))}
           </tbody>
         </table>
-        <p className="mt-3 text-xs text-zinc-500">Importación/exportación a Excel: preparada para un sprint posterior.</p>
+        <p className="mt-3 text-xs text-faint">Importación/exportación a Excel: preparada para un sprint posterior.</p>
       </div>
     </>
   );

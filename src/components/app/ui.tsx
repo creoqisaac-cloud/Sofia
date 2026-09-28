@@ -45,12 +45,12 @@ export function DemoPill({ show = true }: { show?: boolean }) {
 
 export function SectionCard({ title, children, action, id, subtitle }: { title?: string; subtitle?: string; children: ReactNode; action?: ReactNode; id?: string }) {
   return (
-    <section id={id} className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4">
+    <section id={id} className="rounded-2xl bg-panel p-4">
       {(title || action) && (
         <header className="mb-3 flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            {title && <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>}
-            {subtitle && <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>}
+            {title && <h2 className="text-[13px] font-medium text-dim">{title}</h2>}
+            {subtitle && <p className="mt-0.5 text-xs text-faint">{subtitle}</p>}
           </div>
           {action}
         </header>
@@ -62,7 +62,7 @@ export function SectionCard({ title, children, action, id, subtitle }: { title?:
 
 export function EmptyState({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-zinc-800 p-4 text-center text-sm text-zinc-500">
+    <div className="rounded-xl bg-panel p-4 text-center text-sm text-faint">
       <p>{children}</p>
       {action && <div className="mt-3">{action}</div>}
     </div>
@@ -70,10 +70,10 @@ export function EmptyState({ children, action }: { children: ReactNode; action?:
 }
 
 const BTN = {
-  primary: "bg-emerald-500 text-zinc-950 hover:bg-emerald-400",
-  secondary: "bg-zinc-800 text-zinc-100 ring-1 ring-zinc-700 hover:bg-zinc-700",
+  primary: "bg-sand text-ink hover:bg-sand-deep",
+  secondary: "bg-raise text-ivory hover:bg-line",
   danger: "bg-rose-600 text-white hover:bg-rose-500",
-  ghost: "text-zinc-300 hover:bg-zinc-800",
+  ghost: "text-dim hover:text-ivory",
 } as const;
 
 export function buttonClass(variant: keyof typeof BTN = "primary", block = false) {
@@ -96,7 +96,7 @@ export function KeyValue({ items }: { items: Array<{ k: string; v: ReactNode; hi
           <dt className="text-zinc-400">{it.k}</dt>
           <dd className="text-right text-zinc-100">
             {it.v}
-            {it.hint && <div className="text-xs text-zinc-500">{it.hint}</div>}
+            {it.hint && <div className="text-xs text-faint">{it.hint}</div>}
           </dd>
         </div>
       ))}
@@ -106,9 +106,9 @@ export function KeyValue({ items }: { items: Array<{ k: string; v: ReactNode; hi
 
 export function Stat({ label, value, href, tone = "neutral" }: { label: string; value: number; href?: string; tone?: Tone }) {
   const body = (
-    <div className={`flex min-h-20 flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/70 p-3 ${value > 0 && tone !== "neutral" ? "ring-1 ring-inset " + TONE[tone].split(" ").filter((c) => c.startsWith("ring-")).join(" ") : ""}`}>
+    <div className={`flex min-h-20 flex-col justify-between rounded-2xl bg-panel p-3 ${value > 0 && tone !== "neutral" ? "ring-1 ring-inset " + TONE[tone].split(" ").filter((c) => c.startsWith("ring-")).join(" ") : ""}`}>
       <span className="text-xs leading-tight text-zinc-400">{label}</span>
-      <span className={`text-2xl font-bold ${value > 0 ? "text-zinc-50" : "text-zinc-600"}`}>{value}</span>
+      <span className={`text-2xl font-bold ${value > 0 ? "text-ivory" : "text-zinc-600"}`}>{value}</span>
     </div>
   );
   return href ? <Link href={href}>{body}</Link> : body;

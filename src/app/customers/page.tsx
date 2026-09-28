@@ -16,7 +16,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
       <Page>
         <form className="relative">
           {filter !== "all" && <input type="hidden" name="f" value={filter} />}
-          <input name="q" defaultValue={q ?? ""} type="search" placeholder="Buscar por nombre o modelo" className="block min-h-12 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 text-base text-zinc-100 placeholder:text-zinc-500" />
+          <input name="q" defaultValue={q ?? ""} type="search" placeholder="Buscar por nombre o modelo" className="block min-h-12 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 text-base text-zinc-100 placeholder:text-faint" />
         </form>
         <ChipNav active={filter} items={Object.entries(CUSTOMER_FILTERS).map(([key, v]) => ({ key, label: v.label, href: key === "all" ? "/customers" : `/customers?f=${key}` }))} />
         {customers.length === 0 ? (

@@ -84,12 +84,31 @@ function conditionApplies(slot: ApplicationSlot, states: FieldStates): boolean {
   return true;
 }
 
+const foldUpper = (v: unknown) =>
+  String(v ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+
+/** ¿La casilla corresponde al valor del perfil? `checkedWhen` admite alternativas "a|b". */
+export function checkboxMatches(checkedWhen: string | undefined, value: unknown): boolean {
+  if (!checkedWhen) return false;
+  return checkedWhen.split("|").some((c) => foldUpper(c) === foldUpper(value));
+}
+
 export function transformValue(slot: ApplicationSlot, values: unknown[]): string {
   const keys = slot.profileKeys ?? [];
   const parts = values.map((v, i) => {
     const key = keys[i]!;
     if (v === null || v === undefined || v === "") return "";
     switch (slot.transform) {
+      case "date_dd":
+        return String(v).split("-")[2] ?? "";
+      case "date_mm":
+        return String(v).split("-")[1] ?? "";
+      case "date_yyyy":
+        return String(v).split("-")[0] ?? "";
       case "date_ddmmyyyy": {
         const [y, m, d] = String(v).split("-");
         return y && m && d ? `${d}/${m}/${y}` : String(v);
@@ -144,7 +163,7 @@ export function analyzeApplication(adapter: CreditAdapter, states: FieldStates):
     const factIds = confirmedStates.map((s) => s.factId).filter((x): x is string => Boolean(x));
     const sourceLabels = Array.from(new Set(confirmedStates.map((s) => s.sourceLabel).filter((x): x is string => Boolean(x))));
     if (slot.pdfType === "checkbox") {
-      return { ...base, category: "confirmed" as const, checked: String(primaryState.value) === slot.checkedWhen, factIds, sourceLabels };
+      return { ...base, category: "confirmed" as const, checked: checkboxMatches(slot.checkedWhen, primaryState.value), factIds, sourceLabels };
     }
     return { ...base, category: "confirmed" as const, value: transformValue(slot, values), factIds, sourceLabels };
   });

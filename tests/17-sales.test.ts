@@ -11,9 +11,10 @@ import { attachValidatedQuote } from "@/server/services/quotes";
 import { createSale, getSaleDetail, listSales, updateSale } from "@/server/services/sales";
 import { makeApp, newProspect, type TestApp } from "./helpers";
 
+// Encabezados EXACTOS del Excel real de Mario (control_de_ventas_Mario.xlsx, Hoja1, fila 1).
 const MARIO_COLUMNS = [
-  "customer", "customer_number", "order_number", "invoice_number", "vehicle/unit", "bonus", "down_payment", "invoice_value", "invoice_date",
-  "delivery_date", "extras", "warranty_amount", "warranty_years", "opening_commission", "insurance_amount", "bonus_usage", "agreements",
+  "CLIENTE", "# DE CLIENTE", "# DE PEDIDO", "# FACTURA", "UNIDAD", "BONO", "ENGANCHE", "VALOR FACTURA", "FECHA DE FACTURA",
+  "FECHA DE ENTREGA", "ADICIONALES", "MONTO DE GARANTIA", "AÑOS DE GARANTIA", "COMISIÓN X APERTURA", "MONTO DEL SEGURO", "COMO SE USARÁ EL BONO", "ACUERDOS",
 ];
 
 describe("control de ventas", () => {

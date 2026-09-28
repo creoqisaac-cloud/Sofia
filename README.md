@@ -2,6 +2,7 @@
 
 - Sprint 1: **cerebro, persistencia y simulador**.
 - Sprint 2: **app operativa iPhone-first**. Incluye clientes con procedencia y conflictos, solicitudes de crédito BBVA/Banorte en PDF, memoria de corridas y control de ventas.
+- Sprint 3: **piloto para Mario**. Sofía como copiloto operativo: comando universal por texto o voz, cotizador V2 con calibración, seguimiento, citas, placas, correos y los PDFs reales de BBVA/Banorte. Ver [Sprint 3](#sprint-3--piloto-operativo).
 
 Todavía no hay WhatsApp, API de IA real, pagos, notificaciones push ni producción.
 
@@ -43,6 +44,8 @@ La implementación de Claude se conserva (`src/server/agent/providers/anthropic.
 | `npm run db:reset` | Borra y re-siembra la base **PGlite local** y sus documentos privados (detén la app antes) |
 | `npm run pdf:inspect -- archivo.pdf` | Lista nombres y tipos de campos AcroForm (nunca valores) |
 | `npm run pdf:register -- --institution BBVA --file archivo.pdf --version v1 [--mapping m.json] [--clear-values]` | Registra una plantilla PDF oficial |
+| `npm run demo:iphone` | Arranca la app en `0.0.0.0` y muestra las URLs **Local** y **Network** para abrirla en el iPhone (`-- --https` = HTTPS de desarrollo) |
+| `npm run pdf:compare -- --institution BBVA --blank vacio.pdf [--filled lleno.pdf] [--out private/x.pdf]` | Verifica el mapeo contra el PDF real (solo nombres/claves, nunca valores) |
 | `npm run qa:mobile` | QA con Playwright contra la app en marcha (`BASE_URL=…`); capturas en `qa-screenshots/` (ignorado) |
 
 ## Qué se puede hacer hoy
@@ -148,6 +151,70 @@ tests/                 Pruebas (dominio + integración con BD real en memoria)
 12. **Motor demo.** Implementa el mismo contrato con reglas y pasa por los mismos validadores. Hace el simulador usable sin costo y las pruebas reproducibles; no pretende la calidad conversacional del LLM.
 13. **Multitenancy ligera.** Toda entidad comercial lleva `workspace_id` (hoy solo el workspace de Mario) y hay tabla `users`; sin roles ni facturación todavía.
 14. **Documentos y PII.** En BD solo referencia opaca, hash y estado; al prompt solo tipo + estado; el logger redacta teléfonos/correos/CURP/RFC y omite cuerpos de mensaje; la API no expone llaves de almacenamiento.
+
+## Sprint 3 — piloto operativo
+
+Sofía **no es un CRM**: es el copiloto de Mario. La pantalla de inicio responde “¿qué necesito hacer ahorita?”.
+
+### Abrirlo en el iPhone (misma Wi‑Fi, sin nube)
+
+```bash
+npm install
+npm run demo:iphone        # imprime Local: y Network: → abre la URL Network en Safari
+```
+
+En Safari: Compartir → “Agregar a inicio”. Por HTTP, la voz del navegador puede no estar disponible. En ese caso el botón de micrófono lo explica y se usa el 🎤 del teclado del iPhone en el campo de Sofía; el resultado es el mismo. Con `npm run demo:iphone -- --https` hay HTTPS de desarrollo (certificado local).
+
+### Pantallas
+
+| Pantalla | Qué hace |
+|---|---|
+| **Inicio** | Comando/voz, acciones rápidas (Cotizar, Solicitud, Seguimiento, Cita, Venta) y **HOY**: una línea por asunto, con la acción concreta, calculada de datos reales |
+| **Cotizar** (`/quote`) | Modelo, versión, enganche y plazo → corrida con fuentes, o la lista exacta de lo que falta |
+| **Cliente** | Nombre, siguiente acción y secciones en una línea (cotizaciones, solicitud, seguimiento, citas, venta, placas, documentos); el detalle al tocar |
+| **Agenda** | Citas (agendada, confirmada, realizada, cancelada, no asistió) y seguimientos (contactar, posponer, completado, crear cita) |
+| **Ventas** | Tarjetas simples (cliente, unidad, estado, qué falta, pedido/factura, entrega); tabla de escritorio y **Exportar Excel** con las 17 columnas del control de Mario |
+| **Placas** | Trámite por cliente: requisitos **con fuente**, faltantes, estado, VIN, fecha límite y correo al gestor |
+| **Correo** | Borrador editable con adjuntos propuestos. **Enviar** exige confirmación y una cuenta configurada; si no hay cuenta, **Abrir en Mail** lo manda Mario desde su iPhone |
+| **Devoluciones** | Solo registro mínimo: “Proceso de devolución pendiente de definición por Mario.” |
+| **Programas** | Estado de calibración de cada programa de financiamiento contra corridas reales |
+
+### Comando universal (texto y voz)
+
+```
+texto/voz → intención + parámetros (src/domain/command.ts, determinista)
+          → herramienta determinista (src/server/command/router.ts)
+          → resultado  →  “¿Confirmas?” si modifica o envía algo (/api/command/confirm, re-validado con zod)
+```
+
+- **Intenciones:** quote, find_customer, customer_status, credit_status, documents_status, register_document, schedule_appointment, create_followup, sale_status, update_sale, plate_status, update_plate, draft_email, send_email, today, navigate y unknown.
+- **La voz** es una capa (`VoiceProvider`: Web Speech de Safari/Chrome → respaldo de texto; preparada para un STT de servidor) sobre el mismo endpoint.
+- **El texto libre nunca cambia datos comerciales:** el parser solo produce entradas (modelo, enganche, plazo, cliente, fecha). Las cifras las calcula el motor.
+- **Nada se envía solo:** los correos quedan en borrador hasta que Mario los confirma.
+
+### Cotizador V2 (exactitud)
+
+- **Motor** (`src/domain/quote-v2.ts`): cada componente lleva su fuente. Si un parámetro no está respaldado (tasa, IVA sobre intereses, % de apertura, seguro, cómo entra el bono), no hay mensualidad: “Falta información para reproducir esta cotización exactamente.” y la lista de lo que falta.
+- **Calibración:** un programa solo es **VALIDATED** si reproduce corridas reales de Mario **sin diferencias** (tolerancia de 1 centavo). Si no cuadra, se reporta la diferencia por componente; nunca se ajusta a mano.
+- **Tablas:** `price_books`, `vehicle_prices`, `finance_programs`, `finance_terms`, `quote_components`, `validated_quote_examples`, `quote_runs`. Los bonos siguen en `commercial_offers` + `promotion_rules`, y el enganche nunca sube el bono.
+- **Datos hoy:** los archivos recibidos no traen precios, tasas ni corridas. La demo usa un programa **DEMO** ficticio. Lo que hay que pedirle a Mario está en [`QUOTE_ENGINE_MISSING_INPUTS.md`](QUOTE_ENGINE_MISSING_INPUTS.md).
+
+### Solicitudes con los PDF reales
+
+- **Adaptadores:** `bbva.ts` y `banorte.ts` están mapeados campo por campo contra los formularios reales (BBVA 101 campos, Banorte 133). `campo#n` es la opción n de una casilla múltiple.
+- **Verificación:** en los PDFs llenos de ejemplo, el 100 % de los campos que Mario llenó está mapeado (BBVA 24/24, Banorte 23/23).
+- **Registro del PDF real** (queda fuera de git):
+  ```bash
+  npm run pdf:register -- --institution BBVA --file vacio.pdf --version 2026 --clear-values
+  ```
+  El mapeo exacto se aplica solo al reconocer la versión.
+- **Borrador:** empieza limpiando **todo** residuo de la plantilla (el BBVA “vacío” trae una respuesta PEP marcada y el Banorte “nuevo” trae datos de otro cliente). Después llena solo datos confirmados; PEP, cuestionario médico, consentimientos y firmas nunca se llenan.
+
+### Seguridad del piloto
+
+- Sin API de IA (motor demo por defecto) y sin envío automático de correos.
+- Sin automatizar portales de placas: los requisitos de placas llevan fuente y no se inventan.
+- Los PDFs y Excel reales, `private/` y `qa-screenshots/` están en `.gitignore`. Pruebas y seed usan solo datos ficticios.
 
 ## Sprint 2 — app operativa
 
@@ -393,7 +460,7 @@ También agrega columnas de procedencia en `customer_facts` y el vínculo `credi
 
 ## Pruebas
 
-`npm test` — 18 archivos, 105 casos, todos con PostgreSQL real (PGlite en memoria) y reloj fijo:
+`npm test` — 21 archivos, 154 casos, todos con PostgreSQL real (PGlite en memoria) y reloj fijo:
 
 | # | Requisito | Archivo |
 |---|---|---|
@@ -415,6 +482,9 @@ También agrega columnas de procedencia en `customer_facts` y el vínculo `credi
 | S2 | Corridas exactas sin interpolación; vencidas como históricas | `tests/16-quotes-memory.test.ts` |
 | S2 | Ventas: herencia, auditoría de cambios, flujo de estados | `tests/17-sales.test.ts` |
 | S2 | Integridad (valores JSON como texto) y migración 0000→0001 | `tests/18-data-integrity.test.ts` |
+| S3 | Cotizador V2: reproducible, cero invento, vigencia, bono, enganche, plazo, calibración | `tests/19-quote-v2.test.ts` |
+| S3 | Comandos (parsing), confirmación obligatoria, correos nunca automáticos, búsqueda, voz con respaldo | `tests/20-command.test.ts` |
+| S3 | HOY, citas, seguimiento, ventas/Excel, placas, devoluciones, PDF sin residuos | `tests/21-operations.test.ts` |
 
 Las pruebas de “mal comportamiento del modelo” usan un proveedor guionizado (`ScriptedProvider`) que responde como lo haría un LLM que inventa, y verifican que el backend lo contiene.
 

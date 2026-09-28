@@ -1,71 +1,51 @@
 import Link from "next/link";
-import { MobileHeader, Page } from "@/components/app/AppShell";
-import { AlertCard } from "@/components/app/cards";
-import { AlertActions } from "@/components/app/forms";
-import { EmptyState, SectionCard, Stat } from "@/components/app/ui";
-import { ESCALATION_TRIGGER_LABELS } from "@/domain/enums";
+import { SofiaCommand } from "@/components/sofia/SofiaCommand";
+import { TodayList } from "@/components/sofia/TodayList";
 import { getAppContext } from "@/server/app";
-import { getDashboard } from "@/server/services/dashboard";
+import { getTodayItems } from "@/server/services/today";
 
-export default async function DashboardPage() {
+const QUICK = [
+  { label: "Cotizar", href: "/quote" },
+  { label: "Solicitud", href: "/customers?f=credit" },
+  { label: "Seguimiento", href: "/agenda#seguimiento" },
+  { label: "Cita", href: "/agenda?new=1" },
+  { label: "Venta", href: "/sales" },
+];
+
+/** HOME: "¿Qué necesito hacer ahorita?" — comando/voz arriba y solo lo que requiere acción. */
+export default async function HomePage() {
   const app = await getAppContext();
-  const { counts, priorities, marioAlerts } = await getDashboard(app);
-  const today = app.clock.now().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" });
+  const items = await getTodayItems(app);
+  const raw = app.clock.now().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" });
+  const today = raw.charAt(0).toUpperCase() + raw.slice(1);
   return (
-    <>
-      <MobileHeader title="Hola, Mario" subtitle={today.charAt(0).toUpperCase() + today.slice(1)} />
-      <Page>
-        {marioAlerts.length > 0 && (
-          <section className="space-y-3">
-            {marioAlerts.slice(0, 3).map((a) => (
-              <AlertCard key={a.id} severity="high" title="🔥 MARIO, ENTRA TÚ" customerName={a.customerName} detail={`${ESCALATION_TRIGGER_LABELS[a.trigger]} · ${a.payload.recommendedNextStep}`} href={`/customers/${a.customerId}`}>
-                <AlertActions alertId={a.id} status={a.status} />
-              </AlertCard>
-            ))}
-            {marioAlerts.length > 3 && (
-              <Link href="/alerts" className="block text-center text-sm text-emerald-400">
-                Ver {marioAlerts.length - 3} alertas más
-              </Link>
-            )}
-          </section>
-        )}
+    <div className="mx-auto flex max-w-xl flex-col px-4 pb-8 pt-[calc(env(safe-area-inset-top)+1rem)]">
+      <div className="flex items-center justify-between">
+        <span className="sofia-title text-[13px] font-semibold text-sand">SOFÍA</span>
+        <span className="text-[13px] text-faint">{today}</span>
+      </div>
+      <h1 className="mt-6 text-[30px] font-semibold leading-tight tracking-tight text-ivory">¿Qué necesitas, Mario?</h1>
+      <div className="mt-5">
+        <SofiaCommand />
+      </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Clientes calientes" value={counts.hot} tone="orange" href="/customers?f=hot" />
-          <Stat label="Citas de hoy" value={counts.appointmentsToday} tone="blue" href="/customers?f=appointment" />
-          <Stat label="Solicitudes pendientes" value={counts.pendingApplications} tone="amber" href="/customers?f=credit" />
-          <Stat label="Créditos aprobados" value={counts.approvedCredits} tone="green" href="/alerts" />
-          <Stat label="Documentos pendientes" value={counts.pendingDocuments} tone="amber" href="/alerts" />
-          <Stat label="Ventas por facturar" value={counts.toInvoice} tone="violet" href="/sales?f=in_process" />
-          <Stat label="Unidades por entregar" value={counts.toDeliver} tone="orange" href="/sales?f=to_deliver" />
-          <Stat label="Seguimientos atrasados" value={counts.overdueFollowups} tone="red" href="/customers?f=follow_up" />
+      <nav aria-label="Acciones rápidas" className="-mx-4 mt-6 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+        {QUICK.map((q) => (
+          <Link key={q.label} href={q.href} className="flex min-h-11 shrink-0 items-center rounded-full bg-panel px-5 text-[15px] text-ivory active:bg-raise">
+            {q.label}
+          </Link>
+        ))}
+      </nav>
+
+      <section className="mt-8">
+        <div className="flex items-baseline justify-between">
+          <h2 className="sofia-title text-[12px] font-semibold text-dim">HOY</h2>
+          {items.length > 0 && <span className="text-[13px] text-faint">{items.length} por atender</span>}
         </div>
-
-        <SectionCard title="Prioridades de hoy">
-          {priorities.length === 0 ? (
-            <EmptyState>Nada urgente por ahora.</EmptyState>
-          ) : (
-            <ul className="-my-2 divide-y divide-zinc-800">
-              {priorities.map((p) => (
-                <li key={p.customerId}>
-                  <Link href={p.href} className="flex min-h-14 items-start gap-3 py-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-base font-semibold text-zinc-50">{p.customerName}</div>
-                      {p.vehicle && <div className="text-sm text-zinc-400">{p.vehicle}</div>}
-                      {p.lines.map((l) => (
-                        <div key={l} className="text-sm text-zinc-300">
-                          {l}
-                        </div>
-                      ))}
-                    </div>
-                    <span className="text-xl text-zinc-600">›</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SectionCard>
-      </Page>
-    </>
+        <div className="mt-1">
+          <TodayList items={items.slice(0, 10)} />
+        </div>
+      </section>
+    </div>
   );
 }

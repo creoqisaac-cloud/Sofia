@@ -2,16 +2,28 @@
 
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Sprint 3 — paleta propia: negro cálido, texto marfil, un solo acento arena. */
+  --color-ink: #0a0a0b;
+  --color-panel: #141416;
+  --color-raise: #1c1c1f;
+  --color-line: #26262a;
+  --color-ivory: #f3f1ec;
+  --color-dim: #9a9a9f;
+  --color-faint: #6b6b70;
+  --color-sand: #e7d3ae;
+  --color-sand-deep: #c9ad7a;
+  --color-alert: #f0a35e;
+  --color-good: #8fcf9b;
 }
 
 html,
 body {
   height: 100%;
-  background-color: #09090b;
+  background-color: #0a0a0b;
 }
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  @apply bg-ink text-ivory antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
@@ -31,4 +43,20 @@ textarea {
 
 .chat-bg {
   background-color: #efeae2;
+}
+
+/* Sprint 3 */
+.sofia-title {
+  letter-spacing: 0.32em;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+@keyframes sofia-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(231, 211, 174, 0.45); }
+  70% { box-shadow: 0 0 0 22px rgba(231, 211, 174, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(231, 211, 174, 0); }
+}
+.mic-live {
+  animation: sofia-pulse 1.4s infinite;
 }

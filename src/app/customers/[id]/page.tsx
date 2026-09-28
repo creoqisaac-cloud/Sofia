@@ -1,4 +1,12 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { SofiaCommand } from "@/components/sofia/SofiaCommand";
+import { IconChevron, IconPhone } from "@/components/sofia/icons";
+import { CREDIT_APPLICATION_STATUS_LABELS, CRM_STAGE_LABELS, SALE_STATUS_LABELS, TEMPERATURE_LABELS } from "@/domain/enums";
+import { salePendingItems } from "@/domain/sales";
+import { getFollowupSummary, RESPONSE_STATUS_LABELS } from "@/server/services/agenda";
+import { listPlateCases, PLATE_STATUS_LABELS, plateMissing, type PlateStatus } from "@/server/services/plates";
+import { listQuoteRuns } from "@/server/services/quote-v2";
 import { MobileHeader, Page } from "@/components/app/AppShell";
 import { AppointmentsTab, ConversationTab, CreditTab, DataTab, DocumentsTab, HistoryTab, QuotesTab, SalesTab, SummaryTab } from "@/components/app/customer-tabs";
 import { ChipNav, DemoPill, StageBadge, TemperatureBadge } from "@/components/app/ui";
@@ -30,6 +38,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     throw e;
   }
   const active = TABS.some(([k]) => k === tab) ? tab : "resumen";
+  if (active === "resumen") return <CustomerHome o={o} id={id} app={app} />;
   const counts: Record<string, number> = {
     cotizaciones: o.quotes.length,
     credito: o.applications.length,
@@ -40,7 +49,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
   return (
     <>
       <MobileHeader
-        back="/customers"
+        back={`/customers/${id}`}
         title={o.customer.displayName}
         subtitle={
           <span className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -63,6 +72,95 @@ export default async function CustomerPage({ params, searchParams }: { params: P
         {active === "citas" && <AppointmentsTab o={o} />}
         {active === "historial" && <HistoryTab o={o} />}
       </Page>
+    </>
+  );
+}
+
+/** Ficha rediseñada: nombre, siguiente acción y secciones en una línea (el detalle al tocar). */
+async function CustomerHome({ o, id, app }: { o: Awaited<ReturnType<typeof getCustomerOverview>>; id: string; app: Awaited<ReturnType<typeof getAppContext>> }) {
+  const now = app.clock.now();
+  const [fu, plates, runs] = await Promise.all([getFollowupSummary(app, id), listPlateCases(app, { customerId: id, openOnly: true }), listQuoteRuns(app, { customerId: id, savedOnly: true, limit: 1 })]);
+  const sale = o.sales[0];
+  const salePend = sale ? salePendingItems(sale, now) : [];
+  const appl = o.applications.find((a) => !["cancelled", "rejected"].includes(a.status)) ?? o.applications[0];
+  const missingDocs = o.documents.filter((d) => d.requiredBy.length && ["missing", "requested", "rejected"].includes(d.status));
+  const nextAppt = o.appointments.find((a) => a.scheduledAt && a.scheduledAt >= now && ["scheduled", "confirmed", "proposed"].includes(a.status));
+  const plate = plates[0]?.plate;
+  const fmt = (d: Date | null | undefined, time = false) => (d ? d.toLocaleString("es-MX", time ? { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false } : { day: "numeric", month: "short" }) : "—");
+
+  // Siguiente acción: la más concreta disponible.
+  const next =
+    o.conflicts.length && appl
+      ? { text: `Resolver ${o.conflicts.length} dato(s) que no coinciden`, label: "Resolver", href: `/customers/${id}/credit/${appl.id}?step=completar` }
+      : appl?.status === "approved" && sale && salePend.length
+        ? { text: `Crédito aprobado · ${salePend[0]}`, label: "Continuar venta", href: `/sales/${sale.id}` }
+        : missingDocs.length
+          ? { text: `Falta ${missingDocs.map((d) => d.label.toLowerCase()).join(", ")}`, label: "Solicitar documento", href: `/customers/${id}?tab=documentos` }
+          : fu.next
+            ? { text: `${fu.next.reason} · ${fmt(fu.next.dueAt, true)}`, label: fu.next.action ?? "Seguimiento", href: `/agenda#seguimiento` }
+            : plate && plateMissing(plate).length
+              ? { text: `Placas: falta ${plateMissing(plate)[0]!.toLowerCase()}`, label: "Ver placas", href: `/plates/${plate.id}` }
+              : { text: o.summary?.nextAction?.description ?? "Sin acción pendiente registrada", label: "Crear seguimiento", href: `/agenda?new=${id}` };
+
+  const rows: Array<{ label: string; value: string; href: string; warn?: boolean }> = [
+    { label: "Cotizaciones", value: o.quotes.length ? `${o.quotes.length} · última ${o.quotes[0]!.vehicleLabel} ${o.quotes[0]!.effectiveLabel.toLowerCase()}` : runs.length ? "Corrida guardada" : "Sin cotizaciones", href: `/customers/${id}?tab=cotizaciones` },
+    { label: "Solicitud", value: appl ? `${appl.institutionName} · ${CREDIT_APPLICATION_STATUS_LABELS[appl.status]}` : "Sin solicitud", href: `/customers/${id}?tab=credito`, warn: appl?.status === "conflict" || appl?.status === "missing_information" },
+    { label: "Seguimiento", value: `${fu.lastContactAt ? `Último contacto ${fmt(fu.lastContactAt)}` : "Sin contacto registrado"}${fu.responseStatus !== "none" ? ` · ${RESPONSE_STATUS_LABELS[fu.responseStatus]}` : ""}${fu.promise ? " · promesa pendiente" : ""}`, href: `/agenda#seguimiento`, warn: Boolean(fu.promise) },
+    { label: "Citas", value: nextAppt ? fmt(nextAppt.scheduledAt, true) : "Sin cita próxima", href: `/customers/${id}?tab=citas` },
+    { label: "Venta", value: sale ? `${SALE_STATUS_LABELS[sale.status]}${salePend.length ? ` · ${salePend[0]}` : ""}` : "Sin venta", href: sale ? `/sales/${sale.id}` : `/customers/${id}?tab=ventas`, warn: salePend.length > 0 },
+    { label: "Placas", value: plate ? `${PLATE_STATUS_LABELS[plate.status as PlateStatus]}${plateMissing(plate).length ? ` · faltan ${plateMissing(plate).length}` : ""}` : "Sin trámite", href: plate ? `/plates/${plate.id}` : `/plates/new?customer=${id}` },
+    { label: "Documentos", value: missingDocs.length ? `Faltan ${missingDocs.length}` : "Completos", href: `/customers/${id}?tab=documentos`, warn: missingDocs.length > 0 },
+    { label: "Datos del cliente", value: o.conflicts.length ? `${o.conflicts.length} conflicto(s)` : "Perfil", href: `/customers/${id}?tab=datos`, warn: o.conflicts.length > 0 },
+  ];
+
+  return (
+    <>
+      <MobileHeader back="/customers" title="" />
+      <div className="mx-auto flex max-w-xl flex-col px-4 pb-8">
+        <h1 className="text-[30px] font-semibold leading-tight tracking-tight text-ivory">
+          {o.customer.displayName.replace(/\s*\(DEMO\)\s*/, "")}
+          {o.customer.isDemo && <span className="ml-2 align-middle text-[11px] tracking-wider text-faint">DEMO</span>}
+        </h1>
+        <p className="mt-1 text-[15px] text-dim">
+          {[o.vehicle ?? "Sin vehículo de interés", CRM_STAGE_LABELS[o.crm.stage], TEMPERATURE_LABELS[o.crm.temperature]].join(" · ")}
+        </p>
+        {o.phone && (
+          <a href={`tel:${o.phone}`} className="mt-3 flex min-h-11 w-fit items-center gap-2 rounded-full bg-panel px-4 text-[15px] text-ivory">
+            <IconPhone width={17} height={17} /> Llamar
+          </a>
+        )}
+
+        <section className="mt-6 rounded-3xl bg-panel p-5">
+          <div className="sofia-title text-[11px] font-semibold text-dim">SIGUIENTE ACCIÓN</div>
+          <p className="mt-2 text-[18px] leading-snug text-ivory">{next.text}</p>
+          <Link href={next.href} className="mt-4 flex min-h-12 items-center justify-center rounded-2xl bg-sand text-[16px] font-semibold text-ink">
+            {next.label}
+          </Link>
+        </section>
+
+        <ul className="mt-6 divide-y divide-line">
+          {rows.map((r) => (
+            <li key={r.label}>
+              <Link href={r.href} className="flex min-h-14 items-center gap-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[16px] text-ivory">{r.label}</div>
+                  <div className={`truncate text-[14px] ${r.warn ? "text-alert" : "text-dim"}`}>{r.value}</div>
+                </div>
+                <IconChevron className="shrink-0 text-faint" width={18} height={18} />
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-2 flex gap-4 text-[14px] text-faint">
+          <Link href={`/customers/${id}?tab=conversacion`}>Conversación</Link>
+          <Link href={`/customers/${id}?tab=historial`}>Historial</Link>
+        </div>
+
+        <div className="mt-8">
+          <div className="mb-2 text-[13px] text-dim">Pregúntale a Sofía sobre este cliente</div>
+          <SofiaCommand placeholder="¿Qué le falta? · Agenda mañana a las 5…" customerId={id} />
+        </div>
+      </div>
     </>
   );
 }

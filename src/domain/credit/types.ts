@@ -14,7 +14,10 @@ export type SlotTransform =
   | "money"
   | "phone10"
   | "enum_label"
-  | "int";
+  | "int"
+  | "date_dd"
+  | "date_mm"
+  | "date_yyyy";
 
 export interface SlotCondition {
   profileKey: string;
@@ -33,8 +36,13 @@ export interface ApplicationSlot {
   profileKeys?: string[];
   transform?: SlotTransform;
   pdfType: "text" | "checkbox";
-  /** Para casillas de datos (no consentimientos): se marca si el valor del perfil es este. */
+  /** Para casillas de datos (no consentimientos): se marca si el valor del perfil es este ("a|b" = cualquiera). */
   checkedWhen?: string;
+  /**
+   * Nombre REAL del campo AcroForm en el PDF oficial entregado por Mario (versión conocida).
+   * "campo#n" = n-ésimo widget de una casilla con varias opciones (BBVA).
+   */
+  field?: string;
   condition?: SlotCondition;
   note?: string;
 }

@@ -66,11 +66,12 @@ const UNITS: Record<string, number> = {
   novecientos: 900,
 };
 
-const WORD = Object.keys(UNITS).join("|");
+export const NUMBER_WORDS = Object.keys(UNITS);
+const WORD = NUMBER_WORDS.join("|");
 // "ochenta mil", "ciento cincuenta mil", "treinta y cinco mil"
 const WORD_THOUSANDS = new RegExp(`\\b((?:(?:${WORD})(?:\\s+y\\s+|\\s+)?)+)\\s*mil\\b`, "g");
 
-function wordsToNumber(words: string): number | null {
+export function wordsToNumber(words: string): number | null {
   const tokens = words
     .split(/\s+/)
     .map((t) => t.trim())

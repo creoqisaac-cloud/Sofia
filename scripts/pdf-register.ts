@@ -9,7 +9,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { PDFCheckBox, PDFDocument, PDFTextField } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
+import { clearField, fieldHasValue } from "../src/server/credit/pdf";
 import { createAppContext, createHandleFromConfig } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import { DemoProvider } from "../src/server/agent/providers/demo";
@@ -30,16 +31,14 @@ if (!institution || !file) {
 let bytes: Uint8Array = new Uint8Array(fs.readFileSync(file));
 const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
 const form = doc.getForm();
-const withValues = form.getFields().filter((f) => (f instanceof PDFTextField && (f.getText() ?? "").trim()) || (f instanceof PDFCheckBox && f.isChecked()));
+// Incluye casillas de varias opciones con un widget encendido (el BBVA "vacío" trae una respuesta PEP marcada).
+const withValues = form.getFields().filter((f) => fieldHasValue(f));
 if (withValues.length) {
   if (!args.includes("--clear-values")) {
     console.error(`El PDF tiene ${withValues.length} campos con valores (posible PII). Usa --clear-values para registrar una copia en blanco.`);
     process.exit(1);
   }
-  for (const f of form.getFields()) {
-    if (f instanceof PDFTextField) f.setText("");
-    if (f instanceof PDFCheckBox) f.uncheck();
-  }
+  for (const f of form.getFields()) clearField(f);
   bytes = await doc.save();
 }
 const mapping = arg("mapping") ? (JSON.parse(fs.readFileSync(arg("mapping")!, "utf8")) as Record<string, string>) : undefined;
