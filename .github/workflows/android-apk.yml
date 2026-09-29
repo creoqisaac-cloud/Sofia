@@ -1,13 +1,64 @@
 name: Android APK (Sofía tablet)
 
+# Compila la APK de Sofía (cascarón Capacitor). Los runners de GitHub ya traen el Android SDK.
+# Resultado: artefacto "sofia-apk" + release "tablet-<n>" con Sofia.apk.
 on:
   workflow_dispatch:
+    inputs:
+      server_url:
+        description: "URL por defecto del servidor de Sofía (se puede cambiar en la tablet)"
+        required: false
   push:
     branches: [claude/laughing-sagan-hbxj3y]
-    paths: ["android/**", "android-shell/**", "capacitor.config.ts", ".github/workflows/android-apk.yml"]
+    paths: ["android/**", "android-shell/**", "capacitor.config.ts", "package.json", ".github/workflows/android-apk.yml"]
+
+permissions:
+  contents: write
 
 jobs:
   apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - run: echo "placeholder"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - run: npm ci --ignore-scripts
+      - name: Sincronizar Capacitor
+        env:
+          SOFIA_SERVER_URL: ${{ github.event.inputs.server_url || vars.SOFIA_SERVER_URL || 'http://192.168.1.100:3000' }}
+        run: npx cap sync android
+      - name: Firma (keystore del repositorio en secretos, si existe)
+        if: ${{ env.KS != '' }}
+        env:
+          KS: ${{ secrets.SOFIA_KEYSTORE_BASE64 }}
+        run: echo "$KS" | base64 -d > android/app/sofia-release.keystore
+      - name: Compilar APK
+        working-directory: android
+        env:
+          SOFIA_KEYSTORE_PASSWORD: ${{ secrets.SOFIA_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          if [ -f app/sofia-release.keystore ]; then ./gradlew --no-daemon assembleRelease; cp app/build/outputs/apk/release/app-release.apk ../Sofia.apk
+          else ./gradlew --no-daemon assembleDebug; cp app/build/outputs/apk/debug/app-debug.apk ../Sofia.apk; fi
+          ls -la ../Sofia.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sofia-apk
+          path: Sofia.apk
+          retention-days: 30
+      - name: Publicar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "tablet-${{ github.run_number }}" Sofia.apk \
+            --target "${{ github.sha }}" --prerelease \
+            --title "Sofía tablet #${{ github.run_number }}" \
+            --notes "APK privada para la tablet de Mario (no Play Store). Instalar: ver ANDROID_TABLET.md."

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sofía · Conexión</title>
+<style>
+  :root { --ink:#0a0a0b; --panel:#141416; --raise:#1c1c1f; --ivory:#f3f1ec; --dim:#9a9a9f; --sand:#e7d3ae; --alert:#f0a35e; --good:#8fcf9b; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background:var(--ink); color:var(--ivory); font-family: system-ui, -apple-system, Roboto, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 40px) 24px 40px; }
+  .brand { letter-spacing:.32em; color:var(--sand); font-weight:600; font-size:14px; }
+  h1 { font-size: 28px; margin: 24px 0 8px; }
+  p { color: var(--dim); line-height: 1.5; font-size: 16px; }
+  label { display:block; margin-top:20px; color:var(--dim); font-size:14px; }
+  input { width:100%; margin-top:6px; padding:14px; border-radius:14px; border:0; background:var(--raise); color:var(--ivory); font-size:18px; }
+  button { width:100%; margin-top:24px; min-height:54px; border:0; border-radius:16px; background:var(--sand); color:var(--ink); font-size:18px; font-weight:600; }
+  .secondary { background: var(--raise); color: var(--ivory); font-weight: 400; }
+  .msg { margin-top:16px; min-height: 22px; }
+  .err { color: var(--alert); } .ok { color: var(--good); }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">SOFÍA</div>
+  <h1>Conexión con el servidor</h1>
+  <p id="why">No pude abrir Sofía. Revisa que el servidor esté encendido y que la tablet esté en la misma red (o usa la dirección HTTPS del servidor).</p>
+  <form id="f">
+    <label>Dirección del servidor
+      <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="http://192.168.1.100:3000" required>
+    </label>
+    <label>Usuario (si el servidor tiene contraseña)
+      <input id="user" autocomplete="off" autocapitalize="off">
+    </label>
+    <label>Contraseña
+      <input id="pass" type="password" autocomplete="off">
+    </label>
+    <button type="submit">Guardar y conectar</button>
+    <button type="button" class="secondary" id="retry">Reintentar</button>
+    <div id="msg" class="msg"></div>
+  </form>
+  <p style="margin-top:32px;font-size:13px">La dirección y la contraseña se guardan solo en esta tablet. La app no incluye datos ni contraseñas.</p>
+</main>
+<script>
+  var plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SofiaServer;
+  var msg = document.getElementById("msg");
+  if (/auth=1/.test(location.search)) document.getElementById("why").textContent = "El servidor pide usuario y contraseña. Escríbelos abajo.";
+  if (plugin) plugin.get().then(function (c) {
+    document.getElementById("url").value = c.url || "";
+    document.getElementById("user").value = c.user || "";
+  });
+  document.getElementById("f").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var url = document.getElementById("url").value.trim().replace(/\/+$/, "");
+    if (!/^https?:\/\/[^\s]+$/.test(url)) { msg.className = "msg err"; msg.textContent = "Escribe una dirección que empiece con http:// o https://"; return; }
+    if (!plugin) { msg.className = "msg err"; msg.textContent = "Esta pantalla solo funciona dentro de la app."; return; }
+    msg.className = "msg ok"; msg.textContent = "Conectando…";
+    plugin.set({ url: url, user: document.getElementById("user").value.trim(), pass: document.getElementById("pass").value });
+  });
+  document.getElementById("retry").addEventListener("click", function () { if (plugin) plugin.reload(); });
+</script>
+</body>
+</html>
