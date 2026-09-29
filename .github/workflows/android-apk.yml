@@ -29,7 +29,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - uses: android-actions/setup-android@v3
+      - name: Android SDK del runner
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties && ls "$ANDROID_HOME/platforms" | tail -3
       - run: npm ci --ignore-scripts
       - name: Sincronizar Capacitor
         env:
