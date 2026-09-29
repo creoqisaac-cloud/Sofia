@@ -1,0 +1,26 @@
+# Render Blueprint: New → Blueprint → este repo. Crea el servidor de Sofía siempre encendido.
+# Plan "starter" (de pago) porque el disco persistente no existe en el plan gratis:
+# sin disco, cada reinicio borraría clientes y documentos.
+services:
+  - type: web
+    name: sofia
+    runtime: docker
+    plan: starter
+    region: oregon
+    branch: claude/laughing-sagan-hbxj3y
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    numInstances: 1
+    disk:
+      name: sofia-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SOFIA_BASIC_AUTH
+        sync: false # Render la pide al crear: mario:una-contraseña-larga
+      - key: SOFIA_LLM_PROVIDER
+        value: demo
+      - key: PGLITE_DATA_DIR
+        value: /data/pglite
+      - key: SOFIA_PRIVATE_STORAGE_DIR
+        value: /data/private-docs

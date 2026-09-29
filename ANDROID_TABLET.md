@@ -27,7 +27,7 @@ SOFIA_BASIC_AUTH=mario:una-contraseña-larga npm run demo:iphone
 La consola muestra `Network: http://192.168.x.x:3000`. Esa es la dirección para la tablet.
 
 - La computadora debe seguir encendida mientras Mario usa la app.
-- Para usarla fuera de la agencia hace falta un servidor HTTPS fijo; eso todavía no está contratado.
+- Para que funcione sin computadora encendida y fuera de la agencia, sube el servidor a Render: ver `DEPLOY.md`.
 
 ## 2. Descargar la APK
 

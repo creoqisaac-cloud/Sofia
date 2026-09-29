@@ -26,6 +26,8 @@ export function proxy(request: NextRequest) {
   if (!expected) return withMode(request, NextResponse.next());
   // Alexa no puede mandar Basic Auth: /api/alexa se protege con la firma de Amazon (ver src/server/alexa/http.ts).
   if (request.nextUrl.pathname === "/api/alexa") return NextResponse.next();
+  // Health check del hosting: no expone datos.
+  if (request.nextUrl.pathname === "/api/health") return NextResponse.next();
   const header = request.headers.get("authorization") ?? "";
   const [scheme, encoded] = header.split(" ");
   if (scheme === "Basic" && encoded) {
