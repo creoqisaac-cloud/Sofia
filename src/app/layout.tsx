@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { AppShell } from "@/components/app/AppShell";
 import { getAppContext } from "@/server/app";
+import { isTabletMode } from "@/server/pilot";
 import { getDashboardCounts } from "@/server/services/nav";
 import "./globals.css";
 
@@ -21,17 +22,17 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#09090b",
+  themeColor: "#0a0a0b",
   colorScheme: "dark",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const app = await getAppContext();
-  const alertCount = await getDashboardCounts(app);
+  const [alertCount, tablet] = await Promise.all([getDashboardCounts(app), isTabletMode()]);
   return (
     <html lang="es-MX" className="dark">
       <body>
-        <AppShell alertCount={alertCount}>{children}</AppShell>
+        <AppShell alertCount={alertCount} mode={tablet ? "tablet" : "full"}>{children}</AppShell>
       </body>
     </html>
   );

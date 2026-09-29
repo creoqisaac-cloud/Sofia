@@ -46,6 +46,7 @@ La implementación de Claude se conserva (`src/server/agent/providers/anthropic.
 | `npm run pdf:register -- --institution BBVA --file archivo.pdf --version v1 [--mapping m.json] [--clear-values]` | Registra una plantilla PDF oficial |
 | `npm run demo:iphone` | Arranca la app en `0.0.0.0` y muestra las URLs **Local** y **Network** para abrirla en el iPhone (`-- --https` = HTTPS de desarrollo) |
 | `npm run pdf:compare -- --institution BBVA --blank vacio.pdf [--filled lleno.pdf] [--out private/x.pdf]` | Verifica el mapeo contra el PDF real (solo nombres/claves, nunca valores) |
+| `npm run android:sync` / `android:open` / `android:apk` | Sincroniza, abre en Android Studio o compila la APK (requiere Android SDK; si no, GitHub Actions) |
 | `npm run alexa:dev` | Túnel HTTPS temporal (cloudflared) hacia Sofía local para la skill de Alexa; ver [`ALEXA_SETUP.md`](ALEXA_SETUP.md) |
 | `npm run qa:mobile` | QA con Playwright contra la app en marcha (`BASE_URL=…`); capturas en `qa-screenshots/` (ignorado) |
 
@@ -199,6 +200,16 @@ texto/voz → intención + parámetros (src/domain/command.ts, determinista)
 - **Calibración:** un programa solo es **VALIDATED** si reproduce corridas reales de Mario **sin diferencias** (tolerancia de 1 centavo). Si no cuadra, se reporta la diferencia por componente; nunca se ajusta a mano.
 - **Tablas:** `price_books`, `vehicle_prices`, `finance_programs`, `finance_terms`, `quote_components`, `validated_quote_examples`, `quote_runs`. Los bonos siguen en `commercial_offers` + `promotion_rules`, y el enganche nunca sube el bono.
 - **Datos hoy:** los archivos recibidos no traen precios, tasas ni corridas. La demo usa un programa **DEMO** ficticio. Lo que hay que pedirle a Mario está en [`QUOTE_ENGINE_MISSING_INPUTS.md`](QUOTE_ENGINE_MISSING_INPUTS.md).
+
+### Tablet Android (piloto de Mario)
+
+Hay una APK de Sofía (Capacitor) con modo tablet enfocado en Solicitudes, Seguimiento y Placas:
+
+- bandeja de documentos con extracción sin IA; todo entra como *observado* hasta que Mario lo confirma;
+- PDF de solicitud con Ver, Compartir y Guardar;
+- Sofía **no cotiza**: Mario registra la cotización que mandó.
+
+Instalación y pruebas: [`ANDROID_TABLET.md`](ANDROID_TABLET.md). Integración futura con Sale-U: [`SALEU_INTEGRATION.md`](SALEU_INTEGRATION.md).
 
 ### Alexa
 

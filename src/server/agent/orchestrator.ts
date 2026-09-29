@@ -10,6 +10,7 @@
  *
  * El texto libre del modelo nunca modifica la BD directamente.
  */
+import { isAiProvider, recordAiUsage } from "../services/ai-usage";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { guardReply, type GuardReport, type GuardViolation } from "@/domain/guards";
@@ -73,7 +74,12 @@ export async function runSofiaTurn(app: AppContext, args: { conversationId: stri
     const prompt = buildPrompt(ctx, { correction });
     contextStats = prompt.stats;
     try {
+      const t0 = Date.now();
       const res = await app.provider.generate({ ctx, prompt, tools });
+      // Métrica de IA: solo proveedores reales (el motor demo es determinista).
+      if (isAiProvider(app.provider.name)) {
+        await recordAiUsage(app, { provider: app.provider.name, purpose: "conversation", ok: true, durationMs: Date.now() - t0, inputTokens: res.usage?.input_tokens, outputTokens: res.usage?.output_tokens });
+      }
       model = res.model ?? model;
       usage = res.usage;
       const parsed = AgentOutputSchema.safeParse(res.raw);

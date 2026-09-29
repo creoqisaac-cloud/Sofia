@@ -157,3 +157,11 @@ export async function listEmails(app: AppContext, opts: { customerId?: string } 
   if (opts.customerId) conds.push(eq(s.emailMessages.customerId, opts.customerId));
   return app.db.select().from(s.emailMessages).where(and(...conds)).orderBy(desc(s.emailMessages.createdAt)).limit(30);
 }
+
+/** Mario lo envió desde su correo (compartir / app de correo): se registra como enviado, sin proveedor. */
+export async function markSentManually(app: AppContext, id: string) {
+  const e = await getEmail(app, id);
+  if (!["draft", "opened_in_mail"].includes(e.status)) throw new ServiceError("Este correo ya no está pendiente.", 409);
+  await app.db.update(s.emailMessages).set({ status: "sent", provider: "manual", sentAt: app.clock.now(), updatedAt: app.clock.now() }).where(eq(s.emailMessages.id, id));
+  await app.db.insert(s.auditEvents).values({ workspaceId: app.workspaceId, actorType: "mario", eventType: "email_marked_sent", entityType: "email", entityId: id, customerId: e.customerId, data: { purpose: e.purpose } });
+}

@@ -63,3 +63,10 @@ jobs:
             --target "${{ github.sha }}" --prerelease \
             --title "Sofía tablet #${{ github.run_number }}" \
             --notes "APK privada para la tablet de Mario (no Play Store). Instalar: ver ANDROID_TABLET.md."
+      - name: Publicar APK en la rama apk-tablet (descarga directa sin artefactos)
+        run: |
+          mkdir -p /tmp/apk && cp Sofia.apk /tmp/apk/ && cd /tmp/apk
+          echo "APK privada de Sofía (tablet de Mario). Build #${{ github.run_number }} de ${{ github.sha }}." > README.md
+          git init -q -b apk-tablet && git add Sofia.apk README.md
+          git -c user.name="sofia-ci" -c user.email="sofia-ci@users.noreply.github.com" commit -qm "Sofia.apk build #${{ github.run_number }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk-tablet

@@ -21,10 +21,12 @@ import { confirmFact, confirmFacts, recordFacts, resolveConflict } from "@/serve
 import { attachValidatedQuote, lookupScenario, registerValidatedScenario } from "@/server/services/quotes";
 import { createSale, updateSale } from "@/server/services/sales";
 import { completeFollowup, createFollowup, markContacted, postponeFollowup, scheduleAppointment, setAppointmentStatus, type AppointmentStatus } from "@/server/services/agenda";
-import { cancelDraft, draftPlatesEmail, markOpenedInMail, sendEmail, setPlatesRecipient, updateDraft } from "@/server/services/email";
+import { cancelDraft, draftPlatesEmail, markOpenedInMail, markSentManually, sendEmail, setPlatesRecipient, updateDraft } from "@/server/services/email";
 import { addPlateRequirement, ensurePlateCase, PLATE_STATUSES, removePlateRequirement, setRequirementReceived, updatePlateCase } from "@/server/services/plates";
 import { calibrateFinanceProgram, runQuote } from "@/server/services/quote-v2";
 import { createReturnCase, setReturnStatus } from "@/server/services/returns";
+import { captureFromDocument, reviewFact, setInboxStatus } from "@/server/services/inbox";
+import { registerMarioQuote, setCustomerNumber } from "@/server/services/tablet";
 
 export type ActionState = { ok: boolean; message?: string; error?: string; data?: unknown } | null;
 
@@ -358,15 +360,16 @@ export async function updateEmailAction(emailId: string, _prev: ActionState, for
   });
 }
 
-export async function emailOpAction(emailId: string, op: "send" | "cancel" | "opened" | "remove_attachment", arg?: string): Promise<ActionState> {
+export async function emailOpAction(emailId: string, op: "send" | "cancel" | "opened" | "remove_attachment" | "mark_sent", arg?: string): Promise<ActionState> {
   return run(async () => {
     const app = await getAppContext();
     if (op === "send") await sendEmail(app, emailId, { confirmed: true });
+    else if (op === "mark_sent") await markSentManually(app, emailId);
     else if (op === "cancel") await cancelDraft(app, emailId);
     else if (op === "opened") await markOpenedInMail(app, emailId);
     else if (op === "remove_attachment" && arg) await updateDraft(app, emailId, { removeAttachmentId: arg });
     revalidatePath(`/emails/${emailId}`);
-    return { ok: true, message: op === "send" ? "Correo enviado" : op === "cancel" ? "Borrador cancelado" : "Listo" };
+    return { ok: true, message: op === "send" ? "Correo enviado" : op === "mark_sent" ? "Marcado como enviado" : op === "cancel" ? "Borrador cancelado" : "Listo" };
   });
 }
 
@@ -401,5 +404,53 @@ export async function quoteAction(_prev: ActionState, form: FormData): Promise<A
       .object({ model: z.string().min(1), version: z.string().min(1), downPayment: z.coerce.number().min(0), termMonths: z.coerce.number().int().positive() })
       .parse({ model: form.get("model"), version: form.get("version"), downPayment: String(form.get("downPayment") ?? "").replace(/[^\d.]/g, ""), termMonths: form.get("termMonths") });
     return { ok: true, data: await runQuote(await getAppContext(), input) };
+  });
+}
+
+// ───────── Piloto tablet: documentos, cotización de Mario, número de cliente ─────────
+
+export async function reviewDocFactAction(customerId: string, documentId: string, factId: string, action: "confirm" | "ignore" | "correct", value?: string): Promise<ActionState> {
+  return run(async () => {
+    await reviewFact(await getAppContext(), { customerId, documentId, factId, action, value });
+    revalidatePath(`/customers/${customerId}`, "layout");
+    return { ok: true, message: action === "confirm" ? "Confirmado" : action === "ignore" ? "Ignorado" : "Corregido" };
+  });
+}
+
+export async function captureFromDocAction(customerId: string, documentId: string, _prev: ActionState, form: FormData): Promise<ActionState> {
+  return run(async () => {
+    await captureFromDocument(await getAppContext(), { customerId, documentId, key: String(form.get("key") ?? ""), value: String(form.get("value") ?? "") });
+    revalidatePath(`/customers/${customerId}`, "layout");
+    return { ok: true, message: "Guardado y confirmado" };
+  });
+}
+
+export async function inboxStatusAction(customerId: string, documentId: string, status: "confirmed" | "rejected"): Promise<ActionState> {
+  return run(async () => {
+    await setInboxStatus(await getAppContext(), documentId, status);
+    revalidatePath(`/customers/${customerId}`, "layout");
+    return { ok: true, message: status === "confirmed" ? "Documento revisado" : "Documento rechazado" };
+  });
+}
+
+export async function registerMarioQuoteAction(customerId: string, _prev: ActionState, form: FormData): Promise<ActionState> {
+  return run(async () => {
+    const num = (k: string) => {
+      const v = String(form.get(k) ?? "").replace(/[^\d.]/g, "");
+      return v ? Number(v) : null;
+    };
+    const model = String(form.get("model") ?? "");
+    if (!model) throw new ServiceError("Elige el modelo.");
+    await registerMarioQuote(await getAppContext(), { customerId, model, version: String(form.get("version") ?? "") || null, downPayment: num("downPayment") ?? 0, termMonths: num("termMonths"), monthlyPayment: num("monthlyPayment"), vehiclePrice: num("vehiclePrice") });
+    revalidatePath(`/customers/${customerId}`, "layout");
+    return { ok: true, message: "Cotización guardada. Quedó un seguimiento para dentro de 2 días." };
+  });
+}
+
+export async function customerNumberAction(customerId: string, _prev: ActionState, form: FormData): Promise<ActionState> {
+  return run(async () => {
+    await setCustomerNumber(await getAppContext(), customerId, String(form.get("customerNumber") ?? ""));
+    revalidatePath(`/customers/${customerId}`, "layout");
+    return { ok: true, message: "Guardado" };
   });
 }

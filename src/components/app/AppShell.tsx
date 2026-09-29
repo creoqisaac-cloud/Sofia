@@ -3,9 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { IconCalendar, IconCar, IconHome, IconMore, IconPeople } from "@/components/sofia/icons";
+import { IconCalendar, IconCar, IconDoc, IconHome, IconMore, IconPeople, IconPlate } from "@/components/sofia/icons";
 
-const NAV = [
+type NavItem = { href: string; label: string; Icon: typeof IconHome; match: (p: string) => boolean };
+
+/** Modo tablet (piloto de Mario): Solicitudes, Seguimiento y Placas al frente; sin herramientas de desarrollo. */
+const TABLET_NAV: NavItem[] = [
+  { href: "/", label: "Inicio", Icon: IconHome, match: (p: string) => p === "/" },
+  { href: "/customers", label: "Clientes", Icon: IconPeople, match: (p: string) => p.startsWith("/customers") && !p.includes("/credit") },
+  { href: "/applications", label: "Solicitudes", Icon: IconDoc, match: (p: string) => p.startsWith("/applications") || p.includes("/credit") },
+  { href: "/followups", label: "Seguimiento", Icon: IconCalendar, match: (p: string) => p.startsWith("/followups") || p.startsWith("/agenda") },
+  { href: "/plates", label: "Placas", Icon: IconPlate, match: (p: string) => p.startsWith("/plates") || p.startsWith("/emails") },
+  { href: "/more", label: "Más", Icon: IconMore, match: (p: string) => ["/more", "/sales", "/returns"].some((x) => p.startsWith(x)) },
+];
+
+const NAV: NavItem[] = [
   { href: "/", label: "Inicio", Icon: IconHome, match: (p: string) => p === "/" || p.startsWith("/quote") },
   { href: "/customers", label: "Clientes", Icon: IconPeople, match: (p: string) => p.startsWith("/customers") },
   { href: "/agenda", label: "Agenda", Icon: IconCalendar, match: (p: string) => p.startsWith("/agenda") },
@@ -14,8 +26,9 @@ const NAV = [
 ];
 
 /** iPhone: navegación inferior. Escritorio/tablet: barra lateral. */
-export function AppShell({ children, alertCount = 0 }: { children: ReactNode; alertCount?: number }) {
+export function AppShell({ children, alertCount = 0, mode = "full" }: { children: ReactNode; alertCount?: number; mode?: "full" | "tablet" }) {
   const pathname = usePathname() ?? "/";
+  const items = mode === "tablet" ? TABLET_NAV : NAV;
   return (
     <div className="flex h-dvh min-h-0">
       <aside className="hidden w-60 shrink-0 flex-col bg-ink px-4 py-6 lg:flex">
@@ -24,7 +37,7 @@ export function AppShell({ children, alertCount = 0 }: { children: ReactNode; al
           <div className="mt-1 text-xs text-faint">Copiloto de Mario Abarca</div>
         </div>
         <nav className="flex flex-col gap-0.5">
-          {NAV.map(({ href, label, Icon, match }) => (
+          {items.map(({ href, label, Icon, match }) => (
             <Link key={href} href={href} className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-[15px] ${match(pathname) ? "bg-raise text-ivory" : "text-dim hover:text-ivory"}`}>
               <Icon />
               {label}
@@ -35,7 +48,7 @@ export function AppShell({ children, alertCount = 0 }: { children: ReactNode; al
       </aside>
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:border-l lg:border-line lg:pb-0">{children}</main>
       <nav aria-label="Navegación principal" className="fixed inset-x-0 bottom-0 z-40 flex bg-ink/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
-        {NAV.map(({ href, label, Icon, match }) => {
+        {items.map(({ href, label, Icon, match }) => {
           const active = match(pathname);
           return (
             <Link key={href} href={href} className={`relative flex min-h-[3.75rem] flex-1 flex-col items-center justify-center gap-1 text-[11px] ${active ? "text-sand" : "text-faint"}`}>

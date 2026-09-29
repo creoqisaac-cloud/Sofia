@@ -46,7 +46,7 @@ const writeCtx = (v: string | null) => {
   }
 };
 
-export function SofiaCommand({ placeholder = "Cotiza, busca, agenda…", autoFocus = false, customerId = null }: { placeholder?: string; autoFocus?: boolean; customerId?: string | null }) {
+export function SofiaCommand({ placeholder = "Cotiza, busca, agenda…", autoFocus = false, customerId = null, showMic = true }: { placeholder?: string; autoFocus?: boolean; customerId?: string | null; showMic?: boolean }) {
   const router = useRouter();
   const voice = useMemo(() => (typeof window === "undefined" ? null : createVoiceProvider()), []);
   const [text, setText] = useState("");
@@ -205,7 +205,7 @@ export function SofiaCommand({ placeholder = "Cotiza, busca, agenda…", autoFoc
         </button>
       </form>
 
-      <div className="mt-5 flex flex-col items-center">
+      {showMic && <div className="mt-5 flex flex-col items-center">
         <button
           type="button"
           onClick={toggleMic}
@@ -215,7 +215,7 @@ export function SofiaCommand({ placeholder = "Cotiza, busca, agenda…", autoFoc
           <IconMic width={34} height={34} strokeWidth={1.8} />
         </button>
         <div className="mt-2 h-5 text-[13px] text-dim">{listening ? "Te escucho…" : busy ? "Pensando…" : "Toca y habla"}</div>
-      </div>
+      </div>}
 
       {tip && <p className="mt-2 text-center text-[13px] text-alert">{tip}</p>}
 

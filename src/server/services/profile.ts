@@ -36,7 +36,7 @@ export async function rebuildProfile(tx: Db, workspaceId: string, customerId: st
 
 export interface RecordFactsInput {
   customerId: string;
-  entries: Array<{ key: string; value: string | number | null }>;
+  entries: Array<{ key: string; value: string | number | null; confidence?: "high" | "medium" | "low" }>;
   sourceType: FactSourceType;
   sourceLabel: string;
   sourceRefId?: string | null;
@@ -115,7 +115,7 @@ export async function recordFacts(app: AppContext, input: RecordFactsInput, txIn
             factKey: key,
             value: norm.value,
             valueText: norm.valueText,
-            confidence: isMario ? "high" : "medium",
+            confidence: isMario ? "high" : (entry.confidence ?? "medium"),
             source: input.sourceType,
             sourceRefId: input.sourceRefId ?? null,
             sourceLabel: input.sourceLabel,
@@ -339,4 +339,25 @@ export async function getProfileState(db: Db, customerId: string): Promise<{ fie
       .map((d) => d.key as string),
   }));
   return { fields, sections };
+}
+
+/**
+ * Mario IGNORA un dato leído (p. ej. de un documento): deja de estar vigente pero queda en el
+ * historial. Si era parte de un conflicto con un solo candidato restante, ese se queda observado.
+ */
+export async function ignoreFact(app: AppContext, customerId: string, factId: string) {
+  await app.db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const [row] = await tx.select().from(s.customerFacts).where(and(eq(s.customerFacts.id, factId), eq(s.customerFacts.customerId, customerId), eq(s.customerFacts.workspaceId, app.workspaceId)));
+    if (!row) throw new ServiceError("Dato no encontrado.", 404);
+    if (row.status === "confirmed") throw new ServiceError("Un dato confirmado se corrige capturando otro valor.", 409);
+    const now = new Date();
+    await tx.update(s.customerFacts).set({ status: "superseded", updatedAt: now }).where(eq(s.customerFacts.id, factId));
+    const others = await tx.select().from(s.customerFacts).where(and(eq(s.customerFacts.customerId, customerId), eq(s.customerFacts.factKey, row.factKey), eq(s.customerFacts.status, "conflicting")));
+    if (others.length === 1) await tx.update(s.customerFacts).set({ status: "observed", updatedAt: now }).where(eq(s.customerFacts.id, others[0]!.id));
+    await tx.insert(s.auditEvents).values({ workspaceId: app.workspaceId, actorType: "mario", eventType: "fact_ignored", entityType: "customer_fact", entityId: factId, customerId, data: { key: row.factKey, source: row.sourceLabel } });
+    await rebuildProfile(tx, app.workspaceId, customerId);
+  });
+  const { refreshCustomerApplications } = await import("./credit");
+  await refreshCustomerApplications(app, customerId);
 }

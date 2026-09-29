@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MobileHeader, Page } from "@/components/app/AppShell";
 import { APP_TONE, ApplicationProgress, StatusTimeline } from "@/components/app/cards";
+import { PdfActions } from "@/components/sofia/tablet";
 import { ApplicationStatusForm, ConfirmAllButton, ConfirmFactButton, ConflictCard, GeneratePdfButton, ProfileSectionForm, type EditableField } from "@/components/app/forms";
 import { ChipNav, DemoPill, EmptyState, Pill, SectionCard, fmtDate } from "@/components/app/ui";
 import { MANUAL_TRANSITIONS, type SlotAnalysis, type SlotCategory } from "@/domain/credit";
@@ -211,7 +212,8 @@ export default async function ApplicationPage({ params, searchParams }: { params
               ) : (
                 <ul className="divide-y divide-zinc-800">
                   {d.generated.map((g) => (
-                    <li key={g.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                    <li key={g.id} className="py-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="text-zinc-100">{fmtDate(g.generatedAt, true)}</div>
                         <div className="text-xs text-faint">
@@ -221,6 +223,10 @@ export default async function ApplicationPage({ params, searchParams }: { params
                       <a href={`/api/documents/generated/${g.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-sand">
                         Abrir
                       </a>
+                      </div>
+                      <div className="mt-2">
+                        <PdfActions url={`/api/documents/generated/${g.id}`} name={`solicitud-${d.institution.name}-${g.id.slice(0, 8)}.pdf`} title={`Solicitud ${d.institution.name}`} />
+                      </div>
                     </li>
                   ))}
                 </ul>

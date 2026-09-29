@@ -59,6 +59,8 @@ export interface CommandResponse {
 
 export interface CommandContext {
   lastCustomerId?: string | null;
+  /** Modo tablet (piloto): Sofía no cotiza; las cotizaciones las hace y registra Mario. */
+  tablet?: boolean;
 }
 
 // ───────── utilidades ─────────
@@ -166,6 +168,14 @@ export async function executeParsed(app: AppContext, cmd: ParsedCommand, ctx: Co
     }
 
     case "quote": {
+      if (ctx.tablet) {
+        return {
+          intent: "quote",
+          say: "Las cotizaciones las haces tú en tu cotizador. Aquí puedes registrar la que enviaste para darle seguimiento.",
+          blocks: [{ type: "text", text: "Abre al cliente y toca “Registrar la cotización que enviaste”." }],
+          links: ctx.lastCustomerId ? [{ label: "Abrir cliente", href: `/customers/${ctx.lastCustomerId}` }] : undefined,
+        };
+      }
       if (!p.model) return { intent: "quote", say: "¿Qué modelo cotizo?", blocks: [{ type: "text", text: "Dime modelo, versión, enganche y plazo. Ej.: “HR-V Touring, 150 mil de enganche, 48 meses”." }] };
       const missing = [!p.downPayment && "enganche", !p.termMonths && "plazo"].filter(Boolean) as string[];
       if (missing.length) {

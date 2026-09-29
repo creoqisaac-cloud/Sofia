@@ -140,6 +140,8 @@ export const customers = pgTable(
     displayName: text("display_name").notNull(),
     phone: text("phone"),
     source: text("source").notNull().default("simulator"), // simulator | whatsapp | manual
+    /** Número de cliente de la agencia ("# DE CLIENTE" del control de Mario). */
+    customerNumber: text("customer_number"),
     /** Último contacto registrado por Mario (llamada, visita…); los mensajes cuentan aparte. */
     lastContactAt: timestamp("last_contact_at", { withTimezone: true }),
     /** none | waiting_customer | waiting_mario */
@@ -596,6 +598,12 @@ export const documents = pgTable(
     status: text("status").notNull().default("requested"), // missing | requested | received | needs_review | accepted | rejected
     creditApplicationId: uuid("credit_application_id"),
     reviewNotes: text("review_notes"),
+    /** Sprint tablet: bandeja de documentos. Nombre original (privado; nunca en logs). */
+    fileName: text("file_name"),
+    /** uploaded | processing | observed | needs_review | confirmed | rejected */
+    extractionStatus: text("extraction_status"),
+    extractionProvider: text("extraction_provider"),
+    extractionNote: text("extraction_note"),
     isSensitive: boolean("is_sensitive").notNull().default(true),
     storageProvider: text("storage_provider"), // local_private | supabase_storage
     storageBucket: text("storage_bucket"),
@@ -1189,4 +1197,19 @@ export const returnCases = pgTable("return_cases", {
   notes: text("notes"),
   openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
   resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+});
+
+// ───────────────────────────── Piloto tablet ─────────────────────────────
+
+/** Cada llamada a un proveedor de IA (LLM, visión). Las funciones normales no llaman IA. */
+export const aiUsageEvents = pgTable("ai_usage_events", {
+  id: id(),
+  workspaceId: workspaceId(),
+  provider: text("provider").notNull(),
+  purpose: text("purpose").notNull(), // conversation | extraction | summary | drafting | command
+  ok: boolean("ok").notNull(),
+  durationMs: integer("duration_ms"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  createdAt: createdAt(),
 });

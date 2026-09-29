@@ -22,6 +22,13 @@
       "when": 1790634718144,
       "tag": "0002_sprint3_pilot",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790712811271,
+      "tag": "0003_tablet_pilot",
+      "breakpoints": true
     }
   ]
 }

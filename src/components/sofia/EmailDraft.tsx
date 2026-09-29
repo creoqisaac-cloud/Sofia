@@ -2,6 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { emailOpAction, updateEmailAction, type ActionState } from "@/app/actions";
+import { shareFiles } from "./native";
 
 export interface EmailView {
   id: string;
@@ -28,9 +29,17 @@ export function EmailDraft({ email, compact = false }: { email: EmailView; compa
   const status = email.status ?? "draft";
   const attachments = (email.attachments as Array<{ label: string; documentId?: string } | string>).map((a) => (typeof a === "string" ? { label: a } : a));
   const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  const doOp = (o: "send" | "cancel" | "opened") => start(async () => setOp(await emailOpAction(email.id, o)));
+  const doOp = (o: "send" | "cancel" | "opened" | "mark_sent") => start(async () => setOp(await emailOpAction(email.id, o)));
+  const share = async () => {
+    try {
+      const files = attachments.filter((a) => a.documentId).map((a) => ({ url: `/api/documents/${a.documentId}/file`, name: a.label }));
+      await shareFiles(files, { title: subject, text: `${to ? `Para: ${to}\n\n` : ""}${body}` });
+    } catch (e) {
+      if (!/cancel/i.test((e as Error).message)) setOp({ ok: false, error: (e as Error).message });
+    }
+  };
 
-  if (status !== "draft" && status !== "opened_in_mail") {
+  if (status !== "draft" && status !== "opened_in_mail" && !op?.ok) {
     return <div className="rounded-3xl bg-panel p-5 text-[15px] text-dim">Correo {status === "sent" ? "enviado" : status === "cancelled" ? "cancelado" : status}.</div>;
   }
   return (
@@ -74,8 +83,14 @@ export function EmailDraft({ email, compact = false }: { email: EmailView; compa
             Enviar
           </button>
           <a href={mailto} onClick={() => doOp("opened")} className="flex min-h-12 items-center justify-center rounded-2xl bg-raise text-[15px] text-ivory">
-            Abrir en Mail
+            Abrir correo
           </a>
+          <button type="button" onClick={share} className="min-h-12 rounded-2xl bg-raise text-[15px] text-ivory">
+            Compartir con adjuntos
+          </button>
+          <button type="button" disabled={pending} onClick={() => doOp("mark_sent")} className="min-h-12 rounded-2xl bg-raise text-[15px] text-ivory">
+            Marcar enviado
+          </button>
           <button type="submit" disabled={saving} className="min-h-12 rounded-2xl bg-raise text-[15px] text-ivory">
             Guardar cambios
           </button>

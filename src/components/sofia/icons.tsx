@@ -13,3 +13,7 @@ export const IconSend = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path
 export const IconClose = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M6 6l12 12M18 6 6 18" /></svg>);
 export const IconChevron = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="m9 6 6 6-6 6" /></svg>);
 export const IconPhone = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M6.5 4h3l1.5 4-2 1.3a10 10 0 0 0 5.7 5.7L16 13l4 1.5v3a1.5 1.5 0 0 1-1.6 1.5A15 15 0 0 1 5 5.6 1.5 1.5 0 0 1 6.5 4z" /></svg>);
+export const IconDoc = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z" /><path d="M14 3.5V8h4M9.5 12h6M9.5 15.5h6" /></svg>);
+export const IconPlate = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><rect x="3" y="7" width="18" height="10" rx="2" /><path d="M7 12h2M11 12h2M15 12h2" /></svg>);
+export const IconUpload = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5" /><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" /></svg>);
+export const IconShare = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><circle cx="18" cy="5.5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="18.5" r="2.5" /><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1" /></svg>);

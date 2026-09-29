@@ -1,5 +1,7 @@
 "use client";
 
+import { PdfActions } from "@/components/sofia/tablet";
+
 /**
  * Formularios táctiles de la app operativa. Entradas especializadas:
  * dinero (teclado decimal), teléfono (tel), correo (email), fecha (date),
@@ -313,9 +315,16 @@ export function GeneratePdfButton({ customerId, applicationId, blocked }: { cust
       {blocked && <p className="text-xs text-amber-300">{blocked}</p>}
       <FormMessage state={state} />
       {docId && (
-        <a href={`/api/documents/generated/${docId}`} className={buttonClass("secondary", true)} target="_blank" rel="noreferrer">
-          Abrir borrador PDF
-        </a>
+        <div className="mt-2 rounded-3xl bg-panel p-5">
+          <div className="sofia-title text-[13px] font-semibold text-good">SOLICITUD GENERADA</div>
+          <p className="mt-1 text-[14px] text-dim">Solo lleva datos confirmados. Firmas, PEP, cuestionario médico y consentimientos quedan en blanco para el cliente.</p>
+          <div className="mt-3">
+            <PdfActions url={`/api/documents/generated/${docId}`} name={`solicitud-${docId.slice(0, 8)}.pdf`} title="Solicitud de crédito" />
+          </div>
+          <a href={`/api/documents/generated/${docId}`} className="mt-3 block text-center text-[14px] text-sand" target="_blank" rel="noreferrer">
+            Abrir borrador PDF
+          </a>
+        </div>
       )}
     </div>
   );

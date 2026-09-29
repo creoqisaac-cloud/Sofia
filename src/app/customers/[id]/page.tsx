@@ -7,6 +7,10 @@ import { salePendingItems } from "@/domain/sales";
 import { getFollowupSummary, RESPONSE_STATUS_LABELS } from "@/server/services/agenda";
 import { listPlateCases, PLATE_STATUS_LABELS, plateMissing, type PlateStatus } from "@/server/services/plates";
 import { listQuoteRuns } from "@/server/services/quote-v2";
+import { CustomerNumberForm, FollowupButtons, MarioQuoteForm } from "@/components/sofia/tablet";
+import { catalogModels } from "@/server/command/router";
+import { isTabletMode } from "@/server/pilot";
+import { getTabletSummary } from "@/server/services/tablet";
 import { MobileHeader, Page } from "@/components/app/AppShell";
 import { AppointmentsTab, ConversationTab, CreditTab, DataTab, DocumentsTab, HistoryTab, QuotesTab, SalesTab, SummaryTab } from "@/components/app/customer-tabs";
 import { ChipNav, DemoPill, StageBadge, TemperatureBadge } from "@/components/app/ui";
@@ -38,6 +42,7 @@ export default async function CustomerPage({ params, searchParams }: { params: P
     throw e;
   }
   const active = TABS.some(([k]) => k === tab) ? tab : "resumen";
+  if (active === "resumen" && (await isTabletMode())) return <TabletCustomer id={id} app={app} />;
   if (active === "resumen") return <CustomerHome o={o} id={id} app={app} />;
   const counts: Record<string, number> = {
     cotizaciones: o.quotes.length,
@@ -160,6 +165,89 @@ async function CustomerHome({ o, id, app }: { o: Awaited<ReturnType<typeof getCu
           <div className="mb-2 text-[13px] text-dim">Pregúntale a Sofía sobre este cliente</div>
           <SofiaCommand placeholder="¿Qué le falta? · Agenda mañana a las 5…" customerId={id} />
         </div>
+      </div>
+    </>
+  );
+}
+
+/** Ficha tablet: entender al cliente en menos de 10 segundos y actuar. */
+async function TabletCustomer({ id, app }: { id: string; app: Awaited<ReturnType<typeof getAppContext>> }) {
+  const [t, plates, models] = await Promise.all([getTabletSummary(app, id), listPlateCases(app, { customerId: id, openOnly: true }), catalogModels(app)]);
+  const name = t.customer.displayName.replace(/\s*\(DEMO\)\s*/, "");
+  const lines: Array<[string, string | null, boolean?]> = [
+    ["Necesidad", t.need],
+    ["Cotización enviada", t.quote],
+    ["Último contacto", t.lastContact],
+    ["Está esperando", t.waitingFor],
+    ["Siguiente acción", t.nextAction ? `${t.nextAction.text} · ${t.nextAction.when ?? "sin fecha"}${t.nextAction.overdue ? " (vencida)" : ""}` : null, t.nextAction?.overdue],
+    ["Cita", t.appointment?.when ?? null],
+  ];
+  const plate = plates[0]?.plate;
+  const step = "flex min-h-20 items-center justify-between gap-3 rounded-3xl bg-panel px-5 py-4 active:bg-raise";
+  return (
+    <>
+      <MobileHeader back="/customers" title="" />
+      <div className="mx-auto flex max-w-3xl flex-col px-5 pb-10">
+        <h1 className="text-[32px] font-semibold leading-tight tracking-tight text-ivory">
+          {name}
+          {t.customer.isDemo && <span className="ml-2 align-middle text-[11px] tracking-wider text-faint">DEMO</span>}
+        </h1>
+        <div className="mt-1">
+          <CustomerNumberForm customerId={id} value={t.customerNumber} />
+        </div>
+
+        <dl className="mt-5 grid gap-x-6 gap-y-3 rounded-3xl bg-panel p-5 sm:grid-cols-2">
+          {lines.map(([label, value, warn]) => (
+            <div key={label}>
+              <dt className="text-[12px] tracking-wide text-faint">{label}</dt>
+              <dd className={`text-[16px] leading-snug ${value ? (warn ? "text-alert" : "text-ivory") : "text-faint"}`}>{value ?? "—"}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="mt-5">
+          <FollowupButtons customerId={id} followupId={t.nextAction?.id ?? null} phone={t.phone} />
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <Link href={`/customers/${id}/documents`} className={step}>
+            <span>
+              <span className="block text-[18px] text-ivory">1 · Documentos</span>
+              <span className={`block text-[14px] ${t.inbox.pendingReview ? "text-alert" : "text-dim"}`}>
+                {t.inbox.total ? `${t.inbox.total} subido(s)${t.inbox.pendingReview ? ` · ${t.inbox.pendingReview} dato(s) por revisar` : ""}` : "Subir documentos"}
+              </span>
+            </span>
+            <IconChevron className="text-faint" />
+          </Link>
+          <Link href={`/customers/${id}/credit`} className={step}>
+            <span>
+              <span className="block text-[18px] text-ivory">2 · Solicitud</span>
+              <span className="block text-[14px] text-dim">{t.applications.length ? t.applications.slice(0, 2).map((a) => `${a.institution}: ${CREDIT_APPLICATION_STATUS_LABELS[a.status]}`).join(" · ") : "BBVA o Banorte"}</span>
+            </span>
+            <IconChevron className="text-faint" />
+          </Link>
+          <Link href={plate ? `/plates/${plate.id}` : `/plates/new?customer=${id}`} className={step}>
+            <span>
+              <span className="block text-[18px] text-ivory">Placas</span>
+              <span className="block text-[14px] text-dim">{plate ? `${PLATE_STATUS_LABELS[plate.status as PlateStatus]}${plateMissing(plate).length ? ` · faltan ${plateMissing(plate).length}` : ""}` : "Sin trámite"}</span>
+            </span>
+            <IconChevron className="text-faint" />
+          </Link>
+          <Link href={`/customers/${id}?tab=datos`} className={step}>
+            <span>
+              <span className="block text-[18px] text-ivory">Datos del cliente</span>
+              <span className="block text-[14px] text-dim">{t.missingDocs.length ? `Faltan: ${t.missingDocs.slice(0, 2).join(", ")}` : "Perfil y conflictos"}</span>
+            </span>
+            <IconChevron className="text-faint" />
+          </Link>
+        </div>
+
+        <details className="mt-6">
+          <summary className="cursor-pointer text-[15px] text-sand">{t.hasMarioQuote ? "Registrar otra cotización enviada" : "Registrar la cotización que enviaste"}</summary>
+          <div className="mt-3">
+            <MarioQuoteForm customerId={id} models={models} />
+          </div>
+        </details>
       </div>
     </>
   );
