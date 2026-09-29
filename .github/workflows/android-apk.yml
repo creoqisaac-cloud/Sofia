@@ -1,0 +1,13 @@
+name: Android APK (Sofía tablet)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-sagan-hbxj3y]
+    paths: ["android/**", "android-shell/**", "capacitor.config.ts", ".github/workflows/android-apk.yml"]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "placeholder"
