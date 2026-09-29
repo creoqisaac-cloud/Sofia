@@ -24,11 +24,15 @@
     "pdf:register": "tsx scripts/pdf-register.ts",
     "qa:mobile": "node scripts/qa-mobile.mjs",
     "pdf:compare": "tsx scripts/pdf-compare.ts",
-    "demo:iphone": "node scripts/demo-iphone.mjs"
+    "demo:iphone": "node scripts/demo-iphone.mjs",
+    "alexa:dev": "node scripts/alexa-dev.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@electric-sql/pglite": "^0.5.8",
+    "ask-sdk-core": "^2.14.0",
+    "ask-sdk-express-adapter": "^2.14.0",
+    "ask-sdk-model": "^1.86.0",
     "drizzle-orm": "^0.45.3",
     "next": "^16.3.6",
     "pdf-lib": "^1.17.1",

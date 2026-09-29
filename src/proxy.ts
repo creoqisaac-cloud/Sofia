@@ -17,6 +17,8 @@ function safeEqual(a: string, b: string): boolean {
 export function proxy(request: NextRequest) {
   const expected = process.env.SOFIA_BASIC_AUTH;
   if (!expected) return NextResponse.next();
+  // Alexa no puede mandar Basic Auth: /api/alexa se protege con la firma de Amazon (ver src/server/alexa/http.ts).
+  if (request.nextUrl.pathname === "/api/alexa") return NextResponse.next();
   const header = request.headers.get("authorization") ?? "";
   const [scheme, encoded] = header.split(" ");
   if (scheme === "Basic" && encoded) {

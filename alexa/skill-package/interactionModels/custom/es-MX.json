@@ -1,0 +1,237 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "asistente sofia",
+      "intents": [
+        {
+          "name": "SofiaCommandIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "dile a sofia {query}",
+            "dile a sofía {query}",
+            "sofia {query}",
+            "sofía {query}",
+            "quiero {query}",
+            "necesito {query}",
+            "consulta {query}",
+            "pregunta {query}",
+            "oye {query}",
+            "por favor {query}",
+            "ayúdame con {query}",
+            "ayudame con {query}",
+            "dime {query}",
+            "revisa {query}",
+            "ver {query}"
+          ]
+        },
+        {
+          "name": "QueIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "qué {query}",
+            "que {query}"
+          ]
+        },
+        {
+          "name": "CualesIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "cuáles {query}",
+            "cuales {query}",
+            "cuál {query}",
+            "cual {query}"
+          ]
+        },
+        {
+          "name": "BuscaIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "busca {query}",
+            "búscame {query}",
+            "buscame {query}",
+            "encuentra {query}"
+          ]
+        },
+        {
+          "name": "AgendaIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "agenda {query}",
+            "agéndame {query}",
+            "agendame {query}",
+            "agéndale {query}",
+            "agendale {query}"
+          ]
+        },
+        {
+          "name": "CotizaIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "cotiza {query}",
+            "cotízame {query}",
+            "cotizame {query}",
+            "cotízale {query}"
+          ]
+        },
+        {
+          "name": "RegistraIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "registra {query}",
+            "anota {query}"
+          ]
+        },
+        {
+          "name": "MarcaIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "marca {query}"
+          ]
+        },
+        {
+          "name": "PreparaIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "prepara {query}",
+            "prepárame {query}",
+            "hazme {query}",
+            "haz {query}"
+          ]
+        },
+        {
+          "name": "AbreIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "abre {query}",
+            "ábreme {query}",
+            "abreme {query}"
+          ]
+        },
+        {
+          "name": "RecuerdameIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "recuérdame {query}",
+            "recuerdame {query}"
+          ]
+        },
+        {
+          "name": "ComoVaIntent",
+          "slots": [
+            {
+              "name": "query",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "cómo va {query}",
+            "como va {query}"
+          ]
+        },
+        {
+          "name": "ConfirmIntent",
+          "samples": [
+            "sí",
+            "si",
+            "confirmo",
+            "hazlo",
+            "adelante",
+            "sí confirmo",
+            "claro",
+            "dale",
+            "correcto",
+            "sí por favor"
+          ]
+        },
+        {
+          "name": "RejectIntent",
+          "samples": [
+            "no",
+            "cancela",
+            "déjalo",
+            "dejalo",
+            "no gracias",
+            "mejor no",
+            "no lo hagas"
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        }
+      ],
+      "types": []
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "manifest": {
+    "manifestVersion": "1.0",
+    "publishingInformation": {
+      "locales": {
+        "es-MX": {
+          "name": "Asistente Sofía",
+          "summary": "Copiloto de voz de Sofía para Mario Abarca (uso privado, desarrollo).",
+          "description": "Interfaz de voz de Sofía: pendientes del día, clientes, citas con confirmación, placas y corridas guardadas. Uso interno; no publicar.",
+          "examplePhrases": [
+            "Alexa, abre asistente sofia",
+            "qué tengo pendiente hoy",
+            "busca a Juan"
+          ],
+          "keywords": [
+            "sofia",
+            "agenda",
+            "ventas"
+          ]
+        }
+      },
+      "isAvailableWorldwide": false,
+      "distributionCountries": [
+        "MX"
+      ],
+      "testingInstructions": "Skill privada en modo desarrollo.",
+      "category": "BUSINESS_AND_FINANCE"
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "https://REEMPLAZA-CON-TU-TUNEL.trycloudflare.com/api/alexa",
+          "sslCertificateType": "Wildcard"
+        }
+      }
+    },
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "usesPersonalInfo": false,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false,
+      "locales": {
+        "es-MX": {}
+      }
+    }
+  }
+}
