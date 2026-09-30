@@ -6,7 +6,16 @@
  * No se importa @capacitor/* en el bundle web: la página es la misma para navegador y APK.
  */
 
+/** Resultado del escáner nativo (ML Kit en la tablet): observación de OCR + archivo para subir. */
+export interface NativeScanResult {
+  engine: string;
+  pageCount: number;
+  pages: unknown[];
+  file: { base64: string; mime: string; name: string };
+}
+
 type Plugins = {
+  SofiaDocumentScanner?: { scanAndRecognize(o: { pageLimit?: number; galleryImport?: boolean }): Promise<NativeScanResult> };
   Share?: { share(o: { title?: string; text?: string; url?: string; files?: string[]; dialogTitle?: string }): Promise<unknown> };
   Filesystem?: { writeFile(o: { path: string; data: string; directory: string; recursive?: boolean }): Promise<{ uri: string }> };
 };
@@ -85,4 +94,30 @@ export async function openFile(url: string, name: string) {
   if (isNative) return shareFiles([{ url, name }], { title: name });
   window.open(url, "_blank");
   return "downloaded" as const;
+}
+
+/** ¿Hay escáner nativo? Solo dentro de la APK. En un navegador se sube a mano (no se simula OCR). */
+export const hasNativeScanner = () => {
+  const { isNative, plugins } = cap();
+  return isNative && typeof plugins.SofiaDocumentScanner?.scanAndRecognize === "function";
+};
+
+/** Abre el escáner de la tablet (captura guiada, recorte, enderezado) y reconoce el texto EN el dispositivo. */
+export async function scanWithNativeScanner(opts: { pageLimit?: number } = {}): Promise<NativeScanResult | null> {
+  const scanner = cap().plugins.SofiaDocumentScanner;
+  if (!scanner) throw new Error("El escáner solo está disponible en la app de la tablet.");
+  try {
+    return await scanner.scanAndRecognize({ pageLimit: opts.pageLimit ?? 2, galleryImport: true });
+  } catch (e) {
+    const err = e as { code?: string; message?: string };
+    if (err.code === "CANCELLED" || /cancel/i.test(err.message ?? "")) return null;
+    throw new Error(err.message ?? "No se pudo escanear.");
+  }
+}
+
+export function base64ToBlob(base64: string, mime: string): Blob {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
 }

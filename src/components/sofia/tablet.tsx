@@ -3,7 +3,7 @@
 /** Componentes del modo tablet: documentos, revisión de datos, PDF (ver/compartir/guardar), cotización de Mario, seguimiento. */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useActionState, useRef, useState, useTransition } from "react";
+import { useActionState, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import {
   captureFromDocAction,
   contactedAction,
@@ -15,7 +15,7 @@ import {
   type ActionState,
 } from "@/app/actions";
 import { IconPhone, IconShare, IconUpload } from "./icons";
-import { openFile, saveFile, shareFiles } from "./native";
+import { base64ToBlob, hasNativeScanner, openFile, saveFile, scanWithNativeScanner, shareFiles } from "./native";
 
 const field = "mt-1 w-full rounded-xl bg-raise px-3 py-3 text-[17px] text-ivory focus:outline-none";
 const big = "flex min-h-14 items-center justify-center gap-2 rounded-2xl px-4 text-[16px]";
@@ -24,6 +24,8 @@ const Msg = ({ s }: { s: ActionState | { ok: boolean; message?: string; error?: 
 
 // ───────── Subir documentos ─────────
 
+const noSubscribe = () => () => {};
+
 export function DocumentUploader({ customerId, docTypes }: { customerId: string; docTypes: Array<[string, string]> }) {
   const router = useRouter();
   const [docType, setDocType] = useState("other");
@@ -31,6 +33,31 @@ export function DocumentUploader({ customerId, docTypes }: { customerId: string;
   const [msg, setMsg] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
   const files = useRef<HTMLInputElement>(null);
   const camera = useRef<HTMLInputElement>(null);
+  // Solo en la APK (en el servidor y en navegadores: false → subida manual).
+  const scanner = useSyncExternalStore(noSubscribe, hasNativeScanner, () => false);
+
+  /** APK: escáner nativo + OCR en la tablet → mismo endpoint de subida → pantalla de revisión. */
+  async function scan() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await scanWithNativeScanner({ pageLimit: docType === "ine" ? 2 : 5 });
+      if (!r) return; // cancelado
+      const fd = new FormData();
+      fd.set("docType", docType);
+      fd.append("file", base64ToBlob(r.file.base64, r.file.mime), r.file.name);
+      fd.set("observation", JSON.stringify({ engine: r.engine, pages: r.pages }));
+      const res = await fetch(`/api/customers/${customerId}/documents`, { method: "POST", body: fd });
+      const j = (await res.json()) as { results?: Array<{ ok: boolean; id?: string; error?: string }>; error?: string };
+      const first = j.results?.[0];
+      if (!res.ok || !first?.ok || !first.id) throw new Error(first?.error ?? j.error ?? "No se pudo subir el escaneo.");
+      router.push(`/customers/${customerId}/documents/${first.id}`);
+    } catch (e) {
+      setMsg({ ok: false, error: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function upload(list: FileList | null) {
     if (!list?.length) return;
@@ -70,15 +97,23 @@ export function DocumentUploader({ customerId, docTypes }: { customerId: string;
       </label>
       <input ref={files} type="file" accept="application/pdf,image/jpeg,image/png" multiple hidden onChange={(e) => upload(e.target.files)} />
       <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => upload(e.target.files)} />
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button type="button" disabled={busy} onClick={() => files.current?.click()} className={`${big} bg-sand font-semibold text-ink`}>
-          <IconUpload /> {busy ? "Subiendo…" : "Elegir archivos"}
+      {scanner && (
+        <button type="button" disabled={busy} onClick={scan} className={`${big} mt-4 w-full bg-sand font-semibold text-ink`}>
+          {busy ? "Leyendo…" : "Escanear documento"}
+        </button>
+      )}
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button type="button" disabled={busy} onClick={() => files.current?.click()} className={`${big} ${scanner ? "bg-raise text-ivory" : "bg-sand font-semibold text-ink"}`}>
+          <IconUpload /> {busy && !scanner ? "Subiendo…" : "Elegir archivos"}
         </button>
         <button type="button" disabled={busy} onClick={() => camera.current?.click()} className={`${big} bg-raise text-ivory`}>
           Tomar foto
         </button>
       </div>
-      <p className="mt-2 text-[12px] text-faint">PDF, JPG o PNG · máx. 15 MB · se guardan en privado en el servidor de Sofía.</p>
+      <p className="mt-2 text-[12px] text-faint">
+        {scanner ? "Escanear: recorta, endereza y lee el texto en la tablet (sin internet ni costo). Los datos quedan por revisar. " : "Fotos y archivos: los datos se capturan a mano. "}
+        PDF, JPG o PNG · máx. 15 MB · se guardan en privado en el servidor de Sofía.
+      </p>
       <Msg s={msg} />
     </div>
   );

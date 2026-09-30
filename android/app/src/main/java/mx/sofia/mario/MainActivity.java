@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SofiaServerPlugin.class);
+        registerPlugin(SofiaDocumentScannerPlugin.class);
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         String url = prefs.getString("serverUrl", null);
         if (url != null && !url.trim().isEmpty()) {

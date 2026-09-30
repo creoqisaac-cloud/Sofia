@@ -1,7 +1,10 @@
 name: Android APK (Sofía tablet)
 
-# Compila la APK de Sofía (cascarón Capacitor). Los runners de GitHub ya traen el Android SDK.
-# Resultado: artefacto "sofia-apk" + release "tablet-<n>" con Sofia.apk.
+# Compila la APK de Sofía (Capacitor + escáner ML Kit) y la PRUEBA en un emulador Android:
+#  - OCR real de ML Kit sobre una INE sintética;
+#  - plugin nativo expuesto a la página;
+#  - flujo dentro de la APK contra un servidor Sofía real: Escanear → OBSERVADO → Confirmar → solicitud BBVA → PDF.
+# Resultado: release "tablet-<n>" y rama "apk-tablet" con Sofia.apk + demo/ (reporte, capturas, PDF sintético).
 on:
   workflow_dispatch:
     inputs:
@@ -10,7 +13,7 @@ on:
         required: false
   push:
     branches: [claude/laughing-sagan-hbxj3y]
-    paths: ["android/**", "android-shell/**", "capacitor.config.ts", "package.json", ".github/workflows/android-apk.yml"]
+    paths: ["android/**", "android-shell/**", "capacitor.config.ts", "package.json", ".github/workflows/android-apk.yml", "src/**", "scripts/demo-scan-verify.ts"]
 
 permissions:
   contents: write
@@ -18,7 +21,7 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,32 +44,83 @@ jobs:
         env:
           KS: ${{ secrets.SOFIA_KEYSTORE_BASE64 }}
         run: echo "$KS" | base64 -d > android/app/sofia-release.keystore
-      - name: Compilar APK
+      - name: Compilar APK (+ APK de pruebas instrumentadas)
         working-directory: android
         env:
           SOFIA_KEYSTORE_PASSWORD: ${{ secrets.SOFIA_KEYSTORE_PASSWORD }}
         run: |
           chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
           if [ -f app/sofia-release.keystore ]; then ./gradlew --no-daemon assembleRelease; cp app/build/outputs/apk/release/app-release.apk ../Sofia.apk
-          else ./gradlew --no-daemon assembleDebug; cp app/build/outputs/apk/debug/app-debug.apk ../Sofia.apk; fi
-          ls -la ../Sofia.apk
+          else cp app/build/outputs/apk/debug/app-debug.apk ../Sofia.apk; fi
+          ls -la ../Sofia.apk app/build/outputs/apk/androidTest/debug/
+
+      # ───── Servidor Sofía real para la demo (datos DEMO + cliente sintético) ─────
+      - name: Servidor Sofía (demo)
+        run: |
+          npm run build
+          mkdir -p demo
+          PGLITE_DATA_DIR=$RUNNER_TEMP/pg SOFIA_PRIVATE_STORAGE_DIR=$RUNNER_TEMP/docs nohup npx next start -H 0.0.0.0 -p 3000 > demo/server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:3000/api/health && break; sleep 2; done
+          CID=$(curl -sf -X POST localhost:3000/api/customers -H 'content-type: application/json' -d '{"displayName":"Cliente Escaneo (sintético)"}' | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).customerId))')
+          echo "CID=$CID" >> $GITHUB_ENV
+          echo "cliente de demo: $CID"
+      - name: Habilitar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulador Android · pruebas instrumentadas y demo dentro de la APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            adb logcat -G 16M || true
+            adb logcat -c || true
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r -e sofiaServer http://10.0.2.2:3000 -e sofiaCustomer ${{ env.CID }} mx.sofia.mario.test/androidx.test.runner.AndroidJUnitRunner > demo/instrument.txt 2>&1 || true
+            cat demo/instrument.txt | tail -40
+            adb logcat -d -v threadtime > demo/logcat-full.txt || true
+            grep -E "SOFIA_OCR|SOFIA_DEMO" demo/logcat-full.txt > demo/logcat.txt || true
+            mkdir -p demo/screens && adb pull /sdcard/Android/data/mx.sofia.mario/files/demo/. demo/screens/ || true
+            grep -q "OK (" demo/instrument.txt
+      - name: Verificar demo (OCR ML Kit real → IneParser; PDF generado en la APK)
+        if: always()
+        run: npx tsx scripts/demo-scan-verify.ts demo http://localhost:3000
+      - name: Reporte
+        if: always()
+        run: |
+          [ -f demo/REPORT.md ] && cat demo/REPORT.md >> $GITHUB_STEP_SUMMARY || true
+          rm -f demo/logcat-full.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: sofia-apk
-          path: Sofia.apk
+          path: |
+            Sofia.apk
+            demo/
           retention-days: 30
       - name: Publicar release
+        if: always() && hashFiles('Sofia.apk') != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "tablet-${{ github.run_number }}" Sofia.apk \
             --target "${{ github.sha }}" --prerelease \
             --title "Sofía tablet #${{ github.run_number }}" \
-            --notes "APK privada para la tablet de Mario (no Play Store). Instalar: ver ANDROID_TABLET.md."
-      - name: Publicar APK en la rama apk-tablet (descarga directa sin artefactos)
+            --notes "APK privada para la tablet de Mario (no Play Store). Escáner nativo + OCR en el dispositivo. Instalar: ver ANDROID_TABLET.md."
+      - name: Publicar APK y demo en la rama apk-tablet
+        if: always() && hashFiles('Sofia.apk') != ''
         run: |
-          mkdir -p /tmp/apk && cp Sofia.apk /tmp/apk/ && cd /tmp/apk
-          echo "APK privada de Sofía (tablet de Mario). Build #${{ github.run_number }} de ${{ github.sha }}." > README.md
-          git init -q -b apk-tablet && git add Sofia.apk README.md
+          mkdir -p /tmp/apk && cp Sofia.apk /tmp/apk/ && cp -r demo /tmp/apk/ 2>/dev/null || true
+          rm -f /tmp/apk/demo/server.log
+          cd /tmp/apk
+          echo "APK privada de Sofía (tablet de Mario). Build #${{ github.run_number }} de ${{ github.sha }}. demo/ = prueba en emulador con INE SINTÉTICA." > README.md
+          git init -q -b apk-tablet && git add -A
           git -c user.name="sofia-ci" -c user.email="sofia-ci@users.noreply.github.com" commit -qm "Sofia.apk build #${{ github.run_number }}"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk-tablet

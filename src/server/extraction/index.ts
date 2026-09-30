@@ -5,16 +5,22 @@
  *  1. acroform  — PDF de solicitud BBVA/Banorte llenado (campos AcroForm reales). Confianza alta.
  *  2. pdf-text  — PDF con capa de texto (constancias, estados de cuenta digitales):
  *                 solo patrones inequívocos (CURP, RFC, correo). Confianza media.
+ *  0. on-device — OCR hecho en la tablet (ML Kit, APK) que llega junto con el archivo:
+ *                 INE → IneParser (etiquetas + geometría + validaciones cruzadas); otros → patrones.
+ *                 Nunca confianza alta. Cero tokens: no pasa por ningún servicio de IA.
  *  3. externo   — visión/OCR de un servicio externo: interfaz lista, NO configurado (ver docs).
  *
- * Fotos (JPG/PNG) y PDFs escaneados sin texto: no hay OCR local en el servidor → el documento
- * queda "needs_review" y Mario captura a mano (flujo manual completo).
+ * Fotos (JPG/PNG) y PDFs escaneados SIN observación del dispositivo: no hay OCR en el servidor →
+ * el documento queda "needs_review" y Mario captura a mano (flujo manual completo).
  */
 import { PDFDocument } from "pdf-lib";
 import { getAdapter } from "@/domain/credit";
 import { isFactKey } from "@/domain/facts";
 import { extractProfileEntries } from "../credit/import";
 import { inspectPdfFields, matchesRealMapping, realMapping } from "../credit/pdf";
+import { parseIne } from "./ine";
+import { isValidCurp } from "./mx-id";
+import { observationText, type DocumentObservation } from "./observation";
 
 export type Confidence = "high" | "medium" | "low";
 
@@ -37,6 +43,8 @@ export interface ExtractionInput {
   bytes: Uint8Array;
   mime: string;
   docType: string;
+  /** OCR estructurado hecho en el dispositivo (APK). Opcional. */
+  observation?: DocumentObservation;
 }
 
 export interface ExtractionProvider {
@@ -99,23 +107,61 @@ export const pdfTextProvider: ExtractionProvider = {
       return { provider: "pdf-text", fields: [], readable: false, note: "No se pudo leer el PDF." };
     }
     if (text.replace(/\s/g, "").length < 20) return { provider: "pdf-text", fields: [], readable: false, note: "PDF escaneado (sin texto): requiere OCR. Captura los datos a mano." };
-    const fields: ExtractedField[] = [];
-    const ambiguous: string[] = [];
-    for (const p of PATTERNS) {
-      const found = [...new Set([...text.toUpperCase().matchAll(p.re)].map((m) => m[0]))];
-      if (p.key === "email") {
-        const emails = [...new Set([...text.matchAll(p.re)].map((m) => m[0].toLowerCase()))];
-        if (emails.length === 1) fields.push({ key: "email", value: emails[0]!, confidence: "medium", evidence: `Texto del PDF (${p.label})` });
-        else if (emails.length > 1) ambiguous.push("correo");
-        continue;
-      }
-      if (found.length === 1) fields.push({ key: p.key, value: found[0]!, confidence: "medium", evidence: `Texto del PDF (${p.label})` });
-      else if (found.length > 1) ambiguous.push(p.key.toUpperCase());
-    }
+    const { fields, ambiguous } = patternFields(text, "medium", "Texto del PDF");
     const note = fields.length
       ? `Encontré ${fields.length} dato(s) por patrón en el texto.${ambiguous.length ? ` Hay varios valores posibles de ${ambiguous.join(", ")}: no se eligió ninguno.` : ""}`
       : `El PDF tiene texto pero no encontré datos con patrón inequívoco${ambiguous.length ? ` (varios valores de ${ambiguous.join(", ")})` : ""}. Captura a mano lo que necesites.`;
     return { provider: "pdf-text", fields, readable: true, note };
+  },
+};
+
+/** Patrones inequívocos sobre un texto (CURP, RFC, correo); si hay varios valores, no elige ninguno. */
+function patternFields(text: string, confidence: Confidence, evidence: string) {
+  const fields: ExtractedField[] = [];
+  const ambiguous: string[] = [];
+  for (const p of PATTERNS) {
+    if (p.key === "email") {
+      const emails = [...new Set([...text.matchAll(p.re)].map((m) => m[0].toLowerCase()))];
+      if (emails.length === 1) fields.push({ key: "email", value: emails[0]!, confidence, evidence: `${evidence} (${p.label})` });
+      else if (emails.length > 1) ambiguous.push("correo");
+      continue;
+    }
+    const found = [...new Set([...text.toUpperCase().matchAll(p.re)].map((m) => m[0]))];
+    if (found.length === 1) fields.push({ key: p.key, value: found[0]!, confidence, evidence: `${evidence} (${p.label})` });
+    else if (found.length > 1) ambiguous.push(p.key.toUpperCase());
+  }
+  return { fields, ambiguous };
+}
+
+/**
+ * OCR del dispositivo (ML Kit Text Recognition v2 en la APK). El servidor solo interpreta la
+ * observación; no hay llamada a IA ni costo por documento.
+ */
+export const onDeviceOcrProvider: ExtractionProvider = {
+  name: "ocr-dispositivo",
+  kind: "local",
+  configured: true,
+  supports: () => true,
+  async extract({ observation, docType }) {
+    if (!observation) return null;
+    const text = observationText(observation);
+    if (text.replace(/\s/g, "").length < 8) return { provider: "ocr-dispositivo", fields: [], readable: true, note: "El escaneo no tiene texto legible. Captura los datos a mano o vuelve a escanear con más luz." };
+    if (docType === "ine" || docType === "other") {
+      const ine = parseIne(observation, { docTypeIsIne: docType === "ine" });
+      if (ine.detected) {
+        const head = ine.fields.length ? `INE leída en la tablet: ${ine.fields.length} dato(s) por revisar.` : "INE detectada, pero no se leyó ningún dato con seguridad. Captúralos a mano.";
+        return { provider: "ocr-dispositivo", fields: ine.fields, readable: true, note: [head, ...ine.warnings].join(" ") };
+      }
+      if (docType === "ine") return { provider: "ocr-dispositivo", fields: [], readable: true, note: "No se reconoció una credencial INE en el escaneo. Vuelve a escanear el frente completo o captura a mano." };
+    }
+    const found = patternFields(text, "low", "OCR en el dispositivo");
+    const ambiguous = found.ambiguous;
+    // OCR dudoso: la CURP solo pasa con dígito verificador válido (nunca se corrige).
+    const fields = found.fields.filter((f) => f.key !== "curp" || isValidCurp(f.value));
+    const note = fields.length
+      ? `Leído en la tablet: ${fields.length} dato(s) por patrón.${ambiguous.length ? ` Hay varios valores posibles de ${ambiguous.join(", ")}: no se eligió ninguno.` : ""}`
+      : "Escaneo leído en la tablet, sin datos con patrón inequívoco. Captura a mano lo que necesites.";
+    return { provider: "ocr-dispositivo", fields, readable: true, note };
   },
 };
 
@@ -134,7 +180,7 @@ export const externalVisionProvider: ExtractionProvider = {
   },
 };
 
-export const EXTRACTION_PROVIDERS: ExtractionProvider[] = [acroformProvider, pdfTextProvider, externalVisionProvider];
+export const EXTRACTION_PROVIDERS: ExtractionProvider[] = [onDeviceOcrProvider, acroformProvider, pdfTextProvider, externalVisionProvider];
 
 export async function runExtraction(input: ExtractionInput, providers: ExtractionProvider[] = EXTRACTION_PROVIDERS): Promise<ExtractionResult> {
   const notes: string[] = [];

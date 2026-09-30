@@ -60,6 +60,7 @@ const SPECS: Spec[] = [
   { key: "dependents", label: "Dependientes económicos", kind: "number", section: "personal", min: 0, max: 20, inputMode: "numeric" },
   { key: "rfc", label: "RFC", section: "personal", pattern: /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/, upper: true, sensitive: true },
   { key: "curp", label: "CURP", section: "personal", pattern: /^[A-Z]{4}\d{6}[HMX][A-Z]{5}[A-Z0-9]\d$/, upper: true, sensitive: true },
+  { key: "voter_key", label: "Clave de elector (INE)", section: "personal", pattern: /^[A-Z]{6}\d{8}[HM]\d{3}$/, upper: true, sensitive: true },
   { key: "nss", label: "NSS", section: "personal", pattern: /^\d{11}$/, sensitive: true, inputMode: "numeric" },
   { key: "profession", label: "Profesión", section: "personal" },
   { key: "education_level", label: "Escolaridad", kind: "enum", section: "personal", enumValues: Object.keys(EDUCATION), enumLabels: EDUCATION },
@@ -126,7 +127,7 @@ const SPECS: Spec[] = [
 
 export const PROFILE_FIELD_KEYS = SPECS.map((s) => s.key) as unknown as readonly [
   "first_name", "middle_name", "paternal_last_name", "maternal_last_name", "birth_date", "birth_city", "birth_state", "birth_country",
-  "nationality", "gender", "marital_status", "dependents", "rfc", "curp", "nss", "profession", "education_level",
+  "nationality", "gender", "marital_status", "dependents", "rfc", "curp", "voter_key", "nss", "profession", "education_level",
   "mobile_phone", "home_phone", "email",
   "street", "exterior_number", "interior_number", "neighborhood", "municipality", "city", "state", "postal_code", "housing_status",
   "residence_years", "monthly_rent", "residence_months",

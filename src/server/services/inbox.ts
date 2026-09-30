@@ -11,6 +11,7 @@ import { FACT_DEFS, formatFactValue, isFactKey } from "@/domain/facts";
 import type { AppContext } from "../app";
 import * as s from "../db/schema";
 import { isEncryptedPdf, runExtraction, sniffMime, type ExtractionProvider } from "../extraction";
+import type { DocumentObservation } from "../extraction/observation";
 import { recordAiUsage } from "./ai-usage";
 import { ServiceError } from "./errors";
 import { confirmFact, ignoreFact, recordFacts } from "./profile";
@@ -35,7 +36,7 @@ async function customerOrThrow(app: AppContext, customerId: string) {
 
 export async function uploadDocument(
   app: AppContext,
-  input: { customerId: string; bytes: Uint8Array; fileName: string; docType: string },
+  input: { customerId: string; bytes: Uint8Array; fileName: string; docType: string; observation?: DocumentObservation },
   providers?: ExtractionProvider[],
 ) {
   await customerOrThrow(app, input.customerId);
@@ -66,19 +67,22 @@ export async function uploadDocument(
       extractionStatus: "uploaded",
     })
     .returning();
-  await app.db.insert(s.auditEvents).values({ workspaceId: app.workspaceId, actorType: "mario", eventType: "document_uploaded", entityType: "document", entityId: doc!.id, customerId: input.customerId, data: { docType, mime, sizeBytes: ref.sizeBytes } });
-  await processDocument(app, doc!.id, input.bytes, providers);
+  await app.db.insert(s.auditEvents).values({ workspaceId: app.workspaceId, actorType: "mario", eventType: "document_uploaded", entityType: "document", entityId: doc!.id, customerId: input.customerId, data: { docType, mime, sizeBytes: ref.sizeBytes, scanned: Boolean(input.observation), pages: input.observation?.pages.length } });
+  await processDocument(app, doc!.id, input.bytes, providers, input.observation);
   return (await getInboxDocument(app, doc!.id)).doc;
 }
 
-/** Lee el documento y registra lo encontrado como OBSERVADO (con documento, fuente, confianza y fecha). */
-export async function processDocument(app: AppContext, documentId: string, bytes?: Uint8Array, providers?: ExtractionProvider[]) {
+/**
+ * Lee el documento y registra lo encontrado como OBSERVADO (con documento, fuente, confianza y fecha).
+ * `observation`: OCR estructurado hecho en la tablet (escáner nativo). No se guarda (es PII derivada).
+ */
+export async function processDocument(app: AppContext, documentId: string, bytes?: Uint8Array, providers?: ExtractionProvider[], observation?: DocumentObservation) {
   const [doc] = await app.db.select().from(s.documents).where(and(eq(s.documents.id, documentId), eq(s.documents.workspaceId, app.workspaceId)));
   if (!doc) throw new ServiceError("Documento no encontrado.", 404);
   await app.db.update(s.documents).set({ extractionStatus: "processing", updatedAt: new Date() }).where(eq(s.documents.id, documentId));
   const data = bytes ?? (await app.storage.get({ bucket: doc.storageBucket!, key: doc.storageKey! }));
   const started = Date.now();
-  const result = await runExtraction({ bytes: data, mime: doc.mimeType ?? "", docType: doc.docType }, providers);
+  const result = await runExtraction({ bytes: data, mime: doc.mimeType ?? "", docType: doc.docType, observation }, providers);
   if (result.provider !== "manual" && providers?.find((p) => p.name === result.provider)?.kind === "external") {
     await recordAiUsage(app, { provider: result.provider, purpose: "extraction", ok: true, durationMs: Date.now() - started });
   }
@@ -90,7 +94,7 @@ export async function processDocument(app: AppContext, documentId: string, bytes
       customerId: doc.customerId,
       entries: result.fields.map((f) => ({ key: f.key, value: f.value, confidence: f.confidence })),
       sourceType: "document",
-      sourceLabel: `${DOCUMENT_TYPE_LABELS[doc.docType as DocumentType] ?? "Documento"} (subido ${date})`,
+      sourceLabel: `${DOCUMENT_TYPE_LABELS[doc.docType as DocumentType] ?? "Documento"} (${result.provider === "ocr-dispositivo" ? "escaneado en la tablet" : "subido"} ${date})`,
       sourceRefId: doc.id,
     });
     const pending = await pendingFacts(app, doc.id);
