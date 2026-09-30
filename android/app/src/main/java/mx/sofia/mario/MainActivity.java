@@ -7,7 +7,6 @@ import androidx.webkit.WebViewFeature;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
-import com.getcapacitor.JSInjector;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -57,8 +56,11 @@ public class MainActivity extends BridgeActivity {
             if (b.getServerUrl().startsWith(local)) return;
             Method m = Bridge.class.getDeclaredMethod("getJSInjector");
             m.setAccessible(true);
-            JSInjector injector = (JSInjector) m.invoke(b);
-            if (injector != null) WebViewCompat.addDocumentStartJavaScript(b.getWebView(), injector.getScriptString(), Collections.singleton(local));
+            Object injector = m.invoke(b); // JSInjector (no público)
+            if (injector == null) return;
+            Method script = injector.getClass().getDeclaredMethod("getScriptString");
+            script.setAccessible(true);
+            WebViewCompat.addDocumentStartJavaScript(b.getWebView(), (String) script.invoke(injector), Collections.singleton(local));
         } catch (Exception e) {
             // Sin inyección: la pantalla de conexión muestra su aviso de respaldo.
         }
