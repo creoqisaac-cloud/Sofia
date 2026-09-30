@@ -122,6 +122,17 @@ describe("IneParser v1", () => {
     expect(get(r, "paternal_last_name")!.confidence).toBe("low");
   });
 
+  it("regresión ML Kit: \"0\"→\"O\" en la posición 17 de la CURP pasa el dígito verificador, pero se rechaza por siglo", () => {
+    const misread = SYNTH.curp.slice(0, 16) + "O" + SYNTH.curp[17]; // así lo leyó ML Kit en el emulador
+    expect(misread).not.toBe(SYNTH.curp);
+    expect(isValidCurp(misread)).toBe(false); // implica nacimiento en 2085
+    const r = parseIne(obs(ineFront({ curp: misread })));
+    expect(val(r, "curp")).toBeUndefined();
+    expect(r.warnings.join(" ")).toMatch(/CURP leída no pasa la validación/);
+    // El resto sigue: la fecha impresa se respalda con la clave de elector
+    expect(val(r, "birth_date")).toBe("1985-05-05");
+  });
+
   it("CP que no corresponde al estado → baja confianza + aviso; CP inexistente → vacío", () => {
     let r = parseIne(obs(ineFront({ munState: "ZAPOPAN, JAL." })));
     expect(get(r, "postal_code")!.confidence).toBe("low");

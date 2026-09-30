@@ -23,11 +23,16 @@ export function curpCheckDigit(curp17: string): number {
   return (10 - (sum % 10)) % 10;
 }
 
-/** Estructura + estado válido + fecha real + dígito verificador. No corrige caracteres. */
+/**
+ * Estructura + estado válido + fecha real (no futura) + dígito verificador. No corrige caracteres.
+ * Ojo: el dígito verificador NO distingue "0"↔"O" en la posición 17 (25·2 ≡ 0 mod 10); ese error de
+ * OCR se detecta porque la letra implica siglo 2000 → fecha futura o distinta de la impresa.
+ */
 export function isValidCurp(v: string): boolean {
   const m = v.match(CURP_RE);
   if (!m || !CURP_STATES[m[3]!]) return false;
-  if (!curpBirthDate(v)) return false;
+  const birth = curpBirthDate(v);
+  if (!birth || birth > new Date().toISOString().slice(0, 10)) return false;
   return curpCheckDigit(v.slice(0, 17)) === Number(v[17]);
 }
 

@@ -48,6 +48,7 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     // Escáner nativo (captura guiada, bordes, recorte, mejora) vía Google Play services
     implementation "com.google.android.gms:play-services-mlkit-document-scanner:16.0.0"
     // OCR en el dispositivo, modelo incluido en la APK (sin internet, sin costo por documento)

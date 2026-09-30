@@ -2,9 +2,15 @@ package mx.sofia.mario;
 
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
+import com.getcapacitor.JSInjector;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Collections;
 
 /**
  * Cascarón de Sofía. Carga el servidor configurado en la tablet (pantalla "Conexión");
@@ -33,6 +39,28 @@ public class MainActivity extends BridgeActivity {
             }
         }
         super.onCreate(savedInstanceState);
-        if (bridge != null) bridge.setWebViewClient(new SofiaWebViewClient(bridge, prefs));
+        if (bridge != null) {
+            bridge.setWebViewClient(new SofiaWebViewClient(bridge, prefs));
+            injectBridgeIntoLocalPages(bridge);
+        }
+    }
+
+    /**
+     * Con un servidor remoto, Capacitor solo inyecta su puente JS en el origen del servidor. La pantalla
+     * local "Conexión" (https://localhost/conexion.html) quedaba sin window.Capacitor y no podía guardar
+     * el servidor. Se inyecta el mismo puente también en el origen local.
+     */
+    private void injectBridgeIntoLocalPages(Bridge b) {
+        if (b.getServerUrl() == null || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        try {
+            String local = b.getScheme() + "://" + b.getHost();
+            if (b.getServerUrl().startsWith(local)) return;
+            Method m = Bridge.class.getDeclaredMethod("getJSInjector");
+            m.setAccessible(true);
+            JSInjector injector = (JSInjector) m.invoke(b);
+            if (injector != null) WebViewCompat.addDocumentStartJavaScript(b.getWebView(), injector.getScriptString(), Collections.singleton(local));
+        } catch (Exception e) {
+            // Sin inyección: la pantalla de conexión muestra su aviso de respaldo.
+        }
     }
 }

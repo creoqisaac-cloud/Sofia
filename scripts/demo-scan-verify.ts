@@ -45,7 +45,11 @@ if (total > 0 && chunks.size === total) {
     report.push("");
     check(!r.fields.some((f) => f.confidence === "high"), "Ningún dato en confianza alta");
     check(!r.fields.some((f) => /name/.test(f.key) && /\d/.test(f.value)), "Ningún nombre con dígitos");
-    check(r.fields.find((f) => f.key === "curp")?.value === "SIEP850505MDFNJR09", "CURP leída y validada (dígito verificador)");
+    const curp = r.fields.find((f) => f.key === "curp")?.value;
+    check(curp === undefined || curp === "SIEP850505MDFNJR09", curp ? "CURP leída y validada" : "CURP dudosa en el OCR → se dejó vacía (nunca una CURP incorrecta)");
+    const expected: Record<string, string> = { paternal_last_name: "SINTETICO", maternal_last_name: "EJEMPLO", first_name: "PRUEBA", birth_date: "1985-05-05", gender: "female", postal_code: "06000", state: "Ciudad de México" };
+    const wrong = r.fields.filter((f) => expected[f.key] !== undefined && expected[f.key] !== f.value);
+    check(wrong.length === 0, `Ningún dato con valor incorrecto${wrong.length ? `: ${wrong.map((f) => f.key).join(", ")}` : ""}`);
   }
 }
 
@@ -62,7 +66,7 @@ if (res) {
     fs.writeFileSync(path.join(dir, "solicitud-bbva-sintetica.pdf"), bytes);
     const form = (await PDFDocument.load(bytes)).getForm();
     const get = (n: string) => (form.getField(n) as PDFTextField).getText() ?? "";
-    check(get("curp") === "SIEP850505MDFNJR09", `PDF BBVA · CURP = "${get("curp")}"`);
+    check(get("curp") === "SIEP850505MDFNJR09" || get("curp") === "", `PDF BBVA · CURP = "${get("curp")}" (correcta o vacía, nunca incorrecta)`);
     check(get("Apellido paterno") === "SINTETICO", `PDF BBVA · Apellido paterno = "${get("Apellido paterno")}"`);
     check(get("primer nombre") === "PRUEBA", `PDF BBVA · primer nombre = "${get("primer nombre")}"`);
   }

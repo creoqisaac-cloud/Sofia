@@ -205,6 +205,8 @@ export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolea
   const curpPick = pick(geo, "curp", isValidCurp, (n) => [...tokens(n), n.replace(/\s+/g, "")].flatMap((t) => t.match(/[A-Z0-9]{18}/g) ?? []));
   const curp = curpPick.value;
   if (curpPick.ambiguous) warnings.push("Se leyeron varias CURP posibles: no se eligió ninguna.");
+  const curpRaw = geo.map((g) => g.value("curp")?.replace(/\s+/g, "")).find((v) => v && v.length >= 16);
+  if (!curp && curpRaw) warnings.push("La CURP leída no pasa la validación (algún carácter dudoso): no se usó. Captúrala a mano.");
   const keyPick = pick(geo, "clave", isValidVoterKey, tokens);
   const voterKey = keyPick.value;
 
@@ -228,7 +230,8 @@ export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolea
   if (curp) dateSources.push(["CURP", yymmdd(curpBirthDate(curp)!)]);
   if (voterKey) dateSources.push(["clave de elector", voterKeyBirthYYMMDD(voterKey)]);
   if (mrz) dateSources.push(["reverso (MRZ)", mrz.birthYYMMDD]);
-  const dateAgree = new Set(dateSources.map((d) => d[1])).size <= 1;
+  // AAMMDD en todas las fuentes y, entre CURP e impresa, la fecha completa (el siglo sale de la CURP).
+  const dateAgree = new Set(dateSources.map((d) => d[1])).size <= 1 && !(printed && curp && curpBirthDate(curp) !== printed);
 
   const sexSources: Array<[string, "male" | "female"]> = [];
   if (printedSex) sexSources.push(["impreso", printedSex]);
