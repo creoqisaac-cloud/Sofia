@@ -1,4 +1,25 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sofía</title>
-<style>html,body{margin:0;height:100%;background:#0a0a0b;color:#f3f1ec;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style></head>
-<body><p>Conectando con Sofía…</p><script>setTimeout(function(){location.href="conexion.html"},4000)</script></body></html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sofía</title>
+<style>
+html,body{margin:0;height:100%;background:#0a0a0b;color:#f3f1ec;font-family:system-ui,-apple-system,Roboto,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+main{padding:28px;text-align:center}
+.brand{letter-spacing:.32em;color:#e7d3ae;font-weight:600;font-size:14px}
+p{color:#9a9a9f}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">SOFÍA</div>
+  <p>Abriendo configuración…</p>
+</main>
+<script>
+  // Sin una URL guardada, no esperamos a ninguna IP LAN.
+  location.replace("conexion.html");
+</script>
+</body>
+</html>

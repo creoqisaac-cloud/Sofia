@@ -37,7 +37,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Sincronizar Capacitor
         env:
-          SOFIA_SERVER_URL: ${{ github.event.inputs.server_url || vars.SOFIA_SERVER_URL || 'http://192.168.1.100:3000' }}
+          SOFIA_SERVER_URL: ${{ github.event.inputs.server_url || vars.SOFIA_SERVER_URL || '' }}
         run: npx cap sync android
       - name: Firma (keystore del repositorio en secretos, si existe)
         if: ${{ env.KS != '' }}
@@ -115,7 +115,7 @@ jobs:
           gh release create "tablet-${{ github.run_number }}" Sofia.apk \
             --target "${{ github.sha }}" --prerelease \
             --title "Sofía tablet #${{ github.run_number }}" \
-            --notes "APK privada para la tablet de Mario (no Play Store). Escáner nativo + OCR en el dispositivo. Instalar: ver ANDROID_TABLET.md."
+            --notes "Hotfix de arranque: sin IP LAN forzada, fallback visible a Conexión, escáner nativo + OCR ML Kit conservados. APK privada para la tablet de Mario."
       - name: Publicar APK y demo en la rama apk-tablet
         if: always() && hashFiles('Sofia.apk') != ''
         run: |

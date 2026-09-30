@@ -7,18 +7,15 @@ android {
         applicationId "mx.sofia.mario"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1-escaner"
+        versionCode 3
+        versionName "1.2-arranque"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
     signingConfigs {
         release {
-            // Solo si el workflow de CI escribió el keystore desde secretos (nunca en git).
             if (file("sofia-release.keystore").exists()) {
                 storeFile file("sofia-release.keystore")
                 storePassword System.getenv("SOFIA_KEYSTORE_PASSWORD")
@@ -49,9 +46,7 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
-    // Escáner nativo (captura guiada, bordes, recorte, mejora) vía Google Play services
     implementation "com.google.android.gms:play-services-mlkit-document-scanner:16.0.0"
-    // OCR en el dispositivo, modelo incluido en la APK (sin internet, sin costo por documento)
     implementation "com.google.mlkit:text-recognition:16.0.1"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
