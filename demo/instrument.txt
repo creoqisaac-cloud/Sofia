@@ -1,0 +1,54 @@
+INSTRUMENTATION_STATUS: class=mx.sofia.mario.ScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=3
+INSTRUMENTATION_STATUS: stream=
+mx.sofia.mario.ScannerInstrumentedTest:
+INSTRUMENTATION_STATUS: test=pluginExpuestoALaPagina
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=mx.sofia.mario.ScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=3
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=pluginExpuestoALaPagina
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=mx.sofia.mario.ScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=3
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=flujoEscanearObservadoConfirmarSolicitud
+INSTRUMENTATION_STATUS_CODE: 1
+s_glBindAttribLocation: bind attrib 0 name position
+s_glBindAttribLocation: bind attrib 1 name color
+s_glBindAttribLocation: bind attrib 2 name localCoord
+INSTRUMENTATION_STATUS: class=mx.sofia.mario.ScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=3
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=flujoEscanearObservadoConfirmarSolicitud
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=mx.sofia.mario.ScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=3
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=ocrMlKitEnElDispositivo
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=mx.sofia.mario.ScannerInstrumentedTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=3
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=ocrMlKitEnElDispositivo
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 76.346
+
+OK (3 tests)
+
+
+INSTRUMENTATION_CODE: -1

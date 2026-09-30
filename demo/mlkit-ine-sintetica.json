@@ -1,0 +1,1171 @@
+{
+ "engine": "mlkit-text-v2",
+ "pages": [
+  {
+   "uri": "ine-sintetica-frente.png",
+   "width": 2024,
+   "height": 1276,
+   "blocks": [
+    {
+     "text": "INSTITUTO NACIONAL ELECTORAL",
+     "box": {
+      "left": 605,
+      "top": 54,
+      "right": 1354,
+      "bottom": 93
+     },
+     "lines": [
+      {
+       "text": "INSTITUTO NACIONAL ELECTORAL",
+       "box": {
+        "left": 605,
+        "top": 54,
+        "right": 1354,
+        "bottom": 93
+       },
+       "confidence": 0.793870210647583,
+       "elements": [
+        {
+         "text": "INSTITUTO",
+         "box": {
+          "left": 605,
+          "top": 54,
+          "right": 849,
+          "bottom": 93
+         },
+         "confidence": 0.7903645634651184
+        },
+        {
+         "text": "NACIONAL",
+         "box": {
+          "left": 847,
+          "top": 54,
+          "right": 1075,
+          "bottom": 93
+         },
+         "confidence": 0.7900390625
+        },
+        {
+         "text": "ELECTORAL",
+         "box": {
+          "left": 1090,
+          "top": 54,
+          "right": 1354,
+          "bottom": 93
+         },
+         "confidence": 0.80078125
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "CREDENCIAL PARA VOTAR",
+     "box": {
+      "left": 602,
+      "top": 119,
+      "right": 1076,
+      "bottom": 144
+     },
+     "lines": [
+      {
+       "text": "CREDENCIAL PARA VOTAR",
+       "box": {
+        "left": 602,
+        "top": 119,
+        "right": 1076,
+        "bottom": 144
+       },
+       "confidence": 0.8328536152839661,
+       "elements": [
+        {
+         "text": "CREDENCIAL",
+         "box": {
+          "left": 602,
+          "top": 119,
+          "right": 835,
+          "bottom": 144
+         },
+         "confidence": 0.8589843511581421
+        },
+        {
+         "text": "PARA",
+         "box": {
+          "left": 848,
+          "top": 119,
+          "right": 944,
+          "bottom": 144
+         },
+         "confidence": 0.8056640625
+        },
+        {
+         "text": "VOTAR",
+         "box": {
+          "left": 954,
+          "top": 119,
+          "right": 1076,
+          "bottom": 144
+         },
+         "confidence": 0.8023437261581421
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "NOMBRE",
+     "box": {
+      "left": 602,
+      "top": 238,
+      "right": 734,
+      "bottom": 262
+     },
+     "lines": [
+      {
+       "text": "NOMBRE",
+       "box": {
+        "left": 602,
+        "top": 238,
+        "right": 734,
+        "bottom": 262
+       },
+       "confidence": 0.85546875,
+       "elements": [
+        {
+         "text": "NOMBRE",
+         "box": {
+          "left": 602,
+          "top": 238,
+          "right": 734,
+          "bottom": 262
+         },
+         "confidence": 0.85546875
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "SINTETICO",
+     "box": {
+      "left": 602,
+      "top": 295,
+      "right": 862,
+      "bottom": 331
+     },
+     "lines": [
+      {
+       "text": "SINTETICO",
+       "box": {
+        "left": 602,
+        "top": 295,
+        "right": 862,
+        "bottom": 331
+       },
+       "confidence": 0.77734375,
+       "elements": [
+        {
+         "text": "SINTETICO",
+         "box": {
+          "left": 602,
+          "top": 295,
+          "right": 862,
+          "bottom": 331
+         },
+         "confidence": 0.77734375
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "EJEMPLO",
+     "box": {
+      "left": 603,
+      "top": 355,
+      "right": 837,
+      "bottom": 390
+     },
+     "lines": [
+      {
+       "text": "EJEMPLO",
+       "box": {
+        "left": 603,
+        "top": 355,
+        "right": 837,
+        "bottom": 390
+       },
+       "confidence": 0.8035714030265808,
+       "elements": [
+        {
+         "text": "EJEMPLO",
+         "box": {
+          "left": 603,
+          "top": 355,
+          "right": 837,
+          "bottom": 390
+         },
+         "confidence": 0.8035714030265808
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "PRUEBA ANA",
+     "box": {
+      "left": 604,
+      "top": 416,
+      "right": 926,
+      "bottom": 450
+     },
+     "lines": [
+      {
+       "text": "PRUEBA ANA",
+       "box": {
+        "left": 604,
+        "top": 416,
+        "right": 926,
+        "bottom": 450
+       },
+       "confidence": 0.8172743320465088,
+       "elements": [
+        {
+         "text": "PRUEBA",
+         "box": {
+          "left": 604,
+          "top": 416,
+          "right": 810,
+          "bottom": 450
+         },
+         "confidence": 0.8268229365348816
+        },
+        {
+         "text": "ANA",
+         "box": {
+          "left": 822,
+          "top": 416,
+          "right": 926,
+          "bottom": 450
+         },
+         "confidence": 0.7981770634651184
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "DOMICILIO",
+     "box": {
+      "left": 602,
+      "top": 505,
+      "right": 763,
+      "bottom": 526
+     },
+     "lines": [
+      {
+       "text": "DOMICILIO",
+       "box": {
+        "left": 602,
+        "top": 505,
+        "right": 763,
+        "bottom": 526
+       },
+       "confidence": 0.8042534589767456,
+       "elements": [
+        {
+         "text": "DOMICILIO",
+         "box": {
+          "left": 602,
+          "top": 505,
+          "right": 763,
+          "bottom": 526
+         },
+         "confidence": 0.8042534589767456
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "C FALSA 123 INT 4",
+     "box": {
+      "left": 602,
+      "top": 559,
+      "right": 1045,
+      "bottom": 595
+     },
+     "lines": [
+      {
+       "text": "C FALSA 123 INT 4",
+       "box": {
+        "left": 602,
+        "top": 559,
+        "right": 1045,
+        "bottom": 595
+       },
+       "confidence": 0.8455528616905212,
+       "elements": [
+        {
+         "text": "C",
+         "box": {
+          "left": 602,
+          "top": 559,
+          "right": 634,
+          "bottom": 595
+         },
+         "confidence": 0.70703125
+        },
+        {
+         "text": "FALSA",
+         "box": {
+          "left": 653,
+          "top": 559,
+          "right": 813,
+          "bottom": 595
+         },
+         "confidence": 0.835156261920929
+        },
+        {
+         "text": "123",
+         "box": {
+          "left": 829,
+          "top": 559,
+          "right": 908,
+          "bottom": 595
+         },
+         "confidence": 0.9505208134651184
+        },
+        {
+         "text": "INT",
+         "box": {
+          "left": 927,
+          "top": 559,
+          "right": 1003,
+          "bottom": 595
+         },
+         "confidence": 0.7734375
+        },
+        {
+         "text": "4",
+         "box": {
+          "left": 1018,
+          "top": 559,
+          "right": 1045,
+          "bottom": 595
+         },
+         "confidence": 0.9375
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "COL CENTRO 06000",
+     "box": {
+      "left": 602,
+      "top": 619,
+      "right": 1081,
+      "bottom": 655
+     },
+     "lines": [
+      {
+       "text": "COL CENTRO 06000",
+       "box": {
+        "left": 602,
+        "top": 619,
+        "right": 1081,
+        "bottom": 655
+       },
+       "confidence": 0.8351004719734192,
+       "elements": [
+        {
+         "text": "COL",
+         "box": {
+          "left": 602,
+          "top": 619,
+          "right": 704,
+          "bottom": 655
+         },
+         "confidence": 0.7395833134651184
+        },
+        {
+         "text": "CENTRO",
+         "box": {
+          "left": 721,
+          "top": 619,
+          "right": 928,
+          "bottom": 655
+         },
+         "confidence": 0.8274739384651184
+        },
+        {
+         "text": "06000",
+         "box": {
+          "left": 945,
+          "top": 619,
+          "right": 1081,
+          "bottom": 655
+         },
+         "confidence": 0.901562511920929
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "CUAUHTEMOC, CDMX.",
+     "box": {
+      "left": 602,
+      "top": 679,
+      "right": 1147,
+      "bottom": 721
+     },
+     "lines": [
+      {
+       "text": "CUAUHTEMOC, CDMX.",
+       "box": {
+        "left": 602,
+        "top": 679,
+        "right": 1147,
+        "bottom": 721
+       },
+       "confidence": 0.772705078125,
+       "elements": [
+        {
+         "text": "CUAUHTEMOC,",
+         "box": {
+          "left": 602,
+          "top": 679,
+          "right": 972,
+          "bottom": 721
+         },
+         "confidence": 0.7407670617103577
+        },
+        {
+         "text": "CDMX.",
+         "box": {
+          "left": 991,
+          "top": 679,
+          "right": 1147,
+          "bottom": 721
+         },
+         "confidence": 0.842968761920929
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "CLAVE DE ELECTOR SNEJPR85050509M100",
+     "box": {
+      "left": 602,
+      "top": 763,
+      "right": 1485,
+      "bottom": 798
+     },
+     "lines": [
+      {
+       "text": "CLAVE DE ELECTOR SNEJPR85050509M100",
+       "box": {
+        "left": 602,
+        "top": 763,
+        "right": 1485,
+        "bottom": 798
+       },
+       "confidence": 0.8662109375,
+       "elements": [
+        {
+         "text": "CLAVE",
+         "box": {
+          "left": 602,
+          "top": 763,
+          "right": 699,
+          "bottom": 798
+         },
+         "confidence": 0.848437488079071
+        },
+        {
+         "text": "DE",
+         "box": {
+          "left": 713,
+          "top": 763,
+          "right": 752,
+          "bottom": 798
+         },
+         "confidence": 0.8671875
+        },
+        {
+         "text": "ELECTOR",
+         "box": {
+          "left": 766,
+          "top": 763,
+          "right": 909,
+          "bottom": 798
+         },
+         "confidence": 0.8253348469734192
+        },
+        {
+         "text": "SNEJPR85050509M100",
+         "box": {
+          "left": 942,
+          "top": 763,
+          "right": 1485,
+          "bottom": 798
+         },
+         "confidence": 0.8869357705116272
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "cURP SIEP850505MDFNJRO9",
+     "box": {
+      "left": 602,
+      "top": 843,
+      "right": 1262,
+      "bottom": 879
+     },
+     "lines": [
+      {
+       "text": "cURP SIEP850505MDFNJRO9",
+       "box": {
+        "left": 602,
+        "top": 843,
+        "right": 1262,
+        "bottom": 879
+       },
+       "confidence": 0.8057528138160706,
+       "elements": [
+        {
+         "text": "cURP",
+         "box": {
+          "left": 602,
+          "top": 843,
+          "right": 686,
+          "bottom": 879
+         },
+         "confidence": 0.76953125
+        },
+        {
+         "text": "SIEP850505MDFNJRO9",
+         "box": {
+          "left": 722,
+          "top": 843,
+          "right": 1262,
+          "bottom": 879
+         },
+         "confidence": 0.8138020634651184
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "FECHA DE NACIMIENTO",
+     "box": {
+      "left": 602,
+      "top": 929,
+      "right": 963,
+      "bottom": 950
+     },
+     "lines": [
+      {
+       "text": "FECHA DE NACIMIENTO",
+       "box": {
+        "left": 602,
+        "top": 929,
+        "right": 963,
+        "bottom": 950
+       },
+       "confidence": 0.787224292755127,
+       "elements": [
+        {
+         "text": "FECHA",
+         "box": {
+          "left": 602,
+          "top": 929,
+          "right": 706,
+          "bottom": 950
+         },
+         "confidence": 0.828125
+        },
+        {
+         "text": "DE",
+         "box": {
+          "left": 717,
+          "top": 929,
+          "right": 756,
+          "bottom": 950
+         },
+         "confidence": 0.861328125
+        },
+        {
+         "text": "NACIMIENTO",
+         "box": {
+          "left": 770,
+          "top": 929,
+          "right": 963,
+          "bottom": 950
+         },
+         "confidence": 0.751953125
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "05/05/1985",
+     "box": {
+      "left": 602,
+      "top": 978,
+      "right": 849,
+      "bottom": 1015
+     },
+     "lines": [
+      {
+       "text": "05/05/1985",
+       "box": {
+        "left": 602,
+        "top": 978,
+        "right": 849,
+        "bottom": 1015
+       },
+       "confidence": 0.891406238079071,
+       "elements": [
+        {
+         "text": "05/05/1985",
+         "box": {
+          "left": 602,
+          "top": 978,
+          "right": 849,
+          "bottom": 1015
+         },
+         "confidence": 0.891406238079071
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "SECCIÓN 00011",
+     "box": {
+      "left": 601,
+      "top": 1076,
+      "right": 889,
+      "bottom": 1113
+     },
+     "lines": [
+      {
+       "text": "SECCIÓN 00011",
+       "box": {
+        "left": 601,
+        "top": 1076,
+        "right": 889,
+        "bottom": 1113
+       },
+       "confidence": 0.7880859375,
+       "elements": [
+        {
+         "text": "SECCIÓN",
+         "box": {
+          "left": 601,
+          "top": 1076,
+          "right": 739,
+          "bottom": 1112
+         },
+         "confidence": 0.7845982313156128
+        },
+        {
+         "text": "00011",
+         "box": {
+          "left": 781,
+          "top": 1078,
+          "right": 889,
+          "bottom": 1114
+         },
+         "confidence": 0.79296875
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "MUESTRA SINTETICA PERSONA INEXISTENTE SIN VALIDEZ",
+     "box": {
+      "left": 77,
+      "top": 1210,
+      "right": 850,
+      "bottom": 1235
+     },
+     "lines": [
+      {
+       "text": "MUESTRA SINTETICA PERSONA INEXISTENTE SIN VALIDEZ",
+       "box": {
+        "left": 77,
+        "top": 1210,
+        "right": 850,
+        "bottom": 1235
+       },
+       "confidence": 0.8276811242103577,
+       "elements": [
+        {
+         "text": "MUESTRA",
+         "box": {
+          "left": 77,
+          "top": 1210,
+          "right": 205,
+          "bottom": 1235
+         },
+         "confidence": 0.8454241156578064
+        },
+        {
+         "text": "SINTETICA",
+         "box": {
+          "left": 216,
+          "top": 1210,
+          "right": 346,
+          "bottom": 1235
+         },
+         "confidence": 0.8394097089767456
+        },
+        {
+         "text": "PERSONA",
+         "box": {
+          "left": 364,
+          "top": 1210,
+          "right": 490,
+          "bottom": 1235
+         },
+         "confidence": 0.8515625
+        },
+        {
+         "text": "INEXISTENTE",
+         "box": {
+          "left": 499,
+          "top": 1210,
+          "right": 667,
+          "bottom": 1235
+         },
+         "confidence": 0.8096590638160706
+        },
+        {
+         "text": "SIN",
+         "box": {
+          "left": 691,
+          "top": 1210,
+          "right": 732,
+          "bottom": 1235
+         },
+         "confidence": 0.7942708134651184
+        },
+        {
+         "text": "VALIDEZ",
+         "box": {
+          "left": 742,
+          "top": 1210,
+          "right": 850,
+          "bottom": 1235
+         },
+         "confidence": 0.8136160969734192
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "AÑO DE REGISTRO",
+     "box": {
+      "left": 1280,
+      "top": 925,
+      "right": 1572,
+      "bottom": 950
+     },
+     "lines": [
+      {
+       "text": "AÑO DE REGISTRO",
+       "box": {
+        "left": 1280,
+        "top": 925,
+        "right": 1572,
+        "bottom": 950
+       },
+       "confidence": 0.7869591116905212,
+       "elements": [
+        {
+         "text": "AÑO",
+         "box": {
+          "left": 1280,
+          "top": 925,
+          "right": 1346,
+          "bottom": 950
+         },
+         "confidence": 0.6848958134651184
+        },
+        {
+         "text": "DE",
+         "box": {
+          "left": 1360,
+          "top": 925,
+          "right": 1399,
+          "bottom": 950
+         },
+         "confidence": 0.7890625
+        },
+        {
+         "text": "REGISTRO",
+         "box": {
+          "left": 1413,
+          "top": 925,
+          "right": 1572,
+          "bottom": 950
+         },
+         "confidence": 0.82470703125
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "2003 01",
+     "box": {
+      "left": 1282,
+      "top": 979,
+      "right": 1459,
+      "bottom": 1015
+     },
+     "lines": [
+      {
+       "text": "2003 01",
+       "box": {
+        "left": 1282,
+        "top": 979,
+        "right": 1459,
+        "bottom": 1015
+       },
+       "confidence": 0.9095051884651184,
+       "elements": [
+        {
+         "text": "2003",
+         "box": {
+          "left": 1282,
+          "top": 979,
+          "right": 1389,
+          "bottom": 1015
+         },
+         "confidence": 0.94921875
+        },
+        {
+         "text": "01",
+         "box": {
+          "left": 1407,
+          "top": 979,
+          "right": 1459,
+          "bottom": 1015
+         },
+         "confidence": 0.830078125
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "SEXO M",
+     "box": {
+      "left": 1602,
+      "top": 234,
+      "right": 1756,
+      "bottom": 267
+     },
+     "lines": [
+      {
+       "text": "SEXO M",
+       "box": {
+        "left": 1602,
+        "top": 234,
+        "right": 1756,
+        "bottom": 267
+       },
+       "confidence": 0.7281249761581421,
+       "elements": [
+        {
+         "text": "SEXO",
+         "box": {
+          "left": 1602,
+          "top": 235,
+          "right": 1683,
+          "bottom": 267
+         },
+         "confidence": 0.7490234375
+        },
+        {
+         "text": "M",
+         "box": {
+          "left": 1722,
+          "top": 234,
+          "right": 1756,
+          "bottom": 265
+         },
+         "confidence": 0.64453125
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "VIGENCIA 2023 - 2033",
+     "box": {
+      "left": 1281,
+      "top": 1079,
+      "right": 1735,
+      "bottom": 1115
+     },
+     "lines": [
+      {
+       "text": "VIGENCIA 2023 - 2033",
+       "box": {
+        "left": 1281,
+        "top": 1079,
+        "right": 1735,
+        "bottom": 1115
+       },
+       "confidence": 0.8421415686607361,
+       "elements": [
+        {
+         "text": "VIGENCIA",
+         "box": {
+          "left": 1281,
+          "top": 1079,
+          "right": 1430,
+          "bottom": 1115
+         },
+         "confidence": 0.82470703125
+        },
+        {
+         "text": "2023",
+         "box": {
+          "left": 1472,
+          "top": 1079,
+          "right": 1579,
+          "bottom": 1115
+         },
+         "confidence": 0.9267578125
+        },
+        {
+         "text": "-",
+         "box": {
+          "left": 1597,
+          "top": 1079,
+          "right": 1610,
+          "bottom": 1115
+         },
+         "confidence": 0.515625
+        },
+        {
+         "text": "2033",
+         "box": {
+          "left": 1627,
+          "top": 1079,
+          "right": 1735,
+          "bottom": 1115
+         },
+         "confidence": 0.8740234375
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "uri": "ine-sintetica-reverso.png",
+   "width": 2024,
+   "height": 1276,
+   "blocks": [
+    {
+     "text": "MUESTRA SINTETICA PERSONA INEXISTENTE· SIN VALIDEZ",
+     "box": {
+      "left": 79,
+      "top": 51,
+      "right": 850,
+      "bottom": 75
+     },
+     "lines": [
+      {
+       "text": "MUESTRA SINTETICA PERSONA INEXISTENTE· SIN VALIDEZ",
+       "box": {
+        "left": 79,
+        "top": 51,
+        "right": 850,
+        "bottom": 75
+       },
+       "confidence": 0.809374988079071,
+       "elements": [
+        {
+         "text": "MUESTRA",
+         "box": {
+          "left": 79,
+          "top": 51,
+          "right": 205,
+          "bottom": 75
+         },
+         "confidence": 0.8582589030265808
+        },
+        {
+         "text": "SINTETICA",
+         "box": {
+          "left": 215,
+          "top": 51,
+          "right": 344,
+          "bottom": 75
+         },
+         "confidence": 0.8094618320465088
+        },
+        {
+         "text": "PERSONA",
+         "box": {
+          "left": 364,
+          "top": 51,
+          "right": 490,
+          "bottom": 75
+         },
+         "confidence": 0.8565848469734192
+        },
+        {
+         "text": "INEXISTENTE·",
+         "box": {
+          "left": 499,
+          "top": 51,
+          "right": 680,
+          "bottom": 75
+         },
+         "confidence": 0.7604166865348816
+        },
+        {
+         "text": "SIN",
+         "box": {
+          "left": 691,
+          "top": 51,
+          "right": 732,
+          "bottom": 75
+         },
+         "confidence": 0.8020833134651184
+        },
+        {
+         "text": "VALIDEZ",
+         "box": {
+          "left": 741,
+          "top": 51,
+          "right": 850,
+          "bottom": 75
+         },
+         "confidence": 0.8002232313156128
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "IDMEX1234567890<<0000000000000",
+     "box": {
+      "left": 86,
+      "top": 922,
+      "right": 1618,
+      "bottom": 972
+     },
+     "lines": [
+      {
+       "text": "IDMEX1234567890<<0000000000000",
+       "box": {
+        "left": 86,
+        "top": 922,
+        "right": 1618,
+        "bottom": 972
+       },
+       "confidence": 0.7113281488418579,
+       "elements": [
+        {
+         "text": "IDMEX1234567890<<0000000000000",
+         "box": {
+          "left": 86,
+          "top": 922,
+          "right": 1618,
+          "bottom": 972
+         },
+         "confidence": 0.7113281488418579
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "8505051F3312315MEX<<<<<<<<<<<0",
+     "box": {
+      "left": 84,
+      "top": 1029,
+      "right": 1617,
+      "bottom": 1081
+     },
+     "lines": [
+      {
+       "text": "8505051F3312315MEX<<<<<<<<<<<0",
+       "box": {
+        "left": 84,
+        "top": 1029,
+        "right": 1617,
+        "bottom": 1081
+       },
+       "confidence": 0.7618489861488342,
+       "elements": [
+        {
+         "text": "8505051F3312315MEX<<<<<<<<<<<0",
+         "box": {
+          "left": 84,
+          "top": 1029,
+          "right": 1617,
+          "bottom": 1081
+         },
+         "confidence": 0.7618489861488342
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "text": "SINTETIC0<EJEMPL0<<PRUEBA<ANA<",
+     "box": {
+      "left": 82,
+      "top": 1137,
+      "right": 1618,
+      "bottom": 1189
+     },
+     "lines": [
+      {
+       "text": "SINTETIC0<EJEMPL0<<PRUEBA<ANA<",
+       "box": {
+        "left": 82,
+        "top": 1137,
+        "right": 1618,
+        "bottom": 1189
+       },
+       "confidence": 0.7289062738418579,
+       "elements": [
+        {
+         "text": "SINTETIC0<EJEMPL0<<PRUEBA<ANA<",
+         "box": {
+          "left": 82,
+          "top": 1137,
+          "right": 1618,
+          "bottom": 1189
+         },
+         "confidence": 0.7289062738418579
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
