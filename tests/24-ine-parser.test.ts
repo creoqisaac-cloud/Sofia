@@ -15,6 +15,7 @@ import { isNameLine, parseIne } from "@/server/extraction/ine";
 import { curpCheckDigit, curpMatchesName, isValidCurp, parseMrz, stateForPostalCode, stateFromAbbr } from "@/server/extraction/mx-id";
 import { parseObservation } from "@/server/extraction/observation";
 import { ineBack, ineFront, obs, obsFromRows, SYNTH } from "./fixtures/ine";
+import mlkitReal from "./fixtures/mlkit-ine-sintetica.json";
 
 const get = (r: ReturnType<typeof parseIne>, key: string) => r.fields.find((f) => f.key === key);
 const val = (r: ReturnType<typeof parseIne>, key: string) => get(r, key)?.value;
@@ -192,6 +193,33 @@ describe("IneParser v1", () => {
   it("nombre del reverso distinto al frente → aviso", () => {
     const r = parseIne(obs(ineFront(), ineBack({ names: "OTRO<APELLIDO<<PERSONA" })));
     expect(r.warnings.join(" ")).toMatch(/frente no coincide con el del reverso/);
+    expect(get(r, "paternal_last_name")!.confidence).toBe("low");
+  });
+});
+
+describe("OCR REAL de ML Kit (emulador Android de CI, credencial sintética)", () => {
+  // Salida exacta de ML Kit Text Recognition v2 en el emulador: confundió 0↔O en la CURP y en la MRZ.
+  const real = parseObservation(mlkitReal)!;
+
+  it("la observación real cumple el esquema (bloques, renglones, cajas, confianza)", () => {
+    expect(real.pages).toHaveLength(2);
+    const line = real.pages[0]!.blocks[0]!.lines[0]!;
+    expect(line.box.right).toBeGreaterThan(line.box.left);
+    expect(line.confidence).toBeGreaterThan(0);
+  });
+
+  it("nunca un valor incorrecto: lo dudoso queda vacío", () => {
+    const r = parseIne(real, { docTypeIsIne: true });
+    const expected: Record<string, string> = {
+      paternal_last_name: "SINTETICO", maternal_last_name: "EJEMPLO", first_name: "PRUEBA", middle_name: "ANA",
+      birth_date: "1985-05-05", gender: "female", voter_key: SYNTH.voterKey, postal_code: "06000", neighborhood: "CENTRO",
+      municipality: "CUAUHTEMOC", state: "Ciudad de México", street: "FALSA", exterior_number: "123", interior_number: "4",
+    };
+    for (const f of r.fields) expect(f.value, f.key).toBe(expected[f.key]);
+    expect(val(r, "curp")).toBeUndefined(); // "…JRO9": leída con O, se rechaza
+    expect(r.warnings.join(" ")).toMatch(/CURP leída no pasa la validación/);
+    expect(r.fields.some((f) => f.confidence === "high")).toBe(false);
+    // Sin CURP válida ni MRZ válida (MRZ con "SINTETIC0"), el nombre no se puede corroborar → baja
     expect(get(r, "paternal_last_name")!.confidence).toBe("low");
   });
 });
