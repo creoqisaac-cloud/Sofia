@@ -87,19 +87,76 @@ Todo se guarda **solo en la tablet**. Para cambiar el servidor después, apaga e
 - En la base quedan el hash, el tipo, el estado y el nombre original. Los logs no registran nombres ni valores.
 - En la tablet solo queda lo que Mario **guarda o comparte** a propósito, más archivos temporales de la caché para compartir.
 
+## Escanear documentos (APK)
+
+En **1 · Documentos**, dentro de la APK, aparece **Escanear documento**:
+
+1. Elige el tipo (por ejemplo **INE**) y toca **Escanear documento**.
+2. Se abre el escáner de Google (ML Kit Document Scanner):
+   - detecta los bordes;
+   - recorta y endereza;
+   - mejora la imagen.
+
+   Para la INE escanea **frente y reverso** (hasta 2 páginas). También se puede importar una foto.
+3. El texto se lee **en la tablet** con ML Kit Text Recognition v2:
+   - el modelo viene dentro de la APK;
+   - no necesita internet;
+   - no cuesta tokens.
+4. El archivo se sube como documento privado. Lo leído entra **OBSERVADO** y se abre la pantalla de revisión, donde se puede **Confirmar**, **Corregir** o **Ignorar**.
+5. Lo confirmado llena la solicitud BBVA/Banorte. Lo observado **nunca** se usa sin confirmar.
+
+Qué garantiza:
+
+- No se guarda en la galería.
+- Las imágenes temporales de la caché se borran al subirlas.
+- El texto leído no va a logs.
+
+Requisitos y límites:
+
+- **Requiere Google Play services.** La primera vez, Google Play descarga el módulo del escáner. Si no está disponible, se usa **Tomar foto** o **Elegir archivos** con captura manual.
+- **En un navegador** no hay escáner ni OCR: se sube a mano. No se finge OCR web.
+
+### Qué lee de la INE (IneParser v1)
+
+| Dato | Cómo se valida |
+|---|---|
+| Apellidos y nombre(s) | Renglones debajo de NOMBRE. **Nunca** acepta dígitos ni símbolos. Se cruzan con las iniciales de la CURP y con el reverso. |
+| CURP | Estructura, estado, fecha real y **dígito verificador**. Nunca se corrige ni se reconstruye un carácter dudoso. |
+| Clave de elector | Estructura. Se cruza su fecha y sexo. |
+| Fecha de nacimiento y sexo | Se cruzan con CURP, clave y reverso (MRZ). |
+| Domicilio | Calle, número, interior, colonia, CP, municipio y estado. El CP se cruza con el estado. Si la calle lleva manzana o lote, no se parte. |
+| Reverso (MRZ) | Solo si los dígitos verificadores ICAO son válidos. |
+
+Reglas de confianza:
+
+- **Nunca** hay confianza alta: el máximo es *media*, y solo cuando otra fuente independiente lo respalda.
+- Si dos fuentes no coinciden, el dato queda en confianza *baja* y la nota del documento lo avisa.
+- Si un dato contradice uno ya confirmado del cliente, queda en **conflicto**.
+- Si falta evidencia, el campo se deja vacío.
+
 ## Extracción de datos
 
 **Sin IA y sin inventar.** Lo que funciona hoy:
 
 | Documento | Qué se lee |
 |---|---|
+| **Escaneo en la APK** (INE) | IneParser v1 sobre el OCR de ML Kit en la tablet. Confianza media o baja. |
+| **Escaneo en la APK** (otros documentos) | CURP (con dígito verificador), RFC y correo, solo si hay un valor inequívoco. Confianza baja. |
 | PDF de **solicitud BBVA/Banorte llenada** | Los campos del formulario. Confianza alta. |
 | PDF **con texto** (constancias, estados de cuenta digitales) | CURP, RFC y correo, solo si hay un valor inequívoco. Confianza media. |
-| **Fotos** y PDFs **escaneados** | Nada automático. Mario ve la imagen y captura los datos en el mismo documento. |
+| **Fotos** y PDFs **escaneados** subidos sin el escáner | Nada automático. Mario captura los datos en el mismo documento. |
 
 - Todo lo leído entra como **observado** y solo se usa en la solicitud cuando Mario lo **confirma**.
-- **OCR en la tablet (ML Kit):** existe, pero no se integró.
-  - Requiere un plugin nativo de terceros.
-  - Su lectura de INE o comprobantes mexicanos (fotos inclinadas, hologramas) necesita validación con documentos reales.
-  - Queda como siguiente paso, con la interfaz `ExtractionProvider` ya lista.
 - **OCR/visión externo** (Document AI, Textract, Azure o un modelo de visión) se conecta en `src/server/extraction/index.ts` con credenciales **del servidor**, nunca en la APK. Cada llamada queda en la métrica de uso de IA (Más → Sistema).
+
+## Pruebas del escáner en CI
+
+El workflow compila la APK y la prueba en un **emulador Android** con una INE **sintética** (persona inexistente, `scripts/ine-sintetica.mjs`):
+
+- OCR real de ML Kit sobre frente y reverso;
+- el plugin expuesto a la página;
+- el flujo **dentro de la APK** contra un servidor Sofía real: Escanear → observados → Confirmar → solicitud BBVA → PDF.
+
+El resultado (reporte, capturas y PDF sintético) queda en `demo/` de la rama `apk-tablet`.
+
+Lo único que no se puede operar en un emulador es la pantalla de cámara del escáner de Google Play: en la prueba se entrega la imagen sintética en su lugar. **La captura con cámara se valida en la tablet real.**

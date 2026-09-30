@@ -50,7 +50,7 @@ jobs:
           SOFIA_KEYSTORE_PASSWORD: ${{ secrets.SOFIA_KEYSTORE_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
           if [ -f app/sofia-release.keystore ]; then ./gradlew --no-daemon assembleRelease; cp app/build/outputs/apk/release/app-release.apk ../Sofia.apk
           else cp app/build/outputs/apk/debug/app-debug.apk ../Sofia.apk; fi
           ls -la ../Sofia.apk app/build/outputs/apk/androidTest/debug/
@@ -91,7 +91,9 @@ jobs:
             grep -q "OK (" demo/instrument.txt
       - name: Verificar demo (OCR ML Kit real → IneParser; PDF generado en la APK)
         if: always()
-        run: npx tsx scripts/demo-scan-verify.ts demo http://localhost:3000
+        run: |
+          mkdir -p demo && touch demo/logcat.txt
+          npx tsx scripts/demo-scan-verify.ts demo http://localhost:3000
       - name: Reporte
         if: always()
         run: |
