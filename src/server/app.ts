@@ -12,7 +12,7 @@ import { seedDemoSprint3 } from "./db/seed-sprint3";
 import { createProvider, type LlmProvider } from "./agent/providers";
 import { systemClock, type Clock } from "./lib/clock";
 import { logger } from "./lib/logger";
-import { LocalPrivateStorage, type DocumentStorage } from "./storage/documents";
+import { LocalPrivateStorage, SupabaseStorage, type DocumentStorage } from "./storage/documents";
 
 export interface AppContext {
   db: Db;
@@ -67,6 +67,11 @@ export function createHandleFromConfig(config: AppConfig): DbHandle {
   return config.DATABASE_URL ? createPostgresHandle(config.DATABASE_URL) : createPgliteHandle(config.PGLITE_DATA_DIR);
 }
 
+export function createStorageFromConfig(config: AppConfig): DocumentStorage {
+  if (config.SUPABASE_URL && config.SUPABASE_SERVICE_ROLE_KEY) return new SupabaseStorage(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY, config.SUPABASE_STORAGE_BUCKET);
+  return new LocalPrivateStorage(config.SOFIA_PRIVATE_STORAGE_DIR);
+}
+
 const globalForApp = globalThis as unknown as { __sofiaApp?: Promise<AppContext> };
 
 /** Singleton para el runtime de Next.js (sobrevive a recargas en desarrollo). */
@@ -83,9 +88,9 @@ export function getAppContext(): Promise<AppContext> {
       provider: createProvider(config),
       migrate: autoMigrate,
       seed: autoSeed,
-      storage: new LocalPrivateStorage(config.SOFIA_PRIVATE_STORAGE_DIR),
+      storage: createStorageFromConfig(config),
     }).then((app) => {
-      logger.info("sofia.ready", { db: app.dbKind, provider: app.provider.name, model: app.provider.model });
+      logger.info("sofia.ready", { db: app.dbKind, storage: config.SUPABASE_URL ? "supabase" : "local", provider: app.provider.name, model: app.provider.model });
       return app;
     });
     globalForApp.__sofiaApp.catch(() => {

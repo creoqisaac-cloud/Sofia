@@ -9,6 +9,10 @@ const EnvSchema = z.object({
   SOFIA_MODEL: z.string().default("claude-opus-5"),
   SOFIA_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
   SOFIA_PRIVATE_STORAGE_DIR: z.string().default(".data/private-docs"),
+  /** Supabase Storage (servidor gratuito): si están, los documentos van a un bucket privado. */
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  SUPABASE_STORAGE_BUCKET: z.string().default("sofia-docs"),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_AUTH_TOKEN: z.string().optional(),
 });

@@ -68,6 +68,31 @@
     });
   }
 
+  // Servidor gratuito dormido: tarda ~1 minuto en despertar. Reintento automático visible (máx. ~3 min).
+  function autoRetry(p, savedUrl) {
+    if (!savedUrl || !/timeout=1|network=1|http=50[234]/.test(location.search)) return;
+    var KEY = "sofiaWake";
+    var now = Date.now();
+    var st = {};
+    try { st = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { st = {}; }
+    if (!st.start || now - st.start > 5 * 60000) st = { start: now, n: 0 };
+    if (now - st.start > 3 * 60000) {
+      why.textContent = "El servidor no respondió en 3 minutos. Revisa internet o la dirección y toca Reintentar.";
+      localStorage.removeItem(KEY);
+      return;
+    }
+    st.n += 1;
+    localStorage.setItem(KEY, JSON.stringify(st));
+    var left = 15;
+    why.textContent = "Sofía se está despertando (servidor gratuito, puede tardar hasta un minuto)…";
+    msg.className = "msg ok";
+    (function tick() {
+      msg.textContent = "Reintento automático en " + left + " s (intento " + st.n + ")";
+      if (left-- <= 0) return p.reload();
+      setTimeout(tick, 1000);
+    })();
+  }
+
   waitPlugin().then(function (p) {
     if (!p) {
       msg.className = "msg err";
@@ -78,6 +103,7 @@
       var u = c && c.url ? String(c.url) : "";
       if (u && !/192\.168\.1\.100/.test(u)) document.getElementById("url").value = u;
       document.getElementById("user").value = c && c.user ? c.user : "";
+      autoRetry(p, u);
     }).catch(function () {});
   });
 

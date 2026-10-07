@@ -42,8 +42,9 @@ export function createPgliteHandle(dataDir?: string): DbHandle {
   };
 }
 
-export function createPostgresHandle(url: string): DbHandle {
-  const client = postgres(url, { max: 5, prepare: false });
+export function createPostgresHandle(url: string, opts: { max?: number } = {}): DbHandle {
+  // prepare:false → compatible con el pooler de Supabase (Supavisor).
+  const client = postgres(url, { max: opts.max ?? (Number(process.env.SOFIA_DB_POOL_MAX) || 5), prepare: false });
   const db = drizzlePostgres(client, { schema });
   return {
     db: db as unknown as Db,

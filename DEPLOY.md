@@ -1,39 +1,33 @@
-# Subir Sofía a un servidor siempre encendido (Render)
+# Servidor de Sofía GRATIS: Supabase + Render
 
-Así la tablet de Mario funciona sin ninguna computadora encendida.
+| Pieza | Servicio gratuito | Qué guarda |
+|---|---|---|
+| Base de datos | **Supabase** (Postgres, 500 MB) | Clientes, seguimientos, recordatorios, solicitudes, correo cifrado |
+| Documentos | **Supabase Storage** (bucket privado, 1 GB) | INE, comprobantes, PDFs generados |
+| App (Next.js) | **Render** (plan Free, Docker) | Nada: se puede reiniciar sin perder datos |
 
-## 1. Crear el servidor (una sola vez, ~5 minutos)
+Supabase no ejecuta la app de Sofía (Next.js), por eso se usa Render para esa parte.
 
-1. Entra a <https://render.com> → **Sign in with GitHub**. Autoriza el repo `Sofia`.
-2. **New → Blueprint** → elige el repo `Sofia`. Render lee `render.yaml`.
-3. Te pide `SOFIA_BASIC_AUTH`. Escribe `mario:una-contraseña-larga`, que es el usuario y la contraseña de la tablet.
-4. **Apply**.
-   - Usa el plan Starter con disco de 1 GB, más o menos US$7–8 al mes, con tarjeta.
-   - El plan gratis **no sirve**: se duerme y borra los datos en cada reinicio.
-5. Espera el primer deploy (5–10 min). Render te da una dirección tipo `https://sofia-xxxx.onrender.com`.
-6. Comprueba que el servidor responde:
-   - `https://…onrender.com/api/health` debe mostrar `{"ok":true}`;
-   - la página principal pide usuario y contraseña.
+## Límites del plan gratis
 
-Cada push a la rama `claude/laughing-sagan-hbxj3y` vuelve a desplegar el servidor solo.
+- **Render duerme el servidor** tras 15 minutos sin uso. `supabase/keepalive.sql` lo despierta cada 10 minutos.
+- Si aun así está dormido, la tablet muestra **“Sofía se está despertando…”** y reintenta sola, hasta 3 minutos.
+- Los **recordatorios y alarmas ya programados en la tablet suenan aunque el servidor esté dormido**.
+- **Supabase pausa proyectos sin actividad** durante 7 días. El keepalive cuenta como actividad.
 
-## 2. Conectar la tablet
+## Pasos
 
-- **Opción rápida:** Mario abre la APK que ya tiene. En la pantalla **Conexión** escribe:
-  - la dirección `https://sofia-xxxx.onrender.com`;
-  - el usuario y la contraseña.
+Claude los hace por ti si conectas los conectores de Supabase y Render.
 
-  Luego toca **Guardar y conectar**.
-- **APK con la dirección ya puesta:** en GitHub → Actions → **Android APK (Sofía tablet)** → *Run workflow*, con `server_url` igual a la dirección de Render. La nueva `Sofia.apk` sale en Releases.
+1. **Supabase** → New project, región `us-east` o la más cercana. Guarda la contraseña de la base de datos.
+2. **Render** → New → Blueprint → repo `Sofia` (usa `render.yaml`). Llena las variables:
+   - `DATABASE_URL`: Supabase → Connect → **Session pooler**. Es la dirección `postgres://postgres.<ref>:<contraseña>@aws-0-<región>.pooler.supabase.com:5432/postgres`.
+   - `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`: Supabase → Project Settings → API. La llave **service_role** es secreta: va solo en Render, nunca en la APK.
+   - `SOFIA_BASIC_AUTH`: `usuario:contraseña` de la tablet.
+3. Al primer arranque Sofía crea sus tablas y su espacio de trabajo. Los datos DEMO van marcados como DEMO.
+4. En Supabase → SQL Editor, ejecuta `supabase/keepalive.sql` con la URL de Render.
+5. En la tablet, pantalla **Conexión**: la URL de Render y el usuario/contraseña de `SOFIA_BASIC_AUTH`.
 
-## Qué hay dentro
+## Plan de pago (opcional)
 
-- `Dockerfile`: compila Next.js y arranca con `next start`.
-- Los datos van en el disco `/data`:
-  - base PGlite en `/data/pglite`;
-  - documentos privados en `/data/private-docs`.
-- Las migraciones corren solas al arrancar.
-- Se cargan los datos **DEMO** marcados (igual que en el piloto) para poder probar. Los clientes reales que Mario agregue quedan en el disco del servidor, nunca en git ni en la APK.
-- `/api/health` es la única ruta sin contraseña y no devuelve datos.
-- Sin IA externa: `SOFIA_LLM_PROVIDER=demo`.
-- Respaldo: Render → Disks → snapshots diarios automáticos.
+Para servidor sin dormir y disco propio: Render Starter + disco persistente en `/data`. Ver el historial de `render.yaml`.
