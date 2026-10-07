@@ -21,7 +21,7 @@ public class SofiaWebViewClient extends BridgeWebViewClient {
 
     private final Bridge bridge;
     private final SharedPreferences prefs;
-    private int attempts = 0;
+    private int attempts = 0; // permite varios retos HTTP Basic durante una misma carga
     private volatile boolean remoteLoaded = false;
     private volatile boolean showingFallback = false;
 
@@ -59,7 +59,7 @@ public class SofiaWebViewClient extends BridgeWebViewClient {
         String user = prefs.getString("authUser", "");
         String pass = prefs.getString("authPass", "");
 
-        if (attempts < 1 && user != null && !user.isEmpty()) {
+        if (attempts < 4 && user != null && !user.isEmpty()) {
             attempts++;
             handler.proceed(user, pass);
             return;
