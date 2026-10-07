@@ -160,3 +160,51 @@ El workflow compila la APK y la prueba en un **emulador Android** con una INE **
 El resultado (reporte, capturas y PDF sintético) queda en `demo/` de la rama `apk-tablet`.
 
 Lo único que no se puede operar en un emulador es la pantalla de cámara del escáner de Google Play: en la prueba se entrega la imagen sintética en su lugar. **La captura con cámara se valida en la tablet real.**
+
+## Recordatorios y alarmas
+
+**Más → Recordatorios y alarmas.** Los avisos los programa Android en la tablet: suenan aunque la app esté cerrada o sin internet.
+
+| Qué | Cuándo suena |
+|---|---|
+| Seguimiento con fecha | A la hora del seguimiento. Si Mario se comprometió con el cliente, como **alarma**. |
+| Cita | Aviso 1 hora antes y **alarma** 15 minutos antes. |
+| “Recuérdame…” (con o sin cliente) | A la hora elegida. Puede marcarse como alarma. |
+
+- La primera vez toca **Activar notificaciones**.
+- En Android 12+ toca también **Permitir alarmas a la hora exacta**.
+- **Probar alarma** suena a los 10 segundos.
+- Los avisos se actualizan al abrir la app y cada 10 minutos.
+- Al tocar un aviso se abre la ficha del cliente.
+- Se programan los próximos 14 días.
+
+## Correo de Sofía
+
+**Más → Correo de Sofía**: asigna el correo desde el que Sofía envía (Gmail, Outlook/Hotmail, Yahoo o el correo de la agencia).
+
+- **Gmail** pide una *contraseña de aplicación*: Cuenta de Google → Seguridad → Contraseñas de aplicaciones. La contraseña normal no funciona.
+- Antes de guardar se comprueba la conexión. La contraseña se guarda **cifrada en el servidor**: nunca en la tablet, nunca en git, nunca se vuelve a mostrar.
+- Cada envío pide **confirmación** de Mario.
+- **Placas:** Placas → trámite → **Preparar correo de placas** → **Enviar** → **Sí, enviar**.
+  - El correo sale con los documentos del cliente adjuntos.
+  - El trámite pasa a *enviado*.
+  - Queda un recordatorio para revisar la respuesta en 2 días.
+- Sin cuenta asignada sigue funcionando **Compartir con adjuntos / Abrir correo** (lo envía Mario).
+- En el servidor (Render) configura `SOFIA_SECRET_KEY`; el blueprint la genera sola.
+
+## INE por foto hacia la solicitud
+
+Desde la solicitud: **Llenar con foto o escaneo de la INE**.
+
+1. Abre Documentos con el tipo INE ya elegido.
+2. **Tomar foto**, **Elegir archivos** (foto) o **Escanear documento**. El texto se lee en la tablet (ML Kit), sin internet ni costo.
+3. Los datos quedan **observados** en la revisión. **Ya revisé la INE: confirmar todos** confirma los que no tienen conflicto. Cada uno se puede corregir.
+4. **Volver a la solicitud** → los datos confirmados ya llenan el PDF.
+
+**Llenar a mano**: paso *Completar* de la solicitud (formularios por sección).
+
+## Firma de la APK (instalar encima sin desinstalar)
+
+Mientras no existan los secretos `SOFIA_KEYSTORE_BASE64` y `SOFIA_KEYSTORE_PASSWORD` en GitHub, cada compilación usa una llave temporal distinta. En ese caso **hay que desinstalar la versión anterior** antes de instalar la nueva (la app no guarda datos de clientes; solo la dirección del servidor).
+
+Con los secretos, todas las APK salen con la misma firma y se instalan encima. El repositorio es público: la llave **nunca** va en git.
