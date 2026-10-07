@@ -72,6 +72,35 @@ if (res) {
   }
 }
 
+// 3) Funciones de la tablet
+report.push("", "## Funciones de la tablet (en la APK)", "");
+check(/SOFIA_DEMO\s*:\s*ALARM shown=true/.test(log), "Alarma de prueba mostrada por Android (notificación local)");
+check(/SOFIA_DEMO\s*:\s*REMINDERS pending=/.test(log), "Recordatorio del servidor programado en Android (LocalNotifications.getPending)");
+
+const photo = log.match(/SOFIA_DEMO\s*:\s*PHOTO doc=(\S+) app=(\S+) generated=(\S+) observed=(\d+)/);
+check(Boolean(photo), "INE por FOTO (OCR real en la tablet) → observados → confirmar todos → solicitud → PDF");
+if (photo) {
+  const [, , app2, gen2, obs2] = photo;
+  report.push(`- Foto INE: ${obs2} dato(s) observados · solicitud ${app2}`);
+  const r = await fetch(`${server}/api/documents/generated/${gen2}`);
+  if (r.ok) {
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    fs.writeFileSync(path.join(dir, "solicitud-bbva-desde-foto.pdf"), bytes);
+    const form = (await PDFDocument.load(bytes)).getForm();
+    const get = (n: string) => (form.getField(n) as PDFTextField).getText() ?? "";
+    check(get("Apellido paterno") === "SINTETICO" && get("primer nombre") === "PRUEBA", `PDF desde foto · ${get("Apellido paterno")} / ${get("primer nombre")}`);
+    check(get("curp") === "SIEP850505MDFNJR09" || get("curp") === "", `PDF desde foto · CURP = "${get("curp")}" (correcta o vacía)`);
+  } else check(false, "PDF desde foto descargado");
+}
+
+const mail = log.match(/SOFIA_DEMO\s*:\s*EMAIL id=(\S+) to=(\S+)/);
+check(Boolean(mail), "Correo de placas enviado desde la APK (con confirmación)");
+const smtpDir = path.join(dir, "smtp");
+const emls = fs.existsSync(smtpDir) ? fs.readdirSync(smtpDir).map((f) => fs.readFileSync(path.join(smtpDir, f), "utf8")) : [];
+const platesMail = emls.find((m) => /To: gestor\.placas@example\.com/.test(m));
+check(Boolean(platesMail), `El servidor SMTP recibió el correo de placas (${emls.length} correo(s) recibidos)`);
+if (platesMail) check(/filename="?INE\.jpg"?/.test(platesMail) && /Content-Type: image\/jpeg/.test(platesMail), "El correo de placas lleva la INE adjunta");
+
 report.push("", "Capturas de pantalla (APK en el emulador): `screens/`.", "Única sustitución: la pantalla de cámara del escáner de Google Play (no operable en emulador) entrega la imagen sintética; el OCR es ML Kit real en el dispositivo.");
 fs.writeFileSync(path.join(dir, "REPORT.md"), report.join("\n") + "\n");
 console.log(report.join("\n"));

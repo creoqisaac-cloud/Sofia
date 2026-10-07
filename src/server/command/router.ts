@@ -18,7 +18,7 @@ import * as s from "../db/schema";
 import { APPOINTMENT_KINDS, createFollowup, scheduleAppointment } from "../services/agenda";
 import { listCustomerApplications } from "../services/credit";
 import { getDocumentChecklist, setDocumentStatus } from "../services/documents";
-import { draftPlatesEmail, getEmail, getEmailProvider, sendEmail, EMAIL_NOT_CONFIGURED } from "../services/email";
+import { draftPlatesEmail, emailConfigured, getEmail, sendEmail, EMAIL_NOT_CONFIGURED } from "../services/email";
 import { ServiceError } from "../services/errors";
 import { ensurePlateCase, listPlateCases, NO_PLATE_REQUIREMENTS, PLATE_STATUS_LABELS, PLATE_STATUSES, plateMissing, updatePlateCase, type PlateStatus } from "../services/plates";
 import { runQuote, saveQuoteRun, type QuoteRunView } from "../services/quote-v2";
@@ -348,7 +348,7 @@ export async function executeParsed(app: AppContext, cmd: ParsedCommand, ctx: Co
       return {
         intent: "draft_email",
         say: `Listo el borrador del correo de placas de ${short(c.displayName)}.${d.toAddress ? "" : " Falta el destinatario."} No lo envío hasta que confirmes.`,
-        blocks: [{ type: "email", email: { id: d.id, to: d.toAddress, subject: d.subject, body: d.body, attachments: d.attachments.map((a) => a.label), providerConfigured: getEmailProvider().configured } }],
+        blocks: [{ type: "email", email: { id: d.id, to: d.toAddress, subject: d.subject, body: d.body, attachments: d.attachments.map((a) => a.label), providerConfigured: await emailConfigured(app) } }],
         customerId: c.id,
       };
     }
@@ -360,7 +360,7 @@ export async function executeParsed(app: AppContext, cmd: ParsedCommand, ctx: Co
       const c = (r as { customer: typeof s.customers.$inferSelect }).customer;
       const [draft] = await app.db.select().from(s.emailMessages).where(and(eq(s.emailMessages.customerId, c.id), eq(s.emailMessages.status, "draft"))).orderBy(desc(s.emailMessages.createdAt)).limit(1);
       if (!draft) return { intent: "send_email", say: `No hay borrador para ${short(c.displayName)}. ¿Lo preparo?`, blocks: [], options: [{ label: "Preparar correo de placas", command: `hazme el correo de placas de ${short(c.displayName)}` }], customerId: c.id };
-      if (!getEmailProvider().configured) return { intent: "send_email", say: EMAIL_NOT_CONFIGURED, blocks: [{ type: "email", email: { id: draft.id, to: draft.toAddress, subject: draft.subject, body: draft.body, attachments: draft.attachments.map((a) => a.label), providerConfigured: false } }], customerId: c.id };
+      if (!(await emailConfigured(app))) return { intent: "send_email", say: EMAIL_NOT_CONFIGURED, blocks: [{ type: "email", email: { id: draft.id, to: draft.toAddress, subject: draft.subject, body: draft.body, attachments: draft.attachments.map((a) => a.label), providerConfigured: false } }], customerId: c.id };
       const label = `Enviar "${draft.subject}" a ${draft.toAddress ?? "(sin destinatario)"}`;
       return { intent: "send_email", say: "¿Confirmas el envío?", blocks: [], confirm: { question: `¿${label}?`, action: { type: "send_email", emailId: draft.id, label } }, customerId: c.id };
     }

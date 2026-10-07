@@ -97,6 +97,16 @@ export default async function ApplicationPage({ params, searchParams }: { params
             <Link href={`/customers/${id}/credit/${appId}?step=${t.conflicts || t.missing || t.needsConfirmation ? "completar" : "revision"}`} className="block rounded-xl bg-emerald-500 py-3 text-center text-base font-semibold text-zinc-950">
               {t.conflicts || t.missing || t.needsConfirmation ? "Completar lo necesario" : "Ir a vista previa"}
             </Link>
+            <SectionCard title="Llenar datos" subtitle="Con la INE se llenan nombre, CURP, fecha de nacimiento, sexo, clave de elector y domicilio. Todo queda por confirmar.">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Link href={`/customers/${id}/documents?tipo=ine&volver=${encodeURIComponent(`/customers/${id}/credit/${appId}?step=completar`)}`} className="flex min-h-14 items-center justify-center rounded-2xl bg-sand px-4 text-center text-[16px] font-semibold text-ink">
+                  Llenar con foto o escaneo de la INE
+                </Link>
+                <Link href={`/customers/${id}/credit/${appId}?step=completar`} className="flex min-h-14 items-center justify-center rounded-2xl bg-raise px-4 text-center text-[16px] text-ivory">
+                  Llenar a mano
+                </Link>
+              </div>
+            </SectionCard>
           </>
         )}
 

@@ -7,12 +7,16 @@ import { getAppContext } from "@/server/app";
 import * as s from "@/server/db/schema";
 import { INBOX_STATUS_LABELS, listInbox, type InboxStatus } from "@/server/services/inbox";
 import { eq } from "drizzle-orm";
+import { safeReturn } from "@/domain/return-to";
 
 const TONE: Record<string, string> = { observed: "text-alert", needs_review: "text-alert", confirmed: "text-good", rejected: "text-faint", processing: "text-dim", uploaded: "text-dim" };
 
 /** Bandeja de documentos del cliente: subir, ver qué se leyó y revisarlo. */
-export default async function CustomerDocumentsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CustomerDocumentsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tipo?: string; volver?: string }> }) {
   const { id } = await params;
+  const sp = await searchParams;
+  const returnTo = safeReturn(id, sp.volver);
+  const initialType = sp.tipo && (DOCUMENT_TYPES as readonly string[]).includes(sp.tipo) ? sp.tipo : undefined;
   const app = await getAppContext();
   const [[customer], docs] = await Promise.all([app.db.select().from(s.customers).where(eq(s.customers.id, id)), listInbox(app, id)]);
   const types = DOCUMENT_TYPES.filter((t) => t !== "quote_pdf").map((t) => [t, DOCUMENT_TYPE_LABELS[t]] as [string, string]);
@@ -21,7 +25,8 @@ export default async function CustomerDocumentsPage({ params }: { params: Promis
     <>
       <MobileHeader title="Documentos" back={`/customers/${id}`} subtitle={customer?.displayName} />
       <div className="mx-auto flex max-w-3xl flex-col gap-6 px-5 pb-10">
-        <DocumentUploader customerId={id} docTypes={types} />
+        {returnTo && <p className="rounded-2xl bg-panel p-4 text-[15px] text-dim">Toma la foto o escanea la INE (frente y reverso). Después revisa los datos y vuelve a la solicitud.</p>}
+        <DocumentUploader customerId={id} docTypes={types} initialDocType={initialType} returnTo={returnTo} />
         {pending > 0 && (
           <p className="rounded-2xl bg-panel p-4 text-[15px] text-alert">
             Hay {pending} dato(s) leídos por revisar. Nada leído de un documento se usa en la solicitud hasta que lo confirmes.
@@ -55,8 +60,8 @@ export default async function CustomerDocumentsPage({ params }: { params: Promis
             </li>
           ))}
         </ul>
-        <Link href={`/customers/${id}/credit`} className="flex min-h-14 items-center justify-center rounded-2xl bg-raise text-[16px] text-ivory">
-          Continuar a la solicitud →
+        <Link href={returnTo ?? `/customers/${id}/credit`} className="flex min-h-14 items-center justify-center rounded-2xl bg-raise text-[16px] text-ivory">
+          {returnTo ? "Volver a la solicitud →" : "Continuar a la solicitud →"}
         </Link>
       </div>
     </>

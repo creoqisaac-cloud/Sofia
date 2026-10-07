@@ -8,6 +8,7 @@ import { getFollowupSummary, RESPONSE_STATUS_LABELS } from "@/server/services/ag
 import { listPlateCases, PLATE_STATUS_LABELS, plateMissing, type PlateStatus } from "@/server/services/plates";
 import { listQuoteRuns } from "@/server/services/quote-v2";
 import { CustomerNumberForm, FollowupButtons, MarioQuoteForm } from "@/components/sofia/tablet";
+import { ReminderForm } from "@/components/sofia/Reminders";
 import { catalogModels } from "@/server/command/router";
 import { isTabletMode } from "@/server/pilot";
 import { getTabletSummary } from "@/server/services/tablet";
@@ -207,6 +208,9 @@ async function TabletCustomer({ id, app }: { id: string; app: Awaited<ReturnType
 
         <div className="mt-5">
           <FollowupButtons customerId={id} followupId={t.nextAction?.id ?? null} phone={t.phone} />
+        </div>
+        <div className="mt-4">
+          <ReminderForm customerId={id} />
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">

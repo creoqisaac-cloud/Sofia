@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { IconCalendar, IconCar, IconDoc, IconHome, IconMore, IconPeople, IconPlate } from "@/components/sofia/icons";
+import { ReminderSync } from "@/components/sofia/ReminderSync";
 
 type NavItem = { href: string; label: string; Icon: typeof IconHome; match: (p: string) => boolean };
 
@@ -31,6 +32,7 @@ export function AppShell({ children, alertCount = 0, mode = "full" }: { children
   const items = mode === "tablet" ? TABLET_NAV : NAV;
   return (
     <div className="flex h-dvh min-h-0">
+      <ReminderSync />
       <aside className="hidden w-60 shrink-0 flex-col bg-ink px-4 py-6 lg:flex">
         <div className="mb-8 px-2">
           <div className="sofia-title text-sm font-semibold text-sand">SOFÍA</div>

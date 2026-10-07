@@ -18,6 +18,8 @@ services:
     envVars:
       - key: SOFIA_BASIC_AUTH
         sync: false # Render la pide al crear: mario:una-contraseña-larga
+      - key: SOFIA_SECRET_KEY
+        generateValue: true # cifra la contraseña del correo de Sofía (nunca en git)
       - key: SOFIA_LLM_PROVIDER
         value: demo
       - key: PGLITE_DATA_DIR

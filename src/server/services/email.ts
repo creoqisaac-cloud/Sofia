@@ -1,12 +1,15 @@
 /**
  * Correos: Sofía prepara borradores; enviar SIEMPRE requiere confirmación explícita de Mario
- * y un proveedor configurado. Sin proveedor, el borrador funciona completo y puede abrirse
- * en la app Mail del iPhone (lo envía Mario desde su cuenta).
+ * y una cuenta de correo asignada (Más → Correo de Sofía). Sin cuenta, el borrador funciona
+ * completo y puede abrirse en la app de correo o compartirse (lo envía Mario).
  */
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { DOCUMENT_TYPE_LABELS } from "@/domain/enums";
 import type { AppContext } from "../app";
 import * as s from "../db/schema";
+import { DAY_MS } from "../lib/clock";
+import { createFollowup } from "./agenda";
+import { createTransport, friendlySmtpError, loadSmtpConfig, type SmtpConfig } from "./email-account";
 import { ServiceError } from "./errors";
 import { ensurePlateCase } from "./plates";
 
@@ -28,14 +31,45 @@ export class DemoEmailProvider implements EmailProvider {
 export const EMAIL_NOT_CONFIGURED =
   "Falta configurar la cuenta de correo de Mario para enviar desde Sofía. El borrador está listo: puedes abrirlo en Mail y enviarlo tú.";
 
-let provider: EmailProvider = new DemoEmailProvider();
-export function getEmailProvider(): EmailProvider {
-  return provider;
+/** Envía con la cuenta SMTP que Mario asignó a Sofía. */
+export class SmtpEmailProvider implements EmailProvider {
+  readonly name = "smtp";
+  readonly configured = true;
+  constructor(private readonly cfg: SmtpConfig) {}
+  async send(msg: { to: string; subject: string; body: string; attachments: Array<{ filename: string; bytes: Uint8Array }> }) {
+    try {
+      const info = await createTransport(this.cfg).sendMail({
+        from: { name: this.cfg.displayName, address: this.cfg.address },
+        to: msg.to,
+        subject: msg.subject,
+        text: msg.body,
+        attachments: msg.attachments.map((a) => ({ filename: a.filename, content: Buffer.from(a.bytes) })),
+      });
+      return { messageId: String(info.messageId ?? "") };
+    } catch (e) {
+      throw new ServiceError(friendlySmtpError(e), 502);
+    }
+  }
 }
-/** Solo para pruebas o para conectar un proveedor real en el futuro. */
-export function setEmailProvider(p: EmailProvider) {
-  provider = p;
+
+let override: EmailProvider | null = null;
+/** Solo para pruebas: fuerza un proveedor. null = usar la cuenta asignada. */
+export function setEmailProvider(p: EmailProvider | null) {
+  override = p instanceof DemoEmailProvider ? null : p;
 }
+
+/** Proveedor vigente: la cuenta asignada a Sofía, o el demo (no envía). */
+export async function resolveEmailProvider(app: AppContext): Promise<EmailProvider> {
+  if (override) return override;
+  const cfg = await loadSmtpConfig(app);
+  return cfg ? new SmtpEmailProvider(cfg) : new DemoEmailProvider();
+}
+
+export async function emailConfigured(app: AppContext): Promise<boolean> {
+  return (await resolveEmailProvider(app)).configured;
+}
+
+const extFor = (mime: string | null) => (mime === "application/pdf" ? "pdf" : mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "bin");
 
 async function workspaceSettings(app: AppContext) {
   const [ws] = await app.db.select().from(s.workspaces).where(eq(s.workspaces.id, app.workspaceId));
@@ -135,12 +169,12 @@ export async function sendEmail(app: AppContext, id: string, opts: { confirmed: 
   const e = await getEmail(app, id);
   if (e.status !== "draft") throw new ServiceError("Este correo ya no es un borrador.", 409);
   if (!e.toAddress) throw new ServiceError("Falta el destinatario.", 409);
-  const p = getEmailProvider();
+  const p = await resolveEmailProvider(app);
   if (!p.configured) throw new ServiceError(EMAIL_NOT_CONFIGURED, 409);
   const files: Array<{ filename: string; bytes: Uint8Array }> = [];
   for (const a of e.attachments) {
     const [doc] = await app.db.select().from(s.documents).where(and(eq(s.documents.id, a.documentId), eq(s.documents.customerId, e.customerId!)));
-    if (doc?.storageKey && doc.storageBucket) files.push({ filename: `${a.label}.${doc.mimeType === "application/pdf" ? "pdf" : "bin"}`, bytes: await app.storage.get({ bucket: doc.storageBucket, key: doc.storageKey }) });
+    if (doc?.storageKey && doc.storageBucket) files.push({ filename: `${a.label}.${extFor(doc.mimeType)}`, bytes: await app.storage.get({ bucket: doc.storageBucket, key: doc.storageKey }) });
   }
   try {
     const res = await p.send({ to: e.toAddress, subject: e.subject, body: e.body, attachments: files });
@@ -150,6 +184,17 @@ export async function sendEmail(app: AppContext, id: string, opts: { confirmed: 
     throw err;
   }
   await app.db.insert(s.auditEvents).values({ workspaceId: app.workspaceId, actorType: "mario", eventType: "email_sent", entityType: "email", entityId: id, customerId: e.customerId, data: { purpose: e.purpose, attachments: e.attachments.length } });
+  await afterPlatesEmailSent(app, e);
+}
+
+/** Correo de placas enviado: el trámite pasa a "enviado" y queda un recordatorio para revisar la respuesta. */
+async function afterPlatesEmailSent(app: AppContext, e: typeof s.emailMessages.$inferSelect) {
+  if (e.purpose !== "plates" || !e.plateCaseId || !e.customerId) return;
+  const [pc] = await app.db.select().from(s.plateCases).where(eq(s.plateCases.id, e.plateCaseId));
+  if (pc && ["not_started", "collecting_documents", "ready"].includes(pc.status)) {
+    await app.db.update(s.plateCases).set({ status: "submitted", nextStep: "Esperar respuesta del gestor de placas", updatedAt: app.clock.now() }).where(eq(s.plateCases.id, pc.id));
+  }
+  await createFollowup(app, { customerId: e.customerId, dueAt: new Date(app.clock.now().getTime() + 2 * DAY_MS), reason: "Revisar respuesta del trámite de placas", action: "Revisar correo de placas" });
 }
 
 export async function listEmails(app: AppContext, opts: { customerId?: string } = {}) {
@@ -164,4 +209,5 @@ export async function markSentManually(app: AppContext, id: string) {
   if (!["draft", "opened_in_mail"].includes(e.status)) throw new ServiceError("Este correo ya no está pendiente.", 409);
   await app.db.update(s.emailMessages).set({ status: "sent", provider: "manual", sentAt: app.clock.now(), updatedAt: app.clock.now() }).where(eq(s.emailMessages.id, id));
   await app.db.insert(s.auditEvents).values({ workspaceId: app.workspaceId, actorType: "mario", eventType: "email_marked_sent", entityType: "email", entityId: id, customerId: e.customerId, data: { purpose: e.purpose } });
+  await afterPlatesEmailSent(app, e);
 }

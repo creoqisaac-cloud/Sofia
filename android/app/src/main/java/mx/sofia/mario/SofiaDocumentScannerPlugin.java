@@ -95,6 +95,46 @@ public class SofiaDocumentScannerPlugin extends Plugin {
         });
     }
 
+    /**
+     * OCR de una foto que ya tiene la página (cámara o galería), en base64. Se escribe en la caché
+     * privada solo para que ML Kit respete la orientación EXIF, y se borra al terminar.
+     */
+    @PluginMethod
+    public void recognizeImage(PluginCall call) {
+        String b64 = call.getString("base64");
+        if (b64 == null || b64.isEmpty()) {
+            call.reject("Falta la imagen");
+            return;
+        }
+        worker.execute(() -> {
+            File tmp = null;
+            try {
+                byte[] bytes = Base64.decode(b64, Base64.DEFAULT);
+                if (bytes.length > MAX_FILE_BYTES) {
+                    call.reject("La foto pesa demasiado.", "TOO_LARGE");
+                    return;
+                }
+                tmp = File.createTempFile("ocr-", ".img", getContext().getCacheDir());
+                try (java.io.FileOutputStream fo = new java.io.FileOutputStream(tmp)) {
+                    fo.write(bytes);
+                }
+                JSObject ret = new JSObject();
+                ret.put("engine", "mlkit-text-v2");
+                JSONArray pages = new JSONArray();
+                pages.put(SofiaOcr.recognize(getContext(), Uri.fromFile(tmp)));
+                ret.put("pages", pages);
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("No se pudo leer el texto de la foto.", "OCR_FAILED");
+            } finally {
+                if (tmp != null) {
+                    //noinspection ResultOfMethodCallIgnored
+                    tmp.delete();
+                }
+            }
+        });
+    }
+
     private void startScan(PluginCall call, boolean recognize) {
         if (pending != null) {
             call.reject("Ya hay un escaneo en curso.", "BUSY");

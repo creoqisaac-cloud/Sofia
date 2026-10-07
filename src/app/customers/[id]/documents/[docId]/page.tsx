@@ -1,5 +1,8 @@
 import { MobileHeader } from "@/components/app/AppShell";
+import Link from "next/link";
+import { ConfirmAllButton } from "@/components/app/forms";
 import { DocCaptureForm, DocStatusButtons, FactReviewRow, PdfActions } from "@/components/sofia/tablet";
+import { safeReturn } from "@/domain/return-to";
 import { DOCUMENT_TYPE_LABELS, type DocumentType } from "@/domain/enums";
 import { PROFILE_FIELD_DEFS } from "@/domain/profile-fields";
 import { getAppContext } from "@/server/app";
@@ -8,8 +11,9 @@ import { getInboxDocument, INBOX_STATUS_LABELS, type InboxStatus } from "@/serve
 // Datos más comunes en INE, comprobantes, constancias y recibos (captura manual).
 const CAPTURE_KEYS = ["first_name", "middle_name", "paternal_last_name", "maternal_last_name", "birth_date", "curp", "rfc", "street", "exterior_number", "interior_number", "neighborhood", "municipality", "city", "state", "postal_code", "company_name", "monthly_fixed_income", "employment_years", "email", "mobile_phone", "home_phone", "nss"];
 
-export default async function DocumentReviewPage({ params }: { params: Promise<{ id: string; docId: string }> }) {
+export default async function DocumentReviewPage({ params, searchParams }: { params: Promise<{ id: string; docId: string }>; searchParams: Promise<{ volver?: string }> }) {
   const { id, docId } = await params;
+  const returnTo = safeReturn(id, (await searchParams).volver);
   const app = await getAppContext();
   const { doc, facts } = await getInboxDocument(app, docId);
   const label = DOCUMENT_TYPE_LABELS[doc.docType as DocumentType] ?? "Documento";
@@ -42,7 +46,18 @@ export default async function DocumentReviewPage({ params }: { params: Promise<{
             </ul>
           )}
           {open.length > 0 && <p className="mt-2 text-[13px] text-faint">Estos datos están OBSERVADOS: no se usan en la solicitud hasta que los confirmes.</p>}
+          {open.filter((f) => f.status === "observed").length > 1 && (
+            <div className="mt-3">
+              <ConfirmAllButton customerId={id} factIds={open.filter((f) => f.status === "observed").map((f) => f.id)} label={`Ya revisé ${label === "INE" ? "la INE" : "el documento"}: confirmar todos (${open.filter((f) => f.status === "observed").length})`} />
+              <p className="mt-1 text-[12px] text-faint">Compara cada dato con el documento antes. Los que no coinciden con otro dato no se confirman aquí.</p>
+            </div>
+          )}
         </section>
+        {returnTo && (
+          <Link href={returnTo} className="flex min-h-14 items-center justify-center rounded-2xl bg-sand text-[16px] font-semibold text-ink">
+            Volver a la solicitud →
+          </Link>
+        )}
 
         <DocCaptureForm customerId={id} documentId={doc.id} keys={keys} />
         <DocStatusButtons customerId={id} documentId={doc.id} />

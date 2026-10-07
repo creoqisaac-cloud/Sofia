@@ -8,6 +8,7 @@ import { listInstitutions } from "@/server/services/credit";
 import * as s from "@/server/db/schema";
 
 const LINKS = [
+  { href: "/settings/email", title: "Correo de Sofía", detail: "Asigna el correo desde el que Sofía envía (placas, documentos)" },
   { href: "/quote", title: "Cotizar", detail: "Corrida con fuentes; dice exactamente qué falta" },
   { href: "/plates", title: "Placas", detail: "Trámites, requisitos con fuente y correo al gestor" },
   { href: "/returns", title: "Devoluciones", detail: "Pendiente de definición por Mario (registro mínimo)" },
@@ -20,6 +21,8 @@ const LINKS = [
 ];
 
 const TABLET_LINKS = [
+  { href: "/settings/email", title: "Correo de Sofía", detail: "Asigna el correo desde el que Sofía envía (placas, documentos)" },
+  { href: "/settings/reminders", title: "Recordatorios y alarmas", detail: "Avisos en la tablet aunque la app esté cerrada" },
   { href: "/sales", title: "Ventas", detail: "Pedido, factura y entrega" },
   { href: "/agenda", title: "Agenda", detail: "Citas de los próximos días" },
   { href: "/returns", title: "Devoluciones", detail: "Pendiente de definición por Mario (registro mínimo)" },

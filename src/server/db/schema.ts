@@ -583,6 +583,27 @@ export const followups = pgTable(
 );
 
 /**
+ * Recordatorios libres de Mario ("recuérdame…"), opcionalmente ligados a un cliente.
+ * Seguimientos y citas también generan avisos; esta tabla es para lo que no es ninguno de los dos.
+ * "alarm" = aviso de máxima prioridad (canal de alarmas en la tablet).
+ */
+export const reminders = pgTable(
+  "reminders",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "cascade" }),
+    remindAt: timestamp("remind_at", { withTimezone: true }).notNull(),
+    text: text("text").notNull(),
+    alarm: boolean("alarm").notNull().default(false),
+    status: text("status").notNull().default("pending"), // pending | done | cancelled
+    createdBy: actorTypeEnum("created_by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("reminders_ws_at_idx").on(t.workspaceId, t.status, t.remindAt)],
+);
+
+/**
  * Documentos del cliente. El contenido vive en almacenamiento privado;
  * aquí solo hay referencia, hash y estado. Nunca se inyecta en prompts.
  */

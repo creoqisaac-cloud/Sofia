@@ -42,4 +42,6 @@
     <!-- Tomar foto de un documento desde "Subir documentos" (selector de archivos de la WebView). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Recordatorios y alarmas de Sofía a la hora exacta (Android 12+; Mario lo permite en Ajustes). -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 </manifest>

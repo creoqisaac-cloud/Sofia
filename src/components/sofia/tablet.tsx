@@ -15,7 +15,7 @@ import {
   type ActionState,
 } from "@/app/actions";
 import { IconPhone, IconShare, IconUpload } from "./icons";
-import { base64ToBlob, hasNativeScanner, openFile, saveFile, scanWithNativeScanner, shareFiles } from "./native";
+import { base64ToBlob, hasNativePhotoOcr, hasNativeScanner, openFile, recognizePhotoNative, saveFile, scanWithNativeScanner, shareFiles } from "./native";
 
 const field = "mt-1 w-full rounded-xl bg-raise px-3 py-3 text-[17px] text-ivory focus:outline-none";
 const big = "flex min-h-14 items-center justify-center gap-2 rounded-2xl px-4 text-[16px]";
@@ -26,15 +26,30 @@ const Msg = ({ s }: { s: ActionState | { ok: boolean; message?: string; error?: 
 
 const noSubscribe = () => () => {};
 
-export function DocumentUploader({ customerId, docTypes }: { customerId: string; docTypes: Array<[string, string]> }) {
+export function DocumentUploader({ customerId, docTypes, initialDocType, returnTo }: { customerId: string; docTypes: Array<[string, string]>; initialDocType?: string; returnTo?: string | null }) {
   const router = useRouter();
-  const [docType, setDocType] = useState("other");
+  const [docType, setDocType] = useState(initialDocType ?? "other");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
   const files = useRef<HTMLInputElement>(null);
   const camera = useRef<HTMLInputElement>(null);
   // Solo en la APK (en el servidor y en navegadores: false → subida manual).
   const scanner = useSyncExternalStore(noSubscribe, hasNativeScanner, () => false);
+  const photoOcr = useSyncExternalStore(noSubscribe, hasNativePhotoOcr, () => false);
+  const reviewUrl = (docId: string) => `/customers/${customerId}/documents/${docId}${returnTo ? `?volver=${encodeURIComponent(returnTo)}` : ""}`;
+
+  /** Sube UN archivo (con su OCR del dispositivo, si hay) y devuelve el id del documento. */
+  async function postOne(file: Blob, name: string, observation?: unknown): Promise<string> {
+    const fd = new FormData();
+    fd.set("docType", docType);
+    fd.append("file", file, name);
+    if (observation) fd.set("observation", JSON.stringify(observation));
+    const res = await fetch(`/api/customers/${customerId}/documents`, { method: "POST", body: fd });
+    const j = (await res.json()) as { results?: Array<{ ok: boolean; id?: string; error?: string }>; error?: string };
+    const first = j.results?.[0];
+    if (!res.ok || !first?.ok || !first.id) throw new Error(first?.error ?? j.error ?? "No se pudo subir.");
+    return first.id;
+  }
 
   /** APK: escáner nativo + OCR en la tablet → mismo endpoint de subida → pantalla de revisión. */
   async function scan() {
@@ -43,15 +58,8 @@ export function DocumentUploader({ customerId, docTypes }: { customerId: string;
     try {
       const r = await scanWithNativeScanner({ pageLimit: docType === "ine" ? 2 : 5 });
       if (!r) return; // cancelado
-      const fd = new FormData();
-      fd.set("docType", docType);
-      fd.append("file", base64ToBlob(r.file.base64, r.file.mime), r.file.name);
-      fd.set("observation", JSON.stringify({ engine: r.engine, pages: r.pages }));
-      const res = await fetch(`/api/customers/${customerId}/documents`, { method: "POST", body: fd });
-      const j = (await res.json()) as { results?: Array<{ ok: boolean; id?: string; error?: string }>; error?: string };
-      const first = j.results?.[0];
-      if (!res.ok || !first?.ok || !first.id) throw new Error(first?.error ?? j.error ?? "No se pudo subir el escaneo.");
-      router.push(`/customers/${customerId}/documents/${first.id}`);
+      const id = await postOne(base64ToBlob(r.file.base64, r.file.mime), r.file.name, { engine: r.engine, pages: r.pages });
+      router.push(reviewUrl(id));
     } catch (e) {
       setMsg({ ok: false, error: (e as Error).message });
     } finally {
@@ -63,10 +71,27 @@ export function DocumentUploader({ customerId, docTypes }: { customerId: string;
     if (!list?.length) return;
     setBusy(true);
     setMsg(null);
-    const fd = new FormData();
-    fd.set("docType", docType);
-    for (const f of Array.from(list)) fd.append("file", f);
     try {
+      // APK: cada foto se lee EN la tablet (ML Kit) y se sube con su OCR → datos por revisar.
+      if (photoOcr) {
+        const ids: string[] = [];
+        const errors: string[] = [];
+        for (const f of Array.from(list).slice(0, 10)) {
+          try {
+            const observation = /^image\/(jpeg|png)$/.test(f.type) ? await recognizePhotoNative(f).catch(() => undefined) : undefined;
+            ids.push(await postOne(f, f.name, observation));
+          } catch (e) {
+            errors.push((e as Error).message);
+          }
+        }
+        if (ids.length === 1 && !errors.length) return router.push(reviewUrl(ids[0]!));
+        setMsg(errors.length ? { ok: ids.length > 0, error: `${ids.length} subido(s). ${errors.join(" ")}` } : { ok: true, message: `${ids.length} documento(s) subido(s) y leído(s).` });
+        router.refresh();
+        return;
+      }
+      const fd = new FormData();
+      fd.set("docType", docType);
+      for (const f of Array.from(list)) fd.append("file", f);
       const r = await fetch(`/api/customers/${customerId}/documents`, { method: "POST", body: fd });
       const j = (await r.json()) as { results?: Array<{ ok: boolean; error?: string }>; error?: string };
       if (!r.ok) throw new Error(j.error ?? "No se pudo subir.");
@@ -111,7 +136,7 @@ export function DocumentUploader({ customerId, docTypes }: { customerId: string;
         </button>
       </div>
       <p className="mt-2 text-[12px] text-faint">
-        {scanner ? "Escanear: recorta, endereza y lee el texto en la tablet (sin internet ni costo). Los datos quedan por revisar. " : "Fotos y archivos: los datos se capturan a mano. "}
+        {scanner || photoOcr ? "Escanear o tomar foto: el texto se lee en la tablet (sin internet ni costo). Los datos quedan por revisar. " : "Fotos y archivos: los datos se capturan a mano. "}
         PDF, JPG o PNG · máx. 15 MB · se guardan en privado en el servidor de Sofía.
       </p>
       <Msg s={msg} />

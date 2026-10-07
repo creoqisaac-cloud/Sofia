@@ -27,6 +27,10 @@ const config: CapacitorConfig = {
     webContentsDebuggingEnabled: false,
   },
   plugins: {
+    LocalNotifications: {
+      smallIcon: "ic_stat_sofia",
+      iconColor: "#e7d3ae",
+    },
     SplashScreen: {
       launchShowDuration: 500,
       launchAutoHide: true,
