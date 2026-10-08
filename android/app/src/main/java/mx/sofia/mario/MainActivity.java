@@ -4,6 +4,10 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.graphics.Color;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.widget.TextView;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.Bridge;
@@ -55,11 +59,24 @@ public class MainActivity extends BridgeActivity {
             injectBridgeIntoLocalPages(bridge);
 
             if (hasSavedRemote) {
+                // Render puede tardar en despertar. No mostrar pantalla negra durante la espera.
+                ViewGroup parent = (ViewGroup) bridge.getWebView().getParent();
+                if (parent != null) {
+                    TextView wait = new TextView(this);
+                    wait.setText("SOFÍA\\n\\nConectando con el servidor…\\nPuede tardar hasta 2 minutos.\\n\\nSi no se conecta, aparecerá Conexión.");
+                    wait.setTextSize(17f);
+                    wait.setTextColor(Color.rgb(243, 241, 236));
+                    wait.setBackgroundColor(Color.rgb(10, 10, 11));
+                    wait.setGravity(Gravity.CENTER);
+                    wait.setPadding(32, 48, 32, 48);
+                    parent.addView(wait, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                    client.setLoadingOverlay(wait);
+                }
                 mainHandler.postDelayed(() -> {
                     if (!isFinishing() && bridge != null && !client.hasLoadedRemotePage()) {
                         client.showConnection(bridge.getWebView(), "timeout=1");
                     }
-                }, 9000);
+                }, 120_000);
             }
         }
     }
