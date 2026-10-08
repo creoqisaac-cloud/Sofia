@@ -360,6 +360,22 @@ export async function updateEmailAction(emailId: string, _prev: ActionState, for
   });
 }
 
+/** Guardar el texto visible y enviar exactamente esa versión, tras confirmación en pantalla. */
+export async function updateAndSendEmailAction(emailId: string, payload: { to: string; subject: string; body: string }): Promise<ActionState> {
+  return run(async () => {
+    const fields = z.object({
+      to: z.string().email(),
+      subject: z.string().min(1).max(250),
+      body: z.string().min(1).max(15000),
+    }).parse(payload);
+    const app = await getAppContext();
+    await updateDraft(app, emailId, { toAddress: fields.to, subject: fields.subject, body: fields.body });
+    await sendEmail(app, emailId, { confirmed: true });
+    revalidatePath(`/emails/${emailId}`);
+    return { ok: true, message: "Correo guardado y enviado con tu confirmación" };
+  });
+}
+
 export async function emailOpAction(emailId: string, op: "send" | "cancel" | "opened" | "remove_attachment" | "mark_sent", arg?: string): Promise<ActionState> {
   return run(async () => {
     const app = await getAppContext();
