@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { emailOpAction, updateEmailAction, type ActionState } from "@/app/actions";
+import { emailOpAction, updateAndSendEmailAction, updateEmailAction, type ActionState } from "@/app/actions";
 import { shareFiles } from "./native";
 
 export interface EmailView {
@@ -29,7 +29,7 @@ export function EmailDraft({ email, compact = false }: { email: EmailView; compa
   const status = email.status ?? "draft";
   const attachments = (email.attachments as Array<{ label: string; documentId?: string } | string>).map((a) => (typeof a === "string" ? { label: a } : a));
   const mailto = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  const doOp = (o: "send" | "cancel" | "opened" | "mark_sent") => start(async () => setOp(await emailOpAction(email.id, o)));
+  const doOp = (o: "cancel" | "opened" | "mark_sent") => start(async () => setOp(await emailOpAction(email.id, o)));
   const share = async () => {
     try {
       const files = attachments.filter((a) => a.documentId).map((a) => ({ url: `/api/documents/${a.documentId}/file`, name: a.label }));
@@ -64,12 +64,16 @@ export function EmailDraft({ email, compact = false }: { email: EmailView; compa
       {(state?.message || state?.error) && <p className={`mt-3 text-[14px] ${state.ok ? "text-good" : "text-alert"}`}>{state.message ?? state.error}</p>}
       {(op?.message || op?.error) && <p className={`mt-3 text-[14px] ${op.ok ? "text-good" : "text-alert"}`}>{op.message ?? op.error}</p>}
       {!email.providerConfigured && <p className="mt-3 text-[13px] text-dim">Envío desde Sofía: falta configurar la cuenta de correo. Puedes abrirlo en Mail y enviarlo tú.</p>}
+      <p className="mt-2 text-[12px] text-faint">Al confirmar Enviar, Sofía guarda primero el destinatario, asunto y mensaje que se muestran aquí. No usa una versión anterior del borrador.</p>
 
       {confirming ? (
         <div className="mt-4 rounded-2xl bg-raise p-4">
           <p className="text-[15px] text-ivory">¿Enviar este correo a {to || "(sin destinatario)"}?</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" disabled={pending} onClick={() => { setConfirming(false); doOp("send"); }} className="min-h-12 rounded-2xl bg-sand font-semibold text-ink">
+            <button type="button" disabled={pending} onClick={() => {
+                setConfirming(false);
+                start(async () => setOp(await updateAndSendEmailAction(email.id, { to, subject, body })));
+              }} className="min-h-12 rounded-2xl bg-sand font-semibold text-ink">
               Sí, enviar
             </button>
             <button type="button" onClick={() => setConfirming(false)} className="min-h-12 rounded-2xl bg-panel text-ivory">
