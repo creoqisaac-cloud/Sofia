@@ -26,10 +26,33 @@ const Msg = ({ s }: { s: ActionState | { ok: boolean; message?: string; error?: 
 
 const noSubscribe = () => () => {};
 
+/** iPhone: Texto en Vivo se copia desde Fotos. El usuario pega el texto explícitamente;
+ * las cajas sintéticas son solo el orden de las líneas, NO geometría OCR real.
+ * El servidor aplica sus validadores y deja TODO como observado, nunca confirmado.
+ */
+function pastedLiveTextObservation(value: string) {
+  const lines = value.replace(/\r/g, "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 100);
+  if (!lines.length) return undefined;
+  const h = lines.length * 28 + 40;
+  const obsLines = lines.map((text, i) => ({
+    text: text.slice(0, 400),
+    box: { left: 20, top: i * 28 + 20, right: Math.min(1160, text.length * 11 + 20), bottom: i * 28 + 42 },
+  }));
+  return {
+    engine: "ios-live-text-copiado",
+    pages: [{ width: 1200, height: h, blocks: [{
+      text: lines.join(" ").slice(0, 4000),
+      box: { left: 0, top: 0, right: 1200, bottom: h },
+      lines: obsLines,
+    }] }],
+  };
+}
+
 export function DocumentUploader({ customerId, docTypes, initialDocType, returnTo }: { customerId: string; docTypes: Array<[string, string]>; initialDocType?: string; returnTo?: string | null }) {
   const router = useRouter();
   const [docType, setDocType] = useState(initialDocType ?? "other");
   const [busy, setBusy] = useState(false);
+  const [liveText, setLiveText] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
   const files = useRef<HTMLInputElement>(null);
   const camera = useRef<HTMLInputElement>(null);
@@ -89,6 +112,15 @@ export function DocumentUploader({ customerId, docTypes, initialDocType, returnT
         router.refresh();
         return;
       }
+      // iPhone Safari: foto + Texto en Vivo copiado por el usuario.
+      // No se afirma que se haya ejecutado OCR automático en el navegador.
+      if (docType === "ine" && liveText.trim() && list.length === 1 && /^image\/(jpeg|png)$/.test(list[0]!.type)) {
+        const observation = pastedLiveTextObservation(liveText);
+        const id = await postOne(list[0]!, list[0]!.name, observation);
+        setLiveText("");
+        router.push(reviewUrl(id));
+        return;
+      }
       const fd = new FormData();
       fd.set("docType", docType);
       for (const f of Array.from(list)) fd.append("file", f);
@@ -135,9 +167,26 @@ export function DocumentUploader({ customerId, docTypes, initialDocType, returnT
           Tomar foto
         </button>
       </div>
+      {docType === "ine" && !scanner && !photoOcr && (
+        <div className="mt-4 rounded-2xl bg-raise p-4">
+          <p className="text-[15px] font-semibold text-ivory">iPhone · Leer INE con Texto en Vivo</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-dim">
+            1. Toma una foto nítida del frente de la INE. 2. En Fotos, toca Detectar texto,
+            copia el texto y regresa a Sofía. 3. Pégalo aquí y elige SOLO esa foto en «Elegir archivos».
+            Después podrás confirmar o corregir cada dato. Sin texto pegado, la captura es manual.
+          </p>
+          <textarea value={liveText} onChange={(e) => setLiveText(e.target.value)}
+            rows={6} maxLength={6000} placeholder="Pega aquí el texto copiado de la INE desde Fotos…"
+            className="mt-3 w-full rounded-xl bg-panel px-3 py-3 text-[15px] text-ivory" />
+          {liveText.trim() && <p className="mt-1 text-[12px] text-sand">
+            Texto listo: selecciona una fotografía JPG o PNG de la INE. Los datos quedarán por revisar.
+          </p>}
+          <p className="mt-2 text-[12px] text-faint">No se reconoce texto de forma automática en Safari. Si la imagen es HEIC, usa «Más compatible» en Ajustes → Cámara → Formatos o expórtala como JPEG.</p>
+        </div>
+      )}
       <p className="mt-2 text-[12px] text-faint">
         {scanner || photoOcr ? "Escanear o tomar foto: el texto se lee en la tablet (sin internet ni costo). Los datos quedan por revisar. " : "Fotos y archivos: los datos se capturan a mano. "}
-        PDF, JPG o PNG · máx. 15 MB · se guardan en privado en el servidor de Sofía.
+        PDF, JPG o PNG · máx. 15 MB. Entorno piloto: no cargues INEs reales hasta activar almacenamiento persistente y privado.
       </p>
       <Msg s={msg} />
     </div>
