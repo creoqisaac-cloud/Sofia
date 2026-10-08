@@ -75,6 +75,7 @@ jobs:
           echo "CID2=$CID2" >> $GITHUB_ENV
           # Correo de Sofía contra un SMTP local que solo guarda (no reenvía); credenciales sintéticas de CI.
           nohup node scripts/smtp-sink.mjs demo/smtp 2525 > demo/smtp.log 2>&1 &
+          nohup node scripts/ci-basic-auth-server.mjs 3333 > demo/basic-auth-server.log 2>&1 &
           sleep 2
           curl -sf -X PUT localhost:3000/api/settings/email -H 'content-type: application/json' \
             -d '{"preset":"custom","address":"sofia.ci@example.com","displayName":"Sofía (CI)","host":"127.0.0.1","port":2525,"secure":false,"password":"ci-sintetico"}' | head -c 300; echo
@@ -96,7 +97,7 @@ jobs:
             adb logcat -c || true
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -r -e sofiaServer http://10.0.2.2:3000 -e sofiaCustomer ${{ env.CID }} -e sofiaCustomer2 ${{ env.CID2 }} -e sofiaPlatesTo gestor.placas@example.com mx.sofia.mario.test/androidx.test.runner.AndroidJUnitRunner > demo/instrument.txt 2>&1 || true
+            adb shell am instrument -w -r -e sofiaServer http://10.0.2.2:3000 -e sofiaCustomer ${{ env.CID }} -e sofiaCustomer2 ${{ env.CID2 }} -e sofiaPlatesTo gestor.placas@example.com -e sofiaBasicServer http://10.0.2.2:3333 mx.sofia.mario.test/androidx.test.runner.AndroidJUnitRunner > demo/instrument.txt 2>&1 || true
             cat demo/instrument.txt | tail -40
             adb logcat -d -v threadtime > demo/logcat-full.txt || true
             grep -E "SOFIA_OCR|SOFIA_DEMO" demo/logcat-full.txt > demo/logcat.txt || true
