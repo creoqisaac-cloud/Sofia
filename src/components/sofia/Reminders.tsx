@@ -31,6 +31,7 @@ export function ReminderForm({ customerId, customers }: { customerId?: string; c
   const [cid, setCid] = useState(customerId ?? "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
+  const [calendarKey, setCalendarKey] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,11 +41,14 @@ export function ReminderForm({ customerId, customers }: { customerId?: string; c
       const at = new Date(`${date}T${time}:00`);
       if (Number.isNaN(at.getTime())) throw new Error("Fecha u hora inválida.");
       const r = await fetch("/api/reminders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ at: at.toISOString(), text, alarm, customerId: cid || null }) });
-      const j = (await r.json()) as { error?: string };
+      const j = (await r.json()) as { error?: string; reminder?: { id: string } };
       if (!r.ok) throw new Error(j.error ?? "No se pudo guardar.");
       const n = await syncDeviceReminders().catch(() => 0);
       setText("");
-      setMsg({ ok: true, text: notificationsAvailable() ? `Listo: te aviso el ${at.toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}. (${n} aviso(s) programados en la tablet)` : "Guardado. Los avisos suenan en la app de la tablet." });
+      setCalendarKey(j.reminder?.id ? `reminder:${j.reminder.id}:${at.toISOString()}` : null);
+      setMsg({ ok: true, text: notificationsAvailable()
+        ? `Aviso para ${at.toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}. (${n} aviso(s) programados en Android)`
+        : "Guardado en Sofía. Para recibirlo en iPhone cuando la app esté cerrada, agrega el evento a Calendario y confirma la importación." });
       router.refresh();
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
@@ -78,6 +82,12 @@ export function ReminderForm({ customerId, customers }: { customerId?: string; c
         {busy ? "Guardando…" : "Guardar recordatorio"}
       </button>
       <Note m={msg} />
+      {calendarKey && !notificationsAvailable() && (
+        <a href={`/api/reminders/calendar?key=${encodeURIComponent(calendarKey)}`}
+          className="mt-3 flex min-h-12 items-center justify-center rounded-2xl bg-raise text-[15px] text-ivory">
+          Agregar recordatorio al Calendario del iPhone
+        </a>
+      )}
     </form>
   );
 }
@@ -104,7 +114,7 @@ export function NotificationSetup() {
 
   if (!state) return null;
   if (!state.native) {
-    return <section className="rounded-3xl bg-panel p-5 text-[15px] text-dim">Las notificaciones y alarmas suenan en la app Sofía de la tablet (Android). En un navegador puedes crear recordatorios, pero no sonarán aquí.</section>;
+    return <section className="rounded-3xl bg-panel p-5 text-[15px] text-dim">En iPhone puedes guardar recordatorios y exportarlos a Calendario, con un aviso al momento del evento. Debes importarlos y confirmar en Calendario. Las notificaciones push automáticas de Sofía todavía no están configuradas.</section>;
   }
   return (
     <section className="rounded-3xl bg-panel p-5">
