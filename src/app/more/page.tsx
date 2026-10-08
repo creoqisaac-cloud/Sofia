@@ -8,6 +8,7 @@ import { listInstitutions } from "@/server/services/credit";
 import * as s from "@/server/db/schema";
 
 const LINKS = [
+  { href: "/correos", title: "Asistente de correos", detail: "Borradores, destinatarios, documentos adjuntos y envío confirmado" },
   { href: "/iphone", title: "Sofía para iPhone", detail: "Instalar desde Safari y acceder a correos, INE, avisos y WhatsApp" },
   { href: "/whatsapp", title: "Asistente de WhatsApp", detail: "Redactar mensajes y abrirlos en WhatsApp para confirmar el envío" },
   { href: "/settings/reminders", title: "Recordatorios", detail: "Agenda, exportación a Calendario de iPhone y alarmas Android" },
@@ -24,6 +25,7 @@ const LINKS = [
 ];
 
 const TABLET_LINKS = [
+  { href: "/correos", title: "Asistente de correos", detail: "Bandeja de correos y solicitudes de placas" },
   { href: "/iphone", title: "Sofía para iPhone", detail: "Usar Sofía desde Safari y agregarla a la pantalla de inicio" },
   { href: "/whatsapp", title: "Asistente de WhatsApp", detail: "Mensajes supervisados para seguimiento de clientes" },
   { href: "/settings/email", title: "Correo de Sofía", detail: "Asigna el correo desde el que Sofía envía (placas, documentos)" },
