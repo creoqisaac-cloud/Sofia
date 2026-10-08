@@ -131,9 +131,14 @@ async function CustomerHome({ o, id, app }: { o: Awaited<ReturnType<typeof getCu
           {[o.vehicle ?? "Sin vehículo de interés", CRM_STAGE_LABELS[o.crm.stage], TEMPERATURE_LABELS[o.crm.temperature]].join(" · ")}
         </p>
         {o.phone && (
-          <a href={`tel:${o.phone}`} className="mt-3 flex min-h-11 w-fit items-center gap-2 rounded-full bg-panel px-4 text-[15px] text-ivory">
-            <IconPhone width={17} height={17} /> Llamar
-          </a>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href={`tel:${o.phone}`} className="flex min-h-11 items-center gap-2 rounded-full bg-panel px-4 text-[15px] text-ivory">
+              <IconPhone width={17} height={17} /> Llamar
+            </a>
+            <Link href={`/whatsapp?cliente=${id}`} className="flex min-h-11 items-center rounded-full bg-sand px-4 text-[15px] font-semibold text-ink">
+              💬 Preparar WhatsApp
+            </Link>
+          </div>
         )}
 
         <section className="mt-6 rounded-3xl bg-panel p-5">
@@ -208,6 +213,14 @@ async function TabletCustomer({ id, app }: { id: string; app: Awaited<ReturnType
 
         <div className="mt-5">
           <FollowupButtons customerId={id} followupId={t.nextAction?.id ?? null} phone={t.phone} />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <Link href={`/whatsapp?cliente=${id}`} className="flex min-h-14 items-center justify-center rounded-2xl bg-sand px-4 text-[15px] font-semibold text-ink">
+            💬 WhatsApp para este cliente
+          </Link>
+          <Link href="/correos" className="flex min-h-14 items-center justify-center rounded-2xl bg-raise px-4 text-[15px] text-ivory">
+            ✉️ Asistente de correos
+          </Link>
         </div>
         <div className="mt-4">
           <ReminderForm customerId={id} />
