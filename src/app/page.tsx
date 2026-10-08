@@ -13,6 +13,8 @@ const QUICK = [
   { label: "Seguimiento", href: "/agenda#seguimiento" },
   { label: "Cita", href: "/agenda?new=1" },
   { label: "Venta", href: "/sales" },
+  { label: "Correos", href: "/correos" },
+  { label: "WhatsApp", href: "/whatsapp" },
 ];
 
 /** HOME: "¿Qué necesito hacer ahorita?" — comando/voz arriba y solo lo que requiere acción. */
@@ -78,6 +80,17 @@ async function TabletHome({ items, app }: { items: Awaited<ReturnType<typeof get
               <span className="tabular block text-[40px] font-semibold leading-none text-ivory">{t.n}</span>
               <span className="text-[13px] text-faint">{t.sub}</span>
             </span>
+          </Link>
+        ))}
+      </nav>
+      <nav aria-label="Herramientas rápidas" className="mt-3 grid grid-cols-3 gap-2">
+        {[
+          { href: "/correos", label: "✉️ Correos" },
+          { href: "/settings/reminders", label: "⏰ Avisos" },
+          { href: "/whatsapp", label: "💬 WhatsApp" },
+        ].map((a) => (
+          <Link key={a.href} href={a.href} className="flex min-h-14 items-center justify-center rounded-2xl bg-raise px-2 text-center text-[13px] text-ivory">
+            {a.label}
           </Link>
         ))}
       </nav>
