@@ -58,6 +58,7 @@ export function validSession(cookie: string | undefined, expected: string | unde
 
 /** Solo rutas relativas del mismo servidor, nunca enlaces externos o javascript:. */
 export function safeNext(raw: string | null | undefined): string {
+  if (/[\r\n\x00-\x1f]/.test(raw ?? "")) return "/";
   const value = (raw ?? "").trim();
   if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\") || /[\\\r\n\x00-\x1f]/.test(value)) return "/";
   if (value.startsWith("/acceso") || value.startsWith("/api/")) return "/";
