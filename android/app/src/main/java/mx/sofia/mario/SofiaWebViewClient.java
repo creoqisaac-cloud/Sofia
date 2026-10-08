@@ -8,6 +8,8 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
+import android.view.View;
+import android.view.ViewGroup;
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeWebViewClient;
 
@@ -24,6 +26,22 @@ public class SofiaWebViewClient extends BridgeWebViewClient {
     private int attempts = 0; // permite varios retos HTTP Basic durante una misma carga
     private volatile boolean remoteLoaded = false;
     private volatile boolean showingFallback = false;
+    private View loadingOverlay;
+
+    void setLoadingOverlay(View overlay) {
+        loadingOverlay = overlay;
+    }
+
+    private void hideLoadingOverlay(WebView view) {
+        final View overlay = loadingOverlay;
+        if (overlay == null) return;
+        loadingOverlay = null;
+        view.post(() -> {
+            if (overlay.getParent() instanceof ViewGroup) {
+                ((ViewGroup) overlay.getParent()).removeView(overlay);
+            }
+        });
+    }
 
     public SofiaWebViewClient(Bridge bridge, SharedPreferences prefs) {
         super(bridge);
@@ -46,6 +64,7 @@ public class SofiaWebViewClient extends BridgeWebViewClient {
     void showConnection(WebView view, String query) {
         if (view == null || showingFallback) return;
         showingFallback = true;
+        hideLoadingOverlay(view);
         String errorUrl = bridge.getErrorUrl();
         if (errorUrl == null || errorUrl.isEmpty()) {
             errorUrl = localBase() + "/conexion.html";
@@ -99,6 +118,7 @@ public class SofiaWebViewClient extends BridgeWebViewClient {
     @Override
     public void onPageFinished(WebView view, String url) {
         super.onPageFinished(view, url);
+        hideLoadingOverlay(view);
         attempts = 0;
 
         if (isLocal(url)) {
