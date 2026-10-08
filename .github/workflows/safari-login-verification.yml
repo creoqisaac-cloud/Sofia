@@ -1,0 +1,63 @@
+name: Safari login verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/laughing-sagan-hbxj3y]
+    paths:
+      - ".github/workflows/safari-login-verification.yml"
+      - "src/app/acceso/**"
+      - "src/server/auth/**"
+      - "src/proxy.ts"
+      - "tests/29-web-auth.test.ts"
+      - "tests/30-safari-login-render.test.ts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: safari-login-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safari:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Tests de seguridad y sesión web
+        run: npx vitest run tests/29-web-auth.test.ts tests/30-safari-login-render.test.ts
+      - name: Prueba real HTTPS de Safari sin credenciales verdaderas
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://sofia-app-6qo6.onrender.com"
+          mkdir -p /tmp/sofia-safari-smoke
+          cd /tmp/sofia-safari-smoke
+          CHALLENGE=""
+          for i in $(seq 1 20); do
+            curl --max-time 25 -sSL -c cookies.txt "$BASE/acceso?next=%2Fiphone" -o login.html || true
+            CHALLENGE=$(grep -oE 'name="csrf" value="[^"]+"' login.html 2>/dev/null | head -1 | sed -E 's/^name="csrf" value="([^"]+)"$/\1/' || true)
+            [ -n "$CHALLENGE" ] && break
+            sleep 10
+          done
+          test -n "$CHALLENGE"
+          CODE=$(curl -sSL --max-time 25 -b cookies.txt -c cookies.txt \
+            -H "Origin: null" \
+            -H "Sec-Fetch-Site: same-origin" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "user=usuario-inexistente-prueba" \
+            --data-urlencode "password=clave-incorrecta-de-prueba" \
+            --data-urlencode "next=/iphone" \
+            --data-urlencode "csrf=$CHALLENGE" \
+            -w "%{http_code}" -o result.html "$BASE/acceso")
+          echo "HTTP POST /acceso: $CODE"
+          test "$CODE" = "200"
+          grep -q "Usuario o contraseña incorrectos" result.html
+          ! grep -q "Solicitud no autorizada" result.html
+          echo "PASS: Safari envía el formulario sin 403 y recibe validación de credenciales."
