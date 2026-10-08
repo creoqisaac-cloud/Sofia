@@ -8,6 +8,9 @@ import { listInstitutions } from "@/server/services/credit";
 import * as s from "@/server/db/schema";
 
 const LINKS = [
+  { href: "/iphone", title: "Sofía para iPhone", detail: "Instalar desde Safari y acceder a correos, INE, avisos y WhatsApp" },
+  { href: "/whatsapp", title: "Asistente de WhatsApp", detail: "Redactar mensajes y abrirlos en WhatsApp para confirmar el envío" },
+  { href: "/settings/reminders", title: "Recordatorios", detail: "Agenda, exportación a Calendario de iPhone y alarmas Android" },
   { href: "/settings/email", title: "Correo de Sofía", detail: "Asigna el correo desde el que Sofía envía (placas, documentos)" },
   { href: "/quote", title: "Cotizar", detail: "Corrida con fuentes; dice exactamente qué falta" },
   { href: "/plates", title: "Placas", detail: "Trámites, requisitos con fuente y correo al gestor" },
@@ -21,8 +24,10 @@ const LINKS = [
 ];
 
 const TABLET_LINKS = [
+  { href: "/iphone", title: "Sofía para iPhone", detail: "Usar Sofía desde Safari y agregarla a la pantalla de inicio" },
+  { href: "/whatsapp", title: "Asistente de WhatsApp", detail: "Mensajes supervisados para seguimiento de clientes" },
   { href: "/settings/email", title: "Correo de Sofía", detail: "Asigna el correo desde el que Sofía envía (placas, documentos)" },
-  { href: "/settings/reminders", title: "Recordatorios y alarmas", detail: "Avisos en la tablet aunque la app esté cerrada" },
+  { href: "/settings/reminders", title: "Recordatorios y alarmas", detail: "Android: alarmas nativas · iPhone: exportar a Calendario" },
   { href: "/sales", title: "Ventas", detail: "Pedido, factura y entrega" },
   { href: "/agenda", title: "Agenda", detail: "Citas de los próximos días" },
   { href: "/returns", title: "Devoluciones", detail: "Pendiente de definición por Mario (registro mínimo)" },
