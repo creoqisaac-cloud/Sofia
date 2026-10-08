@@ -2,10 +2,11 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Sofía · Operación comercial",
+    name: "Sofía · Asistente comercial",
+    id: "/sofia-iphone",
     short_name: "Sofía",
-    description: "Clientes, crédito, ventas y alertas de Mario Abarca.",
-    start_url: "/",
+    description: "Correo, solicitudes, recordatorios y WhatsApp para Honda Valle Oriente.",
+    start_url: "/?modo=tablet",
     scope: "/",
     display: "standalone",
     orientation: "portrait",
