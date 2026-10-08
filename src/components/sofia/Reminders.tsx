@@ -85,7 +85,7 @@ export function ReminderForm({ customerId, customers }: { customerId?: string; c
       {calendarKey && !notificationsAvailable() && (
         <a href={`/api/reminders/calendar?key=${encodeURIComponent(calendarKey)}`}
           className="mt-3 flex min-h-12 items-center justify-center rounded-2xl bg-raise text-[15px] text-ivory">
-          Agregar recordatorio al Calendario del iPhone
+          Descargar evento para Calendario de iPhone
         </a>
       )}
     </form>
