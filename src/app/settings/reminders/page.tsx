@@ -17,7 +17,7 @@ export default async function RemindersPage() {
   ]);
   return (
     <>
-      <MobileHeader title="Recordatorios y alarmas" back="/more" subtitle="Suenan en la tablet aunque la app esté cerrada" />
+      <MobileHeader title="Recordatorios y alarmas" back="/more" subtitle="Android: alarmas · iPhone: Calendario" />
       <div className="mx-auto flex max-w-3xl flex-col gap-4 px-5 pb-10">
         <NotificationSetup />
         <ReminderForm customers={customers.map((c) => ({ id: c.id, name: c.name.replace(/\s*\(DEMO\)\s*/, "") }))} />
@@ -32,9 +32,13 @@ export default async function RemindersPage() {
                   <div className="min-w-0 flex-1">
                     <div className="text-[16px] text-ivory">{r.alarm ? "⏰ " : ""}{r.title}</div>
                     <div className="text-[13px] text-faint">
-                      {new Date(r.at).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Mexico_City" })} · {SOURCE[r.source]} · {r.body}
+                      {new Date(r.at).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Monterrey" })} · {SOURCE[r.source]} · {r.body}
                     </div>
                   </div>
+                  <a href={`/api/reminders/calendar?key=${encodeURIComponent(r.key)}`}
+                    className="min-h-11 rounded-xl bg-raise px-3 py-2 text-center text-[13px] text-sand">
+                    Calendario
+                  </a>
                   {r.source === "reminder" && <RemoveReminderButton id={r.sourceId} />}
                 </li>
               ))}
