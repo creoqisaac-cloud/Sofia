@@ -37,6 +37,11 @@ export default function IPhonePage() {
             </Link>
           ))}
         </nav>
+        <form method="post" action="/salir">
+          <button type="submit" className="min-h-12 w-full rounded-2xl bg-raise px-4 text-[15px] text-ivory">
+            Cerrar sesión en este iPhone
+          </button>
+        </form>
         <p className="text-[13px] text-faint">
           En iPhone las alarmas Android no funcionan. Para avisos fuera de Sofía utiliza Calendario
           y confirma su importación. Las notificaciones push web requieren configuración adicional en el servidor.
