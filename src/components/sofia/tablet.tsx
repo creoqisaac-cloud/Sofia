@@ -31,7 +31,7 @@ const noSubscribe = () => () => {};
  * El servidor aplica sus validadores y deja TODO como observado, nunca confirmado.
  */
 function pastedLiveTextObservation(value: string) {
-  const lines = value.replace(/\r/g, "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 100);
+  const lines = value.replace(/\r/g, "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 80);
   if (!lines.length) return undefined;
   const h = lines.length * 28 + 40;
   const obsLines = lines.map((text, i) => ({
@@ -46,6 +46,29 @@ function pastedLiveTextObservation(value: string) {
       lines: obsLines,
     }] }],
   };
+}
+
+/** Convierte HEIC de Fotos a JPEG EN el iPhone, sin enviar la foto a terceros. */
+async function compatiblePhoto(file: File): Promise<File> {
+  if (!/\.(heic|heif)$/i.test(file.name) && !/^image\/(heic|heif)$/.test(file.type)) return file;
+  const src = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = src;
+    try { await image.decode(); } catch { throw new Error("No pude abrir la foto HEIC. Expórtala como JPEG desde Fotos."); }
+    const factor = Math.min(1, 2400 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * factor));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * factor));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("No se pudo preparar la imagen.");
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (!blob) throw new Error("No se pudo convertir la fotografía a JPEG.");
+    return new File([blob], file.name.replace(/\.(heic|heif)$/i, "") + ".jpg", { type: "image/jpeg" });
+  } finally {
+    URL.revokeObjectURL(src);
+  }
 }
 
 export function DocumentUploader({ customerId, docTypes, initialDocType, returnTo }: { customerId: string; docTypes: Array<[string, string]>; initialDocType?: string; returnTo?: string | null }) {
@@ -95,11 +118,12 @@ export function DocumentUploader({ customerId, docTypes, initialDocType, returnT
     setBusy(true);
     setMsg(null);
     try {
+      const selected = await Promise.all(Array.from(list).slice(0, 10).map(compatiblePhoto));
       // APK: cada foto se lee EN la tablet (ML Kit) y se sube con su OCR → datos por revisar.
       if (photoOcr) {
         const ids: string[] = [];
         const errors: string[] = [];
-        for (const f of Array.from(list).slice(0, 10)) {
+        for (const f of selected) {
           try {
             const observation = /^image\/(jpeg|png)$/.test(f.type) ? await recognizePhotoNative(f).catch(() => undefined) : undefined;
             ids.push(await postOne(f, f.name, observation));
@@ -114,16 +138,16 @@ export function DocumentUploader({ customerId, docTypes, initialDocType, returnT
       }
       // iPhone Safari: foto + Texto en Vivo copiado por el usuario.
       // No se afirma que se haya ejecutado OCR automático en el navegador.
-      if (docType === "ine" && liveText.trim() && list.length === 1 && /^image\/(jpeg|png)$/.test(list[0]!.type)) {
+      if (docType === "ine" && liveText.trim() && selected.length === 1 && /^image\/(jpeg|png)$/.test(selected[0]!.type)) {
         const observation = pastedLiveTextObservation(liveText);
-        const id = await postOne(list[0]!, list[0]!.name, observation);
+        const id = await postOne(selected[0]!, selected[0]!.name, observation);
         setLiveText("");
         router.push(reviewUrl(id));
         return;
       }
       const fd = new FormData();
       fd.set("docType", docType);
-      for (const f of Array.from(list)) fd.append("file", f);
+      for (const f of selected) fd.append("file", f);
       const r = await fetch(`/api/customers/${customerId}/documents`, { method: "POST", body: fd });
       const j = (await r.json()) as { results?: Array<{ ok: boolean; error?: string }>; error?: string };
       if (!r.ok) throw new Error(j.error ?? "No se pudo subir.");
