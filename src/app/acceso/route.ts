@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { newSession, safeNext, SESSION_COOKIE, SESSION_SECONDS, validCredentials, validSession } from "@/server/auth/web-session";
-import { appRedirect, sameSiteForm } from "@/server/auth/public-origin";
+import { appRedirect } from "@/server/auth/public-origin";
+import { createLoginChallenge, LOGIN_CSRF_COOKIE, LOGIN_CSRF_MAX_AGE, verifyLoginChallenge } from "@/server/auth/login-csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,10 +36,12 @@ function escaped(v: string) {
   return v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-function screen(next: string, error = false, limited = false): Response {
+function screen(next: string, error = false, limited = false, csrfError = false): Response {
+  const secret = process.env.SOFIA_SECRET_KEY;
+  const challenge = secret ? createLoginChallenge(secret) : "";
   const notice = limited
     ? "Demasiados intentos. Vuelve a intentarlo en unos minutos."
-    : error ? "Usuario o contraseña incorrectos. Revisa ambos datos." : "";
+    : csrfError ? "Safari no pudo verificar este formulario. Asegúrate de permitir cookies y vuelve a intentarlo." : error ? "Usuario o contraseña incorrectos. Revisa ambos datos." : "";
   const html = `<!doctype html>
 <html lang="es-MX">
 <head>
@@ -58,6 +61,7 @@ function screen(next: string, error = false, limited = false): Response {
   ${notice ? `<div class="msg" role="alert">${escaped(notice)}</div>` : ""}
   <form method="post" action="/acceso" autocomplete="on">
     <input type="hidden" name="next" value="${escaped(next)}">
+    <input type="hidden" name="csrf" value="${escaped(challenge)}">
     <label for="user">Usuario</label>
     <input id="user" name="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="100">
     <label for="password">Contraseña</label>
@@ -66,7 +70,9 @@ function screen(next: string, error = false, limited = false): Response {
   </form>
   <p class="help">La sesión permanece abierta en este navegador durante siete días. No necesitas escribir las credenciales en cada pantalla.</p>
 </main></body></html>`;
-  return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" } });
+  const response = new NextResponse(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store, max-age=0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" } });
+  if (challenge) response.cookies.set(LOGIN_CSRF_COOKIE, challenge, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: LOGIN_CSRF_MAX_AGE });
+  return response;
 }
 
 export async function GET(req: NextRequest) {
@@ -80,8 +86,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // El Host de Render puede ser interno. Comparar contra la URL HTTPS pública.
-  if (!sameSiteForm(req)) return new Response("Solicitud no autorizada", { status: 403 });
+  // La protección CSRF usa un token firmado ligado a una cookie SameSite.
+  // Safari puede modificar/omitir Origin y Sec-Fetch-Site: no bloquear por ello.
   const length = Number(req.headers.get("content-length") ?? 0);
   if (length > 8192) return new Response("Solicitud demasiado grande", { status: 413 });
   const type = req.headers.get("content-type") ?? "";
@@ -91,6 +97,10 @@ export async function POST(req: NextRequest) {
   let form: FormData;
   try { form = await req.formData(); } catch { return screen("/", true); }
   const next = safeNext(typeof form.get("next") === "string" ? String(form.get("next")) : "/");
+  const submittedChallenge = typeof form.get("csrf") === "string" ? String(form.get("csrf")) : null;
+  if (!verifyLoginChallenge(submittedChallenge, req.cookies.get(LOGIN_CSRF_COOKIE)?.value, process.env.SOFIA_SECRET_KEY)) {
+    return screen(next, false, false, true);
+  }
   const key = clientKey(req);
   if (isLimited(key)) return screen(next, false, true);
 
@@ -104,6 +114,7 @@ export async function POST(req: NextRequest) {
   }
   failures.delete(key);
   const response = NextResponse.redirect(appRedirect(req, next), { status: 303 });
+  response.cookies.set(LOGIN_CSRF_COOKIE, "", { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 0 });
   response.cookies.set(SESSION_COOKIE, newSession(expected!, secret), {
     httpOnly: true,
     secure: true,
