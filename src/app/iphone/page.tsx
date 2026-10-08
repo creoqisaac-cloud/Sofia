@@ -2,7 +2,7 @@ import Link from "next/link";
 import { MobileHeader, Page } from "@/components/app/AppShell";
 
 const tools = [
-  { href: "/settings/email", icon: "✉️", title: "Asistente de correos", detail: "Asigna tu correo, revisa borradores y envía con confirmación." },
+  { href: "/correos", icon: "✉️", title: "Asistente de correos", detail: "Asigna tu correo, revisa borradores y envía con confirmación." },
   { href: "/plates", icon: "🚘", title: "Correos de placas", detail: "Prepara solicitudes de placas con adjuntos desde el expediente." },
   { href: "/customers", icon: "🪪", title: "INE y solicitudes", detail: "Abre un cliente, toma foto de la INE y revisa los datos antes de llenar la solicitud." },
   { href: "/settings/reminders", icon: "⏰", title: "Recordatorios", detail: "Registra tareas y agrégalas al Calendario del iPhone." },
