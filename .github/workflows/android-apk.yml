@@ -13,7 +13,13 @@ on:
         required: false
   push:
     branches: [claude/laughing-sagan-hbxj3y]
-    paths: ["android/**", "android-shell/**", "capacitor.config.ts", "package.json", ".github/workflows/android-apk.yml", "src/**", "scripts/demo-scan-verify.ts"]
+    paths: ["android/**", "android-shell/**", "capacitor.config.ts", "package.json", "package-lock.json", ".github/workflows/android-apk.yml", "src/app/actions.ts", "src/components/sofia/native.ts", "src/components/sofia/EmailDraft.tsx", "scripts/demo-scan-verify.ts"]
+
+# Ejecutar solo una compilación Android por rama. Así dos pushes simultáneos
+# no publican la misma rama apk-tablet al mismo tiempo.
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
