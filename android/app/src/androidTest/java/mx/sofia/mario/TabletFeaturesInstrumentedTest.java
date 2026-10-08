@@ -274,4 +274,25 @@ public class TabletFeaturesInstrumentedTest {
             Log.i(TAG, "EMAIL id=" + emailId + " to=" + to);
         }
     }
+    // ───────── 6. Flujo real: Conexión -> guardar Basic Auth -> abrir WebView ─────────
+
+    @Test
+    public void a6_guardarServidorYAutenticarseSinPantallaNegra() throws Exception {
+        String server = args().getString("sofiaBasicServer");
+        assumeTrue("Sin servidor Basic sintético", server != null && !server.isEmpty());
+        try (ActivityScenario<MainActivity> sc = launch(null)) {
+            waitFor(sc,
+                "location.pathname.endsWith('/conexion.html') && window.Capacitor && window.Capacitor.Plugins.SofiaServer",
+                25, "Conexión con puente nativo");
+            screenshot("15-conexion-antes-del-login");
+            String config = "(function(){window.Capacitor.Plugins.SofiaServer.set({url:'" + server
+                + "',user:'sofia-ci',pass:'test-android-only'});return true})()";
+            assertTrue("No se inició el guardado del servidor", "true".equals(js(sc, config)));
+            waitFor(sc,
+                "location.href.indexOf('" + server + "') === 0 && document.body && document.body.innerText.includes('SOFIA BASIC OK')",
+                110, "servidor HTTP Basic y contenido sin pantalla negra");
+            screenshot("16-servidor-basic-autenticado");
+            Log.i(TAG, "BASIC login-flow=true");
+        }
+    }
 }
