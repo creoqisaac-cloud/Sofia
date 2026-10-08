@@ -372,7 +372,7 @@ export async function updateAndSendEmailAction(emailId: string, payload: { to: s
     await updateDraft(app, emailId, { toAddress: fields.to, subject: fields.subject, body: fields.body });
     await sendEmail(app, emailId, { confirmed: true });
     revalidatePath(`/emails/${emailId}`);
-    return { ok: true, message: "Correo guardado y enviado con tu confirmación" };
+    return { ok: true, message: "Correo enviado. Se guardaron los cambios que confirmaste." };
   });
 }
 
