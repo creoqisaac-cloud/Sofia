@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { newSession, safeNext, SESSION_COOKIE, SESSION_SECONDS, validCredentials, validSession } from "@/server/auth/web-session";
+import { appRedirect, sameSiteForm } from "@/server/auth/public-origin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,21 +74,14 @@ export async function GET(req: NextRequest) {
   const secret = process.env.SOFIA_SECRET_KEY;
   const next = safeNext(req.nextUrl.searchParams.get("next"));
   if (validSession(req.cookies.get(SESSION_COOKIE)?.value, expected, secret)) {
-    return NextResponse.redirect(new URL(next, req.url));
+    return NextResponse.redirect(appRedirect(req, next));
   }
   return screen(next);
 }
 
 export async function POST(req: NextRequest) {
-  // Bloquea envíos de sitios externos aunque el usuario tenga sesión.
-  const site = req.headers.get("sec-fetch-site");
-  if (site === "cross-site") return new Response("Solicitud no autorizada", { status: 403 });
-  const origin = req.headers.get("origin");
-  if (origin) {
-    try {
-      if (new URL(origin).host !== req.nextUrl.host) return new Response("Solicitud no autorizada", { status: 403 });
-    } catch { return new Response("Solicitud no autorizada", { status: 403 }); }
-  }
+  // El Host de Render puede ser interno. Comparar contra la URL HTTPS pública.
+  if (!sameSiteForm(req)) return new Response("Solicitud no autorizada", { status: 403 });
   const length = Number(req.headers.get("content-length") ?? 0);
   if (length > 8192) return new Response("Solicitud demasiado grande", { status: 413 });
   const type = req.headers.get("content-type") ?? "";
@@ -109,7 +103,7 @@ export async function POST(req: NextRequest) {
     return screen(next, true);
   }
   failures.delete(key);
-  const response = NextResponse.redirect(new URL(next, req.url), { status: 303 });
+  const response = NextResponse.redirect(appRedirect(req, next), { status: 303 });
   response.cookies.set(SESSION_COOKIE, newSession(expected!, secret), {
     httpOnly: true,
     secure: true,
