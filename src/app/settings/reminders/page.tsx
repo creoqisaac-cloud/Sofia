@@ -37,7 +37,7 @@ export default async function RemindersPage() {
                   </div>
                   <a href={`/api/reminders/calendar?key=${encodeURIComponent(r.key)}`}
                     className="min-h-11 rounded-xl bg-raise px-3 py-2 text-center text-[13px] text-sand">
-                    Calendario
+                    Descargar .ics
                   </a>
                   {r.source === "reminder" && <RemoveReminderButton id={r.sourceId} />}
                 </li>
