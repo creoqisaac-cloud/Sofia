@@ -1,9 +1,13 @@
 // Lectura de texto de la INE, del mejor método disponible al peor (ninguno usa IA ni cuesta):
 //  1. APK Android: escáner nativo ML Kit (cámara guiada, recorte, OCR en el dispositivo, sin internet).
-//  2. Navegador (iPhone, PC): foto → Tesseract.js incluido en la app (corre en el navegador, sin CDN).
+//  2. Navegador (iPhone, PC): foto → Tesseract.js incluido en la app (corre en el navegador, sin CDN),
+//     renglón por renglón con los renglones localizados en mrz.js (MRZ del reverso y frente).
 //  3. Texto pegado (p. ej. "Texto en Vivo" del iPhone) o captura manual.
 import { hasScanner, scanner } from "./native.js";
 import { base64ToBlob, blobToBase64 } from "./util.js";
+import { readMrzRows, readTextRows, straighten, textAngle } from "./mrz.js";
+import { parseMrz } from "./mxid.js";
+import { readIne } from "./ine.js";
 
 /** Escaneo nativo de UNA cara de la credencial. Devuelve { obs, blob } o lanza un error legible. */
 export async function nativeScan() {
@@ -38,36 +42,88 @@ function loadTesseract() {
   return loading;
 }
 
+// Datos sin los cuales la lectura no sirve: si falta alguno tras la primera lectura, se lee otra vez.
+const KEY_DATA = ["curp", "voter_key", "paternal_last_name", "first_name", "birth_date", "postal_code", "street", "ine_validity"];
+
 async function tesseract(blob, onProgress) {
   onProgress("Preparando el lector (la primera vez tarda un poco)…");
   const T = await loadTesseract();
+  let fullPage = false;
   const worker = await T.createWorker("spa", 1, {
     workerPath: `${VENDOR}worker.min.js`,
     corePath: VENDOR,
     langPath: `${VENDOR}lang`,
     gzip: true,
-    logger: (m) => { if (m.status === "recognizing text") onProgress(`Leyendo la foto… ${Math.round((m.progress ?? 0) * 100)}%`); },
+    logger: (m) => { if (fullPage && m.status === "recognizing text") onProgress(`Leyendo la foto… ${Math.round((m.progress ?? 0) * 100)}%`); },
   });
+  const page = (width, height, lines) => ({ width, height, blocks: lines.map((l) => ({ text: l.text, box: l.box, lines: [l] })) });
   try {
-    const { image, width, height } = await prepare(blob);
-    const { data } = await worker.recognize(image);
-    const segs = (data.lines ?? []).flatMap(splitLine).filter((l) => l.text);
-    return {
-      engine: "tesseract",
-      pages: [{ width, height, blocks: segs.map((l) => ({ text: l.text, box: l.box, lines: [l] })) }],
-    };
+    const bmp = fit(await createImageBitmap(blob, { imageOrientation: "from-image" }).catch(() => createImageBitmap(blob)).catch(() => null));
+    // Inclinación de los renglones (y un cuarto de vuelta si la credencial salió de lado en la foto).
+    const angle = bmp ? textAngle(bmp) : 0;
+    // Reverso: solo la MRZ (≈0.5 s). La página completa no aporta datos y tarda ~10 s por los códigos QR:
+    // si la foto tiene renglones con forma de MRZ ya es el reverso, aunque no se hayan podido leer bien.
+    if (bmp) {
+      onProgress("Buscando el código del reverso…");
+      const src = Math.abs(angle) > Math.PI / 4 ? straighten(bmp, angle) : bmp; // cada renglón se endereza solo
+      const rows = await readMrzRows(src, worker, (texts) => Boolean(parseMrz(texts)));
+      if (rows) return { engine: "tesseract", pages: [page(src.width, src.height, rows)] };
+    }
+    // Frente: la foto se endereza y se lee renglón por renglón (localizados aquí, con contraste local:
+    // aguanta reflejos, letras pálidas y fondos con dibujos mejor que la página completa).
+    const obs = { engine: "tesseract", pages: [] };
+    let straight = bmp;
+    if (bmp) {
+      const onRow = (i, n) => onProgress(`Leyendo la foto… ${Math.round((100 * i) / n)}%`);
+      // Si no aparece una INE, se prueba la foto de cabeza (sin leer no se sabe hacia dónde va el texto).
+      for (const turn of [0, Math.PI]) {
+        const img = Math.abs(angle + turn) > 0.01 ? straighten(bmp, angle + turn) : bmp;
+        const pages = [page(img.width, img.height, await readTextRows(img, worker, { onRow }))];
+        const found = readIne({ engine: "tesseract", pages }).detected;
+        if (turn === 0 || found) { straight = img; obs.pages = pages; }
+        if (found) break;
+      }
+    }
+    // ¿Faltan datos clave? Segunda lectura: la página completa con la segmentación propia de Tesseract.
+    // El lector de la INE toma de cada lectura lo que pasa sus validaciones.
+    if (!obs.pages.length || KEY_DATA.some((k) => !readIne(obs).values[k])) {
+      const { image, width, height } = await prepare(straight, blob);
+      // Segmentación automática: medido, lee mejor la credencial que el bloque único predeterminado.
+      await worker.setParameters({ tessedit_pageseg_mode: "3" });
+      fullPage = true;
+      const { data } = await worker.recognize(image);
+      fullPage = false;
+      obs.pages.push(page(width, height, (data.lines ?? []).flatMap(splitLine).filter((l) => l.text)));
+    }
+    return obs;
   } finally {
     await worker.terminate();
   }
 }
 
 /**
+ * Fotos de 12 MP: se trabaja a 2400 px del lado mayor (la credencial sigue con letra de sobra) para no
+ * agotar la memoria de canvas del teléfono (Safari en iPhone tiene un límite bajo).
+ */
+function fit(bmp, max = 2400) {
+  if (!bmp || Math.max(bmp.width, bmp.height) <= max) return bmp;
+  const k = max / Math.max(bmp.width, bmp.height);
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  return c;
+}
+
+/**
  * Mejora la foto antes de leerla: tamaño de trabajo de ~2000 px, escala de grises y contraste
  * estirado (las INE tienen fondos de colores y hologramas que confunden al lector).
  */
-async function prepare(blob) {
+async function prepare(bmp, blob) {
   try {
-    const bmp = await createImageBitmap(blob, { imageOrientation: "from-image" });
+    if (!bmp) throw new Error("sin imagen decodificada");
     const scale = Math.min(2.5, 2000 / Math.max(bmp.width, bmp.height));
     const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
     const c = document.createElement("canvas");
@@ -89,8 +145,9 @@ async function prepare(blob) {
     ctx.putImageData(img, 0, 0);
     return { image: c, width: w, height: h };
   } catch {
-    const bmp = await createImageBitmap(blob);
-    return { image: blob, width: bmp.width, height: bmp.height };
+    if (bmp instanceof HTMLCanvasElement) return { image: bmp, width: bmp.width, height: bmp.height };
+    const b = bmp ?? (await createImageBitmap(blob));
+    return { image: blob, width: b.width, height: b.height };
   }
 }
 

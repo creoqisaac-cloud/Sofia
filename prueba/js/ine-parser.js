@@ -4,7 +4,7 @@ var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { en
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 
 // src/server/extraction/ine.ts
-import { curpBirthDate, curpMatchesName, curpSex, isValidCurp, isValidVoterKey, parseMrz, stateForPostalCode, stateFromAbbr, voterKeyBirthYYMMDD, voterKeySex } from "./mxid.js";
+import { curpBirthDate, curpMatchesName, curpSex, isValidCurp, isValidVoterKey, mrzRowTexts, parseMrz, stateForPostalCode, stateFromAbbr, voterKeyBirthYYMMDD, voterKeySex } from "./mxid.js";
 import { pageLines } from "./ocr-obs.js";
 var normOcr = (s) => s.toUpperCase().replace(/Ñ/g, "\0").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\u0000/g, "\xD1").replace(/\s+/g, " ").trim();
 function lev(a, b) {
@@ -79,6 +79,11 @@ var PageGeo = class {
     }
     return out;
   }
+  /** Renglón alineado a la izquierda justo arriba (domicilio sin etiqueta legible). */
+  above(line) {
+    const { h } = this;
+    return this.lines.filter((l) => l !== line && l.box.bottom <= line.box.top + 0.4 * h && line.box.top - l.box.bottom <= 1.6 * h && Math.abs(l.box.left - line.box.left) <= 2.5 * h && !labelOf(l)).sort((a, b) => b.box.top - a.box.top)[0];
+  }
   /** Primer renglón a la derecha de la etiqueta, en la misma altura. */
   right(label) {
     const { h } = this;
@@ -98,7 +103,7 @@ var PageGeo = class {
 };
 var DATE_RE = /\b(\d{2})\/(\d{2})\/(\d{4})\b/;
 function printedDate(s) {
-  const m = s?.match(DATE_RE);
+  const m = s?.replace(/\s*\/\s*/g, "/").replace(/\b(\d)\s+(\d)(?=\/)/g, "$1$2").match(DATE_RE);
   if (!m) return null;
   const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (y < 1900 || y > (/* @__PURE__ */ new Date()).getUTCFullYear() - 15) return null;
@@ -117,6 +122,8 @@ function pick(geo, key, valid, scanLine) {
   return { value: null, ambiguous: all.size > 1 };
 }
 var INT_WORDS = /* @__PURE__ */ new Set(["INT", "INT.", "INTERIOR", "DEPTO", "DEPTO.", "DPTO", "DPTO.", "DEP", "DEP."]);
+var C_TYPES = /* @__PURE__ */ new Set(["CDA", "CJON", "CTO", "CTRA", "CARR", "CALZ", "CERR"]);
+var STREET_TYPES = /* @__PURE__ */ new Set(["C", "CALLE", "AV", "AVE", "BLVD", "PRIV", "PROL", "AND", ...C_TYPES]);
 var EXT_RE = /^(\d{1,5}[A-Z]?|S\/N|SN)$/;
 function parseStreet(n) {
   if (/\b(MZ|MZA|LT|LOTE|MANZANA|KM)\b/.test(n)) return null;
@@ -128,11 +135,45 @@ function parseStreet(n) {
   }
   const ext = t.pop();
   if (!ext || !EXT_RE.test(ext) || t.length === 0) return null;
+  if (t.length > 2 && t[0].length === 1 && STREET_TYPES.has(t[1])) t.shift();
   if (t[0] === "C" && t.length > 1) t.shift();
+  else if (/^C[BCDFGJKMNPQSTVWXYZ][A-ZÑ]{2,}$/.test(t[0]) && !C_TYPES.has(t[0])) t[0] = t[0].slice(1);
   if (/^\d/.test(t[t.length - 1])) return null;
   const street = t.join(" ");
   if (!/[A-ZÑ]{2}/.test(street)) return null;
   return { street, ext: ext === "SN" ? "S/N" : ext, int };
+}
+function parseAddress(lines) {
+  const cpIdx = lines.findLastIndex((n, i) => i >= 1 && /\b\d{5}$/.test(n));
+  if (cpIdx < 0) return "sin-cp";
+  const cp = lines[cpIdx].match(/(\d{5})$/)[1];
+  const colonia = lines[cpIdx].replace(/\s*\d{5}$/, "").replace(/^COL(ONIA)?\.?\s+/, "").trim();
+  const munLine = lines[cpIdx + 1];
+  let municipality = null;
+  let state = null;
+  if (munLine) {
+    const comma = munLine.lastIndexOf(",");
+    const [mun, st] = comma >= 0 ? [munLine.slice(0, comma), munLine.slice(comma + 1)] : [munLine.split(" ").slice(0, -1).join(" "), munLine.split(" ").at(-1) ?? ""];
+    state = stateFromAbbr(st);
+    if (state && /^[A-ZÑ][A-ZÑ .]+$/.test(mun.trim())) municipality = mun.trim().replace(/\.$/, "");
+  }
+  const streetLine = lines.slice(0, cpIdx).join(" ");
+  return { cp, cpState: stateForPostalCode(cp), colonia, municipality, state, streetLine, street: streetLine ? parseStreet(streetLine) : null };
+}
+function readAddress(g) {
+  const label = g.find("domicilio");
+  if (label) {
+    const inline = matchLabel(label.n, LABELS.domicilio);
+    return parseAddress([...inline ? [inline] : [], ...g.below(label, 4).map((l) => l.n)]);
+  }
+  for (const l of g.lines) {
+    if (!/\b\d{5}$/.test(l.n)) continue;
+    const street = g.above(l), mun = g.below(l, 1)[0];
+    if (!street || !mun) continue;
+    const a = parseAddress([street.n, l.n, mun.n]);
+    if (a !== "sin-cp" && a.cpState && a.state === a.cpState) return a;
+  }
+  return null;
 }
 function parseIne(obs, opts = {}) {
   const geo = obs.pages.map((p) => new PageGeo(pageLines(p).map((l) => ({ raw: l.text, n: normOcr(l.text), box: l.box }))));
@@ -142,7 +183,7 @@ function parseIne(obs, opts = {}) {
   const add = (key, value, confidence, evidence) => {
     if (value && value.trim()) fields.push({ key, value: value.trim(), confidence, evidence });
   };
-  const mrz = parseMrz(allN);
+  const mrz = parseMrz(obs.pages.flatMap((p) => mrzRowTexts(pageLines(p)))) ?? parseMrz(allN);
   const labelsFound = ["nombre", "domicilio", "clave", "curp", "fecha", "sexo"].filter((k) => geo.some((g) => g.find(k))).length;
   const header = allN.some((n) => /ELECTORAL|CREDENCIAL PARA VOTAR/.test(n));
   const detected = Boolean(mrz) || labelsFound >= 2 || header && labelsFound >= 1 || Boolean(opts.docTypeIsIne) && labelsFound >= 1;
@@ -179,6 +220,7 @@ function parseIne(obs, opts = {}) {
   if (voterKey) sexSources.push(["clave de elector", voterKeySex(voterKey)]);
   if (mrz?.sex) sexSources.push(["reverso (MRZ)", mrz.sex]);
   const sexAgree = new Set(sexSources.map((d) => d[1])).size <= 1;
+  if (mrz?.repaired) warnings.push("El reverso (MRZ) tra\xEDa letras y n\xFAmeros confundidos (O/0, I/1\u2026): se corrigieron y los d\xEDgitos verificadores los confirman.");
   if (!dateAgree) warnings.push(`La fecha de nacimiento no coincide entre ${dateSources.map((d) => d[0]).join(", ")}: rev\xEDsala contra la credencial.`);
   if (!sexAgree) warnings.push(`El sexo no coincide entre ${sexSources.map((d) => d[0]).join(", ")}: rev\xEDsalo.`);
   const corroborated = (n, agree) => agree && n >= 2 ? "medium" : "low";
@@ -192,7 +234,12 @@ function parseIne(obs, opts = {}) {
     const sex = printedSex ?? (sexAgree && sexSources.length >= 2 ? sexSources[0][1] : null);
     add("gender", sex, corroborated(sexSources.length, sexAgree), "OCR en el dispositivo \xB7 SEXO");
   }
-  let front = null;
+  const mrzName = mrz && mrz.surnames.length >= 1 && mrz.givenNames.length >= 1 && mrz.surnames.length <= 2 ? { paternal: mrz.surnames[0], maternal: mrz.surnames[1] ?? null, given: mrz.givenNames.join(" ") } : null;
+  const asMrz = (s) => (s ?? "").replace(/Ñ/g, "N").replace(/[^A-Z]/g, "");
+  const sameGiven = (given) => asMrz(given) === asMrz(mrzName.given) || Boolean(mrz?.nameTruncated && asMrz(given).startsWith(asMrz(mrzName.given)));
+  const sameAsMrz = (n) => mrzName ? asMrz(n.paternal) === asMrz(mrzName.paternal) && asMrz(n.maternal) === asMrz(mrzName.maternal) && sameGiven(n.given) : null;
+  const readings = [];
+  let nameWarning = null;
   for (const g of geo) {
     const label = g.find("nombre");
     if (!label) continue;
@@ -201,33 +248,49 @@ function parseIne(obs, opts = {}) {
     if (!lines.length) continue;
     const bad = lines.slice(0, 3).some((n) => !isNameLine(n));
     if (bad) {
-      warnings.push("El nombre le\xEDdo tiene n\xFAmeros o s\xEDmbolos: no se us\xF3. Capt\xFAralo a mano.");
-      break;
+      nameWarning ?? (nameWarning = "El nombre le\xEDdo tiene n\xFAmeros o s\xEDmbolos: no se us\xF3. Capt\xFAralo a mano.");
+      continue;
     }
     if (lines.length >= 3) {
       const cand = { paternal: lines[0], maternal: lines[1], given: lines.slice(2).join(" ") };
-      if (lines.length === 3 || curp && curpMatchesName(curp, cand)) front = cand;
-      else warnings.push("El nombre ocupa m\xE1s de tres renglones: capt\xFAralo a mano.");
+      if (lines.length === 3 || curp && curpMatchesName(curp, cand)) readings.push(cand);
+      else nameWarning ?? (nameWarning = "El nombre ocupa m\xE1s de tres renglones: capt\xFAralo a mano.");
     } else if (lines.length === 2 && curp && curp[2] === "X") {
-      front = { paternal: lines[0], maternal: null, given: lines[1] };
+      readings.push({ paternal: lines[0], maternal: null, given: lines[1] });
     } else {
-      warnings.push("No se pudo distinguir apellidos y nombre(s).");
+      nameWarning ?? (nameWarning = "No se pudo distinguir apellidos y nombre(s).");
     }
-    break;
   }
-  const mrzName = mrz && mrz.surnames.length >= 1 && mrz.givenNames.length >= 1 && mrz.surnames.length <= 2 ? { paternal: mrz.surnames[0], maternal: mrz.surnames[1] ?? null, given: mrz.givenNames.join(" ") } : null;
-  const asMrz = (s) => (s ?? "").replace(/Ñ/g, "N").replace(/[^A-Z]/g, "");
+  let front = readings[0] ?? null;
+  const nameDisagree = new Set(readings.map((n) => [n.paternal, n.maternal, n.given].map(asMrz).join("<"))).size > 1;
+  for (const g of front ? [] : geo) {
+    for (const l of g.lines) {
+      const rest = isNameLine(l.n) && !labelOf(l) ? g.below(l, 2).map((x) => x.n) : [];
+      if (rest.length < 2 || !rest.every(isNameLine)) continue;
+      const cand = { paternal: l.n, maternal: rest[0], given: rest[1] };
+      if (curp && curpMatchesName(curp, cand) || sameAsMrz(cand) && !mrz?.nameRepaired) {
+        front = cand;
+        break;
+      }
+    }
+    if (front) break;
+  }
+  if (!front && nameWarning) warnings.push(nameWarning);
   let nameConf = "low";
   let name = front;
   if (front) {
     const curpOk = curp ? curpMatchesName(curp, front) : null;
-    const mrzOk = mrzName ? asMrz(front.paternal) === asMrz(mrzName.paternal) && asMrz(front.maternal) === asMrz(mrzName.maternal) && asMrz(front.given) === asMrz(mrzName.given) : null;
+    const same = sameAsMrz(front);
+    const mrzOk = same && mrz?.nameRepaired ? null : same;
     if (curpOk === false) warnings.push("El nombre no coincide con las iniciales de la CURP: revisa el orden de apellidos.");
     if (mrzOk === false) warnings.push("El nombre del frente no coincide con el del reverso.");
-    nameConf = curpOk !== false && mrzOk !== false && (curpOk || mrzOk) ? "medium" : "low";
+    if (nameDisagree) warnings.push("El nombre se ley\xF3 distinto en dos lecturas de la foto: rev\xEDsalo.");
+    nameConf = curpOk !== false && mrzOk !== false && (curpOk || mrzOk) && !nameDisagree ? "medium" : "low";
   } else if (mrzName && mrzName.paternal && [mrzName.paternal, mrzName.maternal ?? "X", mrzName.given].every((x) => isNameLine(x))) {
     name = mrzName;
     nameConf = curp && curpMatchesName(curp, mrzName) ? "medium" : "low";
+    if (mrz?.nameRepaired) warnings.push("El nombre del reverso tra\xEDa caracteres dudosos y se corrigi\xF3: rev\xEDsalo contra la credencial.");
+    else if (mrz?.nameTruncated) warnings.push("El nombre del reverso llena todo el rengl\xF3n: el \xFAltimo nombre pudo quedar cortado. Rev\xEDsalo contra la credencial.");
   }
   if (name) {
     const [first, ...middle] = name.given.split(" ");
@@ -236,46 +299,31 @@ function parseIne(obs, opts = {}) {
     add("first_name", first, nameConf, "OCR en el dispositivo \xB7 NOMBRE");
     add("middle_name", middle.join(" "), nameConf, "OCR en el dispositivo \xB7 NOMBRE");
   }
-  for (const g of geo) {
-    const label = g.find("domicilio");
-    if (!label) continue;
-    const inline = matchLabel(label.n, LABELS.domicilio);
-    const lines = [...inline ? [inline] : [], ...g.below(label, 4).map((l) => l.n)];
-    const cpIdx = lines.findLastIndex((n, i) => i >= 1 && /\b\d{5}$/.test(n));
-    if (cpIdx < 0) {
-      warnings.push("No se encontr\xF3 el c\xF3digo postal en el domicilio.");
-      break;
-    }
-    const cp = lines[cpIdx].match(/(\d{5})$/)[1];
-    const cpState = stateForPostalCode(cp);
-    const colonia = lines[cpIdx].replace(/\s*\d{5}$/, "").replace(/^COL(ONIA)?\.?\s+/, "").trim();
-    const munLine = lines[cpIdx + 1];
-    let municipality = null;
-    let state = null;
-    if (munLine) {
-      const comma = munLine.lastIndexOf(",");
-      const [mun, st2] = comma >= 0 ? [munLine.slice(0, comma), munLine.slice(comma + 1)] : [munLine.split(" ").slice(0, -1).join(" "), munLine.split(" ").at(-1) ?? ""];
-      state = stateFromAbbr(st2);
-      if (state && /^[A-ZÑ][A-ZÑ .]+$/.test(mun.trim())) municipality = mun.trim().replace(/\.$/, "");
-    }
-    const cpOk = Boolean(cpState && state && cpState === state);
+  const addresses = geo.map(readAddress).filter((a) => a !== null);
+  const found = addresses.filter((a) => a !== "sin-cp");
+  const score = (a) => (a.cpState && a.state === a.cpState ? 4 : 0) + (a.street ? 2 : 0) + (a.municipality ? 1 : 0);
+  const addr = found.sort((a, b) => score(b) - score(a))[0];
+  if (!addr && addresses.length) warnings.push("No se encontr\xF3 el c\xF3digo postal en el domicilio.");
+  if (addr) {
+    const { cp, cpState, state } = addr;
+    const cpDisagree = new Set(found.map((a) => a.cp)).size > 1;
+    const poorRead = !curp && !front;
+    const cpOk = Boolean(cpState && state && cpState === state) && !cpDisagree && !poorRead;
+    if (cpDisagree) warnings.push("El c\xF3digo postal se ley\xF3 distinto en dos lecturas de la foto: rev\xEDsalo.");
     if (cpState && state && cpState !== state) warnings.push("El c\xF3digo postal no corresponde al estado le\xEDdo: revisa el domicilio.");
     if (!cpState) warnings.push("El c\xF3digo postal le\xEDdo no existe: no se us\xF3.");
     const conf = cpOk ? "medium" : "low";
     if (cpState) add("postal_code", cp, conf, "OCR en el dispositivo \xB7 DOMICILIO");
-    if (/[A-ZÑ]{3}/.test(colonia)) add("neighborhood", colonia, conf, "OCR en el dispositivo \xB7 DOMICILIO");
-    add("municipality", municipality, conf, "OCR en el dispositivo \xB7 DOMICILIO");
+    if (/[A-ZÑ]{3}/.test(addr.colonia)) add("neighborhood", addr.colonia, conf, "OCR en el dispositivo \xB7 DOMICILIO");
+    add("municipality", addr.municipality, conf, "OCR en el dispositivo \xB7 DOMICILIO");
     add("state", state, conf, "OCR en el dispositivo \xB7 DOMICILIO");
-    const streetLine = lines.slice(0, cpIdx).join(" ");
-    const st = streetLine ? parseStreet(streetLine) : null;
-    if (st) {
-      add("street", st.street, conf, "OCR en el dispositivo \xB7 DOMICILIO");
-      add("exterior_number", st.ext, conf, "OCR en el dispositivo \xB7 DOMICILIO");
-      add("interior_number", st.int, conf, "OCR en el dispositivo \xB7 DOMICILIO");
-    } else if (streetLine) warnings.push("La calle y n\xFAmero no se pudieron separar con seguridad: capt\xFAralos a mano.");
-    break;
+    if (addr.street) {
+      add("street", addr.street.street, conf, "OCR en el dispositivo \xB7 DOMICILIO");
+      add("exterior_number", addr.street.ext, conf, "OCR en el dispositivo \xB7 DOMICILIO");
+      add("interior_number", addr.street.int, conf, "OCR en el dispositivo \xB7 DOMICILIO");
+    } else if (addr.streetLine) warnings.push("La calle y n\xFAmero no se pudieron separar con seguridad: capt\xFAralos a mano.");
   }
-  return { detected: true, fields, warnings };
+  return { detected: true, fields, warnings, mrz };
 }
 export {
   isNameLine,

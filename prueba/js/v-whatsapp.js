@@ -5,10 +5,10 @@ import { state, customer, save, lastContact, updateCustomer, setFollowUp, DEFAUL
 import { header, section, empty, btn, go, rerender, query, route, field, input, textarea, customerSelect, sendWhatsApp, followUpPicker, stageChip, chip, select } from "./ui.js";
 import { fillTemplate, suggestTemplateId, template, classifyMessage } from "./rules.js";
 import { aiReady, draftMessage, personalizeTemplates, extractLead } from "./ai.js";
-import { connectorReady, inbox, conversation, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus } from "./connector.js";
+import { connectorReady, inbox, conversation, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus, refreshStatus, getAgentConfig, setAgentConfig, listLeads, markLeads } from "./connector.js";
 import { applyIneImage, ensureCredit } from "./v-credit.js";
 
-const TABS = [["bandeja", "Bandeja"], ["escribir", "Escribir"], ["responder", "Responder"], ["pendientes", "Pendientes"], ["plantillas", "Plantillas"]];
+const TABS = [["bandeja", "Bandeja"], ["auto", "Automático"], ["escribir", "Escribir"], ["responder", "Responder"], ["pendientes", "Pendientes"], ["plantillas", "Plantillas"]];
 let poll = null;
 const mediaCache = new Map(); // fotos ya descargadas (id de WhatsApp → Blob)
 const stopPoll = () => { clearInterval(poll); poll = null; };
@@ -22,7 +22,7 @@ export function renderWhatsApp(root) {
   const body = h("div", { class: "page" },
     h("div", { class: "tabs", role: "tablist" }, TABS.map(([id, label]) => h("button", { role: "tab", "aria-selected": String(tab === id), class: tab === id ? "on" : "", onclick: () => go(`/whatsapp?tab=${id}${cid ? `&c=${cid}` : ""}`) }, label))));
   root.append(header("WhatsApp", { back: cid ? `/cliente/${cid}` : undefined }), body);
-  ({ bandeja: inboxTab, escribir: write, responder: reply, pendientes: pending, plantillas: templates }[tab] ?? pending)(body, cid);
+  ({ bandeja: inboxTab, auto: autoTab, escribir: write, responder: reply, pendientes: pending, plantillas: templates }[tab] ?? pending)(body, cid);
 }
 
 // ───────── Historial para la IA ─────────
@@ -90,6 +90,7 @@ export function renderChat(root, key) {
   function drawMessages() {
     list.replaceChildren(...msgs.map((m) => h("div", { class: `bubble ${m.dir}` },
       m.media ? mediaView(m) : null,
+      m.auto ? h("div", { class: "muted small" }, "⚙ Respuesta automática de Sofía") : null,
       m.text ? h("div", { class: "pre" }, m.text) : null,
       h("div", { class: "muted small" }, `${fmtWhen(m.at)}${m.dir === "out" && m.status ? ` · ${{ sent: "enviado", delivered: "entregado", read: "leído ✓✓", failed: "falló" }[m.status] ?? m.status}` : ""}`))));
     list.scrollTop = list.scrollHeight;
@@ -231,6 +232,111 @@ export function renderChat(root, key) {
     h("div", { class: "page" }, list, section("", chips, box, actions, status), tplBox));
   load().then(() => aiSuggest(true));
   pollWhile(route(), async () => { const before = msgs.length; await load(); if (msgs.length > before) aiSuggest(true); });
+}
+
+// ───────── Automático: agente SIN IA que contesta solo (en el servidor) + prospectos ─────────
+
+const DIAS = [[1, "L"], [2, "M"], [3, "M"], [4, "J"], [5, "V"], [6, "S"], [0, "D"]];
+const ZONAS = [["America/Monterrey", "Monterrey / Centro"], ["America/Mexico_City", "Ciudad de México"], ["America/Chihuahua", "Chihuahua"], ["America/Mazatlan", "Mazatlán / Pacífico"], ["America/Tijuana", "Tijuana"], ["America/Cancun", "Cancún"]];
+
+function autoTab(root) {
+  if (!connectorReady()) {
+    root.append(section("Respuestas automáticas (gratis, sin IA)",
+      h("p", {}, "Sofía puede contestar sola a quien te escriba por WhatsApp o Messenger: bienvenida, aviso fuera de horario y respuestas por palabra clave (precio, crédito, ubicación…), y anotar a cada contacto nuevo como prospecto. Corre en tu servidor, aunque la app esté cerrada."),
+      btn("Conectar WhatsApp", () => go("/conexiones"), "primary")));
+    return;
+  }
+  const leadsBox = h("div", { class: "list" }, h("p", { class: "muted" }, "Cargando prospectos…"));
+  const form = h("div", { class: "stack-s" }, h("p", { class: "muted" }, "Cargando configuración…"));
+  root.append(section("Prospectos nuevos", h("p", { class: "muted small" }, "Contactos que escribieron por primera vez. Agrégalos como clientes con un toque."), leadsBox),
+    section("Respuestas automáticas (gratis, sin IA)", form));
+  drawLeads(leadsBox);
+  getAgentConfig().then((cfg) => drawAgentForm(form, cfg)).catch((e) => form.replaceChildren(h("p", { class: "warn" }, e.message)));
+}
+
+async function drawLeads(box) {
+  try {
+    const leads = (await listLeads()).filter((l) => !l.importado);
+    if (!leads.length) { box.replaceChildren(empty("Sin prospectos nuevos.")); return; }
+    box.replaceChildren(...leads.slice(0, 50).map((l) => h("div", { class: "item col" },
+      h("div", { class: "row between" }, h("strong", {}, l.nombre || (l.canal === "wa" ? `+${l.id}` : "Contacto de Messenger")), chip(l.canal === "wa" ? "WhatsApp" : "Messenger")),
+      l.primerMensaje ? h("p", { class: "preview" }, l.primerMensaje) : null,
+      h("p", { class: "muted small" }, fmtWhen(l.at)),
+      h("div", { class: "row wrap gap-s" },
+        btn("Agregar como cliente", async (e) => {
+          e.currentTarget.disabled = true;
+          const existing = l.canal === "wa" ? state.customers.find((c) => c.phone && phoneKey(c.phone) === phoneKey(l.id)) : state.customers.find((c) => c.fbId === l.id);
+          const c = existing ?? addCustomer({ name: l.nombre || (l.canal === "wa" ? `Cliente ${l.id.slice(-10)}` : "Cliente de Messenger"), phone: l.canal === "wa" ? l.id.slice(-10) : "", fbId: l.canal === "fb" ? l.id : undefined, source: l.canal === "wa" ? "whatsapp" : "redes", notes: l.primerMensaje ? `Primer mensaje: ${l.primerMensaje}` : "" });
+          if (!existing) setFollowUp(c.id, inDays(0, new Date().getHours() + 1), "Contestar al prospecto");
+          await markLeads([l.clave]).catch(() => {});
+          toast(existing ? `${c.name} ya era cliente` : `${c.name} agregado a clientes`);
+          refreshStatus().catch(() => {});
+          rerender();
+        }, "small primary"),
+        btn("Ver conversación", () => go(`/whatsapp/chat/${encodeURIComponent(l.clave)}`), "small ghost"),
+        btn("Descartar", async () => { await markLeads([l.clave]).catch(() => {}); rerender(); }, "small ghost")))));
+  } catch (e) { box.replaceChildren(h("p", { class: "warn" }, e.message)); }
+}
+
+function drawAgentForm(box, cfg) {
+  const st = lastStatus()?.agente;
+  const activo = h("input", { type: "checkbox", checked: cfg.activo });
+  const dias = new Set(cfg.horario.dias);
+  const diasBox = h("div", { class: "chips-scroll" });
+  const drawDias = () => diasBox.replaceChildren(...DIAS.map(([d, l]) => h("button", { type: "button", class: `chip-btn ${dias.has(d) ? "on" : ""}`, "aria-pressed": String(dias.has(d)), onclick: () => { if (dias.has(d)) dias.delete(d); else dias.add(d); drawDias(); } }, l)));
+  drawDias();
+  const inicio = input({ type: "time", value: cfg.horario.inicio });
+  const fin = input({ type: "time", value: cfg.horario.fin });
+  const zona = select(ZONAS.some((z) => z[0] === cfg.zonaHoraria) ? ZONAS : [...ZONAS, [cfg.zonaHoraria, cfg.zonaHoraria]], cfg.zonaHoraria);
+  const asesor = input({ value: cfg.asesor || state.settings.advisorName || "" });
+  const agencia = input({ value: cfg.agencia || state.settings.agency || "" });
+  const bienvenida = textarea({ rows: 3 }, cfg.bienvenida);
+  const fuera = textarea({ rows: 3 }, cfg.fueraDeHorario);
+  const espera = input({ type: "number", min: "1", max: "720", value: cfg.esperaHoras });
+  const pausa = input({ type: "number", min: "0", max: "1440", value: cfg.pausaMinutos });
+  const reglas = cfg.reglas.map((r) => ({ palabras: r.palabras.join(", "), respuesta: r.respuesta }));
+  if (!reglas.length) reglas.push(
+    { palabras: "precio, cuánto, cuanto cuesta, costo", respuesta: "Con gusto te paso el precio, {nombre}. ¿Qué versión te interesa y lo buscas de contado o a crédito?" },
+    { palabras: "crédito, credito, financiamiento, mensualidad, enganche", respuesta: "¡Claro! Manejamos crédito. Para darte una mensualidad aproximada, ¿cuánto te gustaría dar de enganche y a cuántos meses?" },
+    { palabras: "ubicación, ubicacion, dirección, direccion, dónde están, donde estan", respuesta: "Estamos en {agencia}. Te comparto la ubicación y con gusto te espero; ¿qué día te acomoda?" });
+  const reglasBox = h("div", { class: "stack-s" });
+  const drawReglas = () => reglasBox.replaceChildren(...reglas.map((r, i) => h("div", { class: "tpl" },
+    field(`Regla ${i + 1}: si el mensaje dice…`, input({ value: r.palabras, placeholder: "palabras separadas por coma", oninput: (e) => { r.palabras = e.target.value; } })),
+    field("…Sofía contesta", textarea({ rows: 2, oninput: (e) => { r.respuesta = e.target.value; } }, r.respuesta)),
+    h("div", { class: "row end" }, btn("Quitar regla", () => { reglas.splice(i, 1); drawReglas(); }, "small ghost")))),
+    btn("+ Agregar regla", () => { reglas.push({ palabras: "", respuesta: "" }); drawReglas(); }, "small"));
+  drawReglas();
+  box.replaceChildren(
+    st ? h("p", { class: st.ultimoError ? "warn small" : "muted small" }, `${st.activo ? "Activo" : "Apagado"} · ahora ${st.enHorario ? "en horario" : "fuera de horario"}${st.ultimoError ? ` · último error: ${st.ultimoError.error}` : ""}`) : null,
+    h("label", { class: "row gap-s" }, activo, h("span", {}, "Contestar automáticamente")),
+    h("p", { class: "muted small" }, "Variables: {nombre} (del perfil del cliente), {asesor}, {agencia}. Una sola respuesta automática por mensaje; nunca se contesta a sí mismo."),
+    h("div", { class: "grid2" }, field("Asesor", asesor), field("Agencia", agencia)),
+    field("Días de atención", diasBox),
+    h("div", { class: "grid2" }, field("Abre", inicio), field("Cierra", fin)),
+    field("Zona horaria", zona),
+    field("Bienvenida (primer mensaje de un contacto nuevo)", bienvenida),
+    field("Fuera de horario", fuera),
+    h("h3", {}, "Respuestas por palabra clave"),
+    reglasBox,
+    h("div", { class: "grid2" },
+      field("No repetir la misma respuesta antes de (horas)", espera),
+      field("Callarse si tú escribiste hace menos de (minutos)", pausa)),
+    h("div", { class: "row" }, btn("Guardar", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        await setAgentConfig({
+          activo: activo.checked, asesor: asesor.value, agencia: agencia.value, zonaHoraria: zona.value,
+          horario: { dias: [...dias], inicio: inicio.value, fin: fin.value },
+          bienvenida: bienvenida.value, fueraDeHorario: fuera.value,
+          reglas: reglas.filter((r) => r.palabras.trim() || r.respuesta.trim()),
+          esperaHoras: Number(espera.value), pausaMinutos: Number(pausa.value),
+        });
+        await refreshStatus().catch(() => {});
+        toast(activo.checked ? "Listo: Sofía contesta sola en WhatsApp y Messenger." : "Respuestas automáticas guardadas (apagadas).", 5000);
+        rerender();
+      } catch (err) { toast(err.message, 6000); b.disabled = false; }
+    }, "primary")));
 }
 
 // ───────── Escribir (abre WhatsApp o envía por la API) ─────────

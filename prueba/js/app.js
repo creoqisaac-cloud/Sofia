@@ -1,6 +1,6 @@
 // Arranque: carga datos del dispositivo, enruta pantallas, avisa recordatorios y respalda si hay servidor.
 import { h, $, toast, modal, debounce } from "./util.js";
-import { load, state, save, onChange, customer, addFeedback, serverPush, serverPeek, serverPull } from "./store.js";
+import { load, state, save, onChange, customer, addFeedback, serverPush, serverPeek, serverPull, backupReady } from "./store.js";
 import { askPersistence } from "./db.js";
 import { setRenderer, route, go, field, input, textarea, rerender } from "./ui.js";
 import { renderHome } from "./v-home.js";
@@ -16,6 +16,7 @@ import { renderConnections } from "./v-connections.js";
 import { renderStyle } from "./v-style.js";
 import { renderSocial } from "./v-social.js";
 import { connectorReady, inbox, refreshStatus } from "./connector.js";
+import { googleReady, googleStatus, saveEvent, deleteEvent } from "./google.js";
 import { isNative, nativeNotifications, syncNativeReminders, onNotificationTap, webNotify } from "./native.js";
 
 // Íconos de trazo (heredan el color del texto).
@@ -164,17 +165,49 @@ async function checkInbox() {
   } catch { /* sin red: se reintenta en la siguiente vuelta */ }
 }
 
+// ───────── Google Calendar: los recordatorios suenan en el iPhone aunque Sofía esté cerrada ─────────
+
+let calBusy = false;
+const syncCalendar = debounce(async () => {
+  if (!googleReady() || calBusy || !navigator.onLine) return;
+  calBusy = true;
+  let changed = false;
+  try {
+    while (state.calTrash.length) {
+      await deleteEvent(state.calTrash[0]).catch(() => {}); // ya borrado en Google: no importa
+      state.calTrash.shift();
+      changed = true;
+    }
+    const now = Date.now();
+    for (const r of state.reminders) {
+      const t = new Date(r.at).getTime();
+      if (r.done || t < now - 3600000 || t > now + 60 * 86400000) continue; // solo lo próximo (60 días)
+      const c = r.customerId ? customer(r.customerId) : null;
+      const sig = `${r.at}|${r.text}|${c?.name ?? ""}|${c?.phone ?? ""}`;
+      if (r.calendarId && r.calendarSig === sig) continue;
+      r.calendarId = await saveEvent({ id: r.calendarId ?? undefined, title: c ? `${r.text} · ${c.name}` : r.text, description: c?.phone ? `Cliente: ${c.name}\nTel. ${c.phone}\nWhatsApp: https://wa.me/${c.phone.replace(/\D/g, "").replace(/^(\d{10})$/, "52$1")}` : "Recordatorio de Sofía", at: r.at, alerts: [5] });
+      r.calendarSig = sig;
+      changed = true;
+    }
+  } catch (e) {
+    console.warn("Calendario:", e.message); // se reintenta en el siguiente cambio
+  } finally {
+    calBusy = false;
+    if (changed) save();
+  }
+}, 2500);
+
 // ───────── Servidor propio (opcional) ─────────
 
 let dirty = false;
 const autoPush = debounce(async () => {
-  if (!state.settings.server.auto || !state.settings.server.url || !dirty) return;
+  if (!state.settings.server.auto || !backupReady() || !dirty) return;
   try { await serverPush(); dirty = false; } catch (e) { console.warn("Servidor:", e.message); }
 }, 1500);
 
 async function checkServerOnStart() {
   const sv = state.settings.server;
-  if (!sv.auto || !sv.url) return;
+  if (!sv.auto || !backupReady()) return;
   try {
     const meta = await serverPeek();
     if (meta.updatedAt && (!sv.lastSync || meta.updatedAt > sv.lastSync) && meta.updatedAt > state.updatedAt) {
@@ -197,7 +230,7 @@ async function start() {
   window.addEventListener("hashchange", render);
   render();
   onboarding();
-  onChange(() => { dirty = true; syncNative(); });
+  onChange(() => { dirty = true; syncNative(); syncCalendar(); });
   syncNative();
   onNotificationTap((extra) => { if (extra.customerId) go(`/cliente/${extra.customerId}`); });
   setInterval(tick, 30000);
@@ -205,6 +238,7 @@ async function start() {
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autoPush(); else { tick(); if (route() === "/") render(); } });
   checkServerOnStart();
   if (connectorReady()) { refreshStatus().catch(() => {}); checkInbox(); }
+  if (googleReady()) { googleStatus().catch(() => {}); syncCalendar(); }
   setInterval(checkInbox, 30000);
   if ("serviceWorker" in navigator && !isNative() && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 }

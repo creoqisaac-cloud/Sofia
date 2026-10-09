@@ -4,7 +4,8 @@ import { h, toast, modal, shrinkImage, debounce, fmtWhen, inDays, safeName } fro
 import { customer, save, saveFile, readFile, removeFile, log, setFollowUp, state } from "./store.js";
 import { header, section, empty, btn, rerender, field, input, select, textarea, sendWhatsApp, chip } from "./ui.js";
 import { FIELDS, SECTIONS, BANKS, missingFields, requiredKeys, applies, prefillFromCustomer, buildCreditPdf, fullName, migrateValues, fillOfficialForm, inspectOfficialForm } from "./credit.js";
-import { readIne, checkIdentity, fromAiReading } from "./ine.js";
+import { readIne, checkIdentity, fromAiReading, combineReadings } from "./ine.js";
+import { googleReady, ocrObservation } from "./google.js";
 import { nativeScan, photoToObservation, canScanNatively } from "./ocr.js";
 import { textToObservation } from "./ocr-obs.js";
 import { creditEstimate, fillTemplate, template } from "./rules.js";
@@ -38,6 +39,8 @@ export function renderCredit(root, id) {
   const ineCard = section("1 · INE del solicitante",
     h("p", { class: "muted" }, aiForIne()
       ? "Toma o escanea la credencial. La IA la lee y el lector del teléfono la verifica; lo que no coincida se marca."
+      : googleReady()
+        ? "Toma frente y reverso. Los leen dos lectores gratis (el del teléfono y el de Google en tu cuenta) y se comparan con el reverso (MRZ con dígitos verificadores); lo que no coincida se marca."
       : canScanNatively()
         ? "Escanea con la cámara: se recorta la credencial y se lee en el teléfono. Para máxima precisión conecta la IA en Más → Conexiones."
         : "Toma una foto de la INE con buena luz. Se lee en el dispositivo. Para máxima precisión conecta la IA en Más → Conexiones."),
@@ -246,13 +249,25 @@ async function store(c, which, blob, obs) {
   const fid = await saveFile(blob, `ine-${which}.jpg`);
   if (which === "front") cr.ineFront = fid; else cr.ineBack = fid;
   if (obs) cr.obs[which] = obs; else delete cr.obs[which];
+  delete cr.obs[`google_${which}`]; // foto nueva: Google la vuelve a leer
   save();
 }
 
 async function analyze(c, status) {
   const cr = c.credit;
   const pages = [...(cr.obs.front?.pages ?? []), ...(cr.obs.back?.pages ?? []), ...(cr.obs.text?.pages ?? [])];
-  const ocr = pages.length ? readIne({ engine: "mix", pages }) : null;
+  let ocr = pages.length ? readIne({ engine: "mix", pages }) : null;
+  // Segunda lectura GRATIS con el OCR de Google Drive (en la cuenta del propio asesor), si está conectada.
+  if (googleReady() && (cr.ineFront || cr.ineBack)) {
+    for (const [which, fid] of [["front", cr.ineFront], ["back", cr.ineBack]]) {
+      if (!fid || cr.obs[`google_${which}`]) continue;
+      status.textContent = "Google también está leyendo la credencial (gratis, en tu cuenta)…";
+      try { cr.obs[`google_${which}`] = await ocrObservation((await readFile(fid)).blob); }
+      catch (e) { status.textContent = `Google no pudo leerla (${e.message}). Sigo con el lector del teléfono.`; break; }
+    }
+    const gpages = [...(cr.obs.google_front?.pages ?? []), ...(cr.obs.google_back?.pages ?? [])];
+    if (gpages.length) ocr = combineReadings(ocr, readIne({ engine: "google", pages: gpages }));
+  }
   let r = ocr;
   if (aiForIne() && (cr.ineFront || cr.ineBack)) {
     status.textContent = "La IA está leyendo la credencial…";
@@ -282,7 +297,7 @@ function pasteText(c, status) {
   ]);
 }
 
-const ENGINE = { ocr: "Lector del teléfono", ia: "Leído con IA", "ia+ocr": "IA + lector del teléfono" };
+const ENGINE = { ocr: "Lector del teléfono", "ocr+google": "Teléfono + Google", google: "Lector de Google", ia: "Leído con IA", "ia+ocr": "IA + lectores gratis" };
 
 function readingBox(c) {
   const r = c.credit.reading;

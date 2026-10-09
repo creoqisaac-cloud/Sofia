@@ -109,36 +109,128 @@ export function mrzCheck(s: string): number {
 
 export interface MrzData {
   birthYYMMDD: string;
+  /** Vencimiento AAMMDD: en la INE el año es el de la VIGENCIA impresa en el frente. */
+  expiryYYMMDD: string;
   sex: "male" | "female" | null;
   surnames: string[];
   givenNames: string[];
+  /** Se corrigieron letras/números confundidos en fechas o encabezado; los dígitos verificadores los confirman. */
+  repaired: boolean;
+  /** El renglón del nombre traía caracteres imposibles y se corrigió: ese renglón NO tiene dígito verificador. */
+  nameRepaired: boolean;
+  /** El nombre llena los 30 caracteres: el último nombre pudo quedar recortado. */
+  nameTruncated: boolean;
+  /** Cuadra el dígito verificador compuesto (renglones 1 y 2 completos). */
+  compositeOk: boolean;
+}
+
+// Confusiones típicas del OCR. Solo se aplican donde el formato exige dígito (o letra), y el
+// resultado se acepta únicamente si los dígitos verificadores cuadran.
+const MRZ_TO_DIGIT: Record<string, string> = { O: "0", Q: "0", D: "0", U: "0", I: "1", L: "1", Z: "2", A: "4", S: "5", G: "6", B: "8" };
+const MRZ_TO_LETTER: Record<string, string> = { "0": "O", "1": "I", "2": "Z", "4": "A", "5": "S", "6": "G", "8": "B" };
+const asDigits = (s: string) => s.replace(/[A-Z]/g, (c) => MRZ_TO_DIGIT[c] ?? c);
+const asLetters = (s: string) => s.replace(/\d/g, (c) => MRZ_TO_LETTER[c] ?? c);
+
+/** Renglón crudo del OCR → solo A-Z, 0-9 y "<" ("«", "‹", "(", "[" … son "<" mal leídos). */
+export function normalizeMrzLine(raw: string): string {
+  return raw
+    .toUpperCase()
+    .replace(/«/g, "<<")
+    .replace(/[‹〈＜(\[{]/g, "<")
+    .replace(/[^A-Z0-9<]/g, "");
 }
 
 /**
- * Solo acepta MRZ con estructura válida: 3 renglones de 30, "ID" + "MEX", y dígitos verificadores
- * de nacimiento y vigencia correctos. No sustituye caracteres dudosos.
+ * Sexo en la MRZ. La INE NO usa el M/F de ICAO: usa H (hombre) / M (mujer), igual que el frente.
+ * F se acepta como mujer por si algún documento sigue ICAO.
+ */
+const MRZ_SEX: Record<string, "male" | "female"> = { H: "male", M: "female", F: "female" };
+
+/** Renglón 2: nacimiento, sexo y vencimiento, aceptado solo si sus dígitos verificadores cuadran. */
+function mrzLine2(raw: string): { line: string; repaired: boolean } | null {
+  if (raw.length < 28 || raw.length > 34) return null;
+  // Un caracter de más al inicio (borde de la credencial) se prueba quitándolo.
+  for (let off = 0; off <= Math.max(0, raw.length - 30); off++) {
+    const l = raw.slice(off);
+    const birth = asDigits(l.slice(0, 7)), expiry = asDigits(l.slice(8, 15));
+    if (!/^\d{7}$/.test(birth) || !/^\d{7}$/.test(expiry)) continue;
+    if (mrzCheck(birth.slice(0, 6)) !== Number(birth[6]) || mrzCheck(expiry.slice(0, 6)) !== Number(expiry[6])) continue;
+    const line = (birth + l[7] + expiry + asLetters(l.slice(15, 18)) + l.slice(18)).padEnd(30, "<").slice(0, 30);
+    return { line, repaired: off > 0 || line.slice(0, 18) !== l.slice(0, 18) };
+  }
+  return null;
+}
+
+/** Renglón 3: APELLIDOS<<NOMBRES, solo letras y "<". Los dígitos son letras mal leídas (0→O, 1→I…). */
+function mrzLine3(raw: string): { line: string; repaired: boolean } | null {
+  if (raw.length < 5 || !/^[A-Z]/.test(asLetters(raw))) return null;
+  let line = asLetters(raw).replace(/K{2,}/g, (k) => "<".repeat(k.length)); // "<<" leído como "KK"
+  let repaired = line !== raw;
+  if (!/^[A-Z<]+$/.test(line)) return null;
+  if (line.length > 30) {
+    const core = line.replace(/<+$/, "");
+    if (core.length > 30) repaired = true; // sobra texto (¿un borde leído como letra?): no se sabe cuál
+    line = core.slice(0, 30);
+  }
+  return { line: line.padEnd(30, "<"), repaired };
+}
+
+/**
+ * MRZ TD1 de la credencial (3 renglones de 30). Acepta solo estructura válida: dígitos verificadores de
+ * nacimiento y vencimiento correctos, y "IDMEX" en el renglón 1 (o, si ese renglón no se leyó, "MEX"
+ * como nacionalidad). Corrige confusiones O/0, I/1… SOLO donde el formato exige dígito o letra (y lo
+ * marca); los "<" mal leídos se normalizan. El renglón del nombre es opcional.
  */
 export function parseMrz(lines: string[]): MrzData | null {
-  const cand = lines.map((l) => l.replace(/\s+/g, "").toUpperCase()).filter((l) => /^[A-Z0-9<]{30}$/.test(l));
-  for (let i = 0; i + 2 < cand.length; i++) {
-    const [l1, l2, l3] = [cand[i]!, cand[i + 1]!, cand[i + 2]!];
-    if (!l1.startsWith("ID") || l1.slice(2, 5) !== "MEX") continue;
-    const birth = l2.slice(0, 6);
-    const expiry = l2.slice(8, 14);
-    if (!/^\d{6}$/.test(birth) || !/^\d{6}$/.test(expiry)) continue;
-    if (mrzCheck(birth) !== Number(l2[6]) || mrzCheck(expiry) !== Number(l2[14])) continue;
-    if (!/^[A-Z<]+$/.test(l3)) continue;
+  const cand = lines.map(normalizeMrzLine).filter((l) => l.length >= 5);
+  for (let j = 0; j < cand.length; j++) {
+    const r2 = mrzLine2(cand[j]!);
+    if (!r2) continue;
+    const l2 = r2.line;
+    let raw1 = "";
+    for (const i of [j - 1, j - 2]) {
+      const head = i >= 0 ? cand[i]!.match(/[I1L][D0O]MEX/) : null;
+      if (head && cand[i]!.length - head.index! >= 26) { raw1 = cand[i]!.slice(head.index!); break; }
+    }
+    if (!raw1 && l2.slice(15, 18) !== "MEX") continue;
+    const l1 = raw1 ? ("IDMEX" + asDigits(raw1.slice(5, 15)) + raw1.slice(15)).padEnd(30, "<").slice(0, 30) : "";
+    const r3 = cand[j + 1] ? mrzLine3(cand[j + 1]!) : null;
+    const l3 = r3?.line ?? "";
     const idx = l3.indexOf("<<");
     const sur = idx >= 0 ? l3.slice(0, idx) : l3;
     const giv = idx >= 0 ? l3.slice(idx + 2) : "";
+    const composite = l1.slice(5, 30) + l2.slice(0, 7) + l2.slice(8, 15) + l2.slice(18, 29);
     return {
-      birthYYMMDD: birth,
-      sex: l2[7] === "M" ? "male" : l2[7] === "F" ? "female" : null,
+      birthYYMMDD: l2.slice(0, 6),
+      expiryYYMMDD: l2.slice(8, 14),
+      sex: MRZ_SEX[l2[7]!] ?? null,
       surnames: sur.split("<").filter(Boolean),
       givenNames: giv.split("<").filter(Boolean),
+      repaired: r2.repaired || raw1.slice(0, 15) !== l1.slice(0, 15),
+      nameRepaired: Boolean(r3?.repaired),
+      nameTruncated: l3.length === 30 && l3[29] !== "<",
+      compositeOk: Boolean(l1) && mrzCheck(composite) === Number(l2[29]),
     };
   }
   return null;
+}
+
+/**
+ * Textos por renglón para buscar la MRZ: une los pedazos que el OCR entrega separados en la misma
+ * altura (ML Kit corta renglones con letras muy espaciadas), de izquierda a derecha.
+ */
+export function mrzRowTexts(lines: Array<{ text: string; box: { left: number; top: number; right: number; bottom: number } }>): string[] {
+  const rows: Array<{ top: number; bottom: number; parts: Array<{ left: number; text: string }> }> = [];
+  for (const l of [...lines].sort((a, b) => a.box.top - b.box.top)) {
+    const h = l.box.bottom - l.box.top;
+    const row = rows.find((r) => Math.min(r.bottom, l.box.bottom) - Math.max(r.top, l.box.top) >= 0.5 * Math.min(h, r.bottom - r.top));
+    if (row) {
+      row.parts.push({ left: l.box.left, text: l.text });
+      row.top = Math.min(row.top, l.box.top);
+      row.bottom = Math.max(row.bottom, l.box.bottom);
+    } else rows.push({ top: l.box.top, bottom: l.box.bottom, parts: [{ left: l.box.left, text: l.text }] });
+  }
+  return rows.map((r) => r.parts.sort((a, b) => a.left - b.left).map((p) => p.text).join(""));
 }
 
 // ───────── Estados y CP ─────────

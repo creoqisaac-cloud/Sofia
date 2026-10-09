@@ -1,14 +1,15 @@
-// Redes: publicar en la página de Facebook (vía conector) con textos de IA en el estilo del asesor,
-// y preparar anuncios (copy listo para el Administrador de anuncios de Meta).
-import { h, toast, fmtWhen, blobToDataUrl, shrinkImage } from "./util.js";
+// Redes: publicar YA o PROGRAMAR (el servidor publica solo a la hora, aunque la app esté cerrada) en la
+// página de Facebook e Instagram, con textos de IA opcionales, y preparar anuncios para el Administrador de Meta.
+import { h, toast, fmtWhen, blobToDataUrl, shrinkImage, toLocalInput } from "./util.js";
 import { state, save } from "./store.js";
 import { header, section, btn, rerender, field, input, textarea, select, go, empty } from "./ui.js";
 import { aiReady, socialCopy } from "./ai.js";
-import { fbReady, publishPost, connectorReady } from "./connector.js";
+import { fbReady, igReady, connectorReady, schedulePost, listQueue, cancelPost, refreshStatus } from "./connector.js";
 import { deliverFiles, openExternal } from "./native.js";
 
 const GOALS = [["vender", "Vender este auto"], ["prueba", "Agendar pruebas de manejo"], ["credito", "Promover crédito / financiamiento"], ["evento", "Evento o promoción del mes"], ["entrega", "Celebrar una entrega (con permiso del cliente)"]];
 let photo = null; // foto elegida (se conserva al redibujar)
+let ratio = null; // ancho/alto de la foto (Instagram acepta de 4:5 a 1.91:1)
 
 export function renderSocial(root) {
   const vehicle = input({ placeholder: "Ej. CR-V Touring 2026, blanca" });
@@ -18,7 +19,37 @@ export function renderSocial(root) {
   const preview = h("div");
   const drawPhoto = () => preview.replaceChildren(photo ? h("img", { src: URL.createObjectURL(photo), alt: "Foto de la publicación", class: "chat-img" }) : h("p", { class: "muted small" }, "Sin foto (las publicaciones con foto funcionan mucho mejor)."));
   drawPhoto();
-  const pick = h("input", { type: "file", accept: "image/*", hidden: true, onchange: async (e) => { const f = e.target.files?.[0]; if (f) { photo = await shrinkImage(f, 2048, 0.9); drawPhoto(); } } });
+  const pick = h("input", { type: "file", accept: "image/*", hidden: true, onchange: async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    photo = await shrinkImage(f, 1440, 0.9); // JPG (Instagram solo acepta JPG)
+    try { const bmp = await createImageBitmap(photo); ratio = bmp.width / bmp.height; } catch { ratio = null; }
+    rerender();
+  } });
+  const when = input({ type: "datetime-local", value: toLocalInput(new Date(Date.now() + 3600000)) });
+  const igOk = igReady() && photo && (ratio === null || (ratio >= 0.8 && ratio <= 1.91));
+  const chFb = h("input", { type: "checkbox", checked: fbReady(), disabled: !fbReady() });
+  const chIg = h("input", { type: "checkbox", checked: Boolean(igOk), disabled: !igOk });
+  const queue = h("div", { class: "list" }, h("p", { class: "muted" }, "Cargando…"));
+  const send = async (b, cuando) => {
+    const canales = [chFb.checked && "facebook", chIg.checked && "instagram"].filter(Boolean);
+    if (!canales.length) { toast("Elige Facebook y/o Instagram."); return; }
+    if (!text.value.trim() && !photo) { toast("Escribe el texto o agrega una foto."); return; }
+    const label = b.textContent;
+    b.disabled = true;
+    b.textContent = cuando ? "Programando…" : "Publicando…";
+    try {
+      const item = await schedulePost({ texto: text.value.trim(), imagen: photo ? await blobToDataUrl(photo) : undefined, cuando: cuando ?? new Date().toISOString(), canales });
+      for (const [canal, r] of Object.entries(item.resultados ?? {})) if (r.ok && r.url) state.posts.unshift({ id: r.id, url: r.url, at: r.at, message: text.value.trim().slice(0, 300), vehicle: vehicle.value, canal });
+      save();
+      const fallas = Object.entries(item.resultados ?? {}).filter(([, r]) => !r.ok);
+      toast(cuando ? `Programada para ${fmtWhen(item.cuando)}: se publica sola aunque Sofía esté cerrada.` : fallas.length ? `Publicada con errores: ${fallas.map(([c, r]) => `${c}: ${r.error}`).join(" · ")}` : "¡Publicado en tu página!", 7000);
+      photo = null;
+      ratio = null;
+      refreshStatus().catch(() => {});
+      rerender();
+    } catch (err) { toast(err.message, 7000); b.disabled = false; b.textContent = label; }
+  };
   const ad = h("div");
 
   const aiFill = (kind) => async (e) => {
@@ -50,25 +81,25 @@ export function renderSocial(root) {
         field("Texto", text),
         h("div", { class: "row wrap gap-s" },
           aiReady() ? btn("✨ Escribir con IA", aiFill("post"), "ghost") : btn("Conectar IA para escribir", () => go("/conexiones"), "ghost small"),
-          fbReady() ? btn("Publicar en Facebook", async (e) => {
-            if (!text.value.trim() && !photo) { toast("Escribe el texto o agrega una foto."); return; }
-            const b = e.currentTarget;
-            b.disabled = true;
-            b.textContent = "Publicando…";
-            try {
-              const r = await publishPost({ message: text.value.trim(), image: photo ? await blobToDataUrl(photo) : undefined });
-              state.posts.unshift({ id: r.id, url: r.url, at: new Date().toISOString(), message: text.value.trim().slice(0, 300), vehicle: vehicle.value });
-              save();
-              toast("¡Publicado en tu página!");
-              photo = null;
-              rerender();
-            } catch (err) { toast(err.message, 7000); b.disabled = false; b.textContent = "Publicar en Facebook"; }
-          }, "primary") : null,
-          btn("Compartir (Instagram, Facebook, estados…)", async () => {
+          fbReady() ? btn("Publicar ahora", (e) => send(e.currentTarget, null), "primary") : null,
+          btn("Compartir a mano (estados, grupos…)", async () => {
             if (photo) await deliverFiles([{ blob: photo, name: "publicacion.jpg" }], { title: "Publicación", text: text.value });
             else if (navigator.share) await navigator.share({ text: text.value }).catch(() => {});
             else { await navigator.clipboard?.writeText(text.value); toast("Texto copiado"); }
           }, "ghost"))),
+
+      fbReady() ? section("Dónde y cuándo",
+        h("div", { class: "row wrap gap-s" },
+          h("label", { class: "row gap-s" }, chFb, h("span", {}, "Facebook")),
+          h("label", { class: "row gap-s" }, chIg, h("span", {}, igReady() ? (photo ? (igOk ? "Instagram" : "Instagram (la foto debe ser entre 4:5 y 1.91:1)") : "Instagram (necesita foto)") : "Instagram (sin conectar)"))),
+        h("div", { class: "row gap-s" }, when, btn("Programar", (e) => {
+          const t = new Date(when.value);
+          if (Number.isNaN(t.getTime()) || t < new Date()) { toast("Elige una fecha y hora futura."); return; }
+          send(e.currentTarget, t.toISOString());
+        })),
+        h("p", { class: "muted small" }, "Lo programado lo publica tu servidor a la hora indicada, aunque el teléfono esté apagado.")) : null,
+
+      fbReady() ? section("Programadas", queue) : null,
 
       section("Anuncio pagado (Facebook / Instagram)",
         h("p", { class: "muted small" }, "La IA arma el anuncio (título, texto, descripción y botón) en tu estilo. Lo pegas en el Administrador de anuncios o promocionas una publicación ya hecha. Crear campañas automáticamente requiere el permiso «ads_management» aprobado por Meta (siguiente fase)."),
@@ -83,6 +114,23 @@ export function renderSocial(root) {
           h("p", { class: "preview" }, p.message),
           h("div", { class: "row wrap gap-s" },
             btn("Ver / promocionar", () => openExternal(p.url), "small"))))) : empty("Aún no publicas desde Sofía."))));
+  if (fbReady()) drawQueue(queue);
+}
+
+const ESTADOS = { pendiente: "Programada", publicando: "Publicando…", publicado: "Publicada", error: "Con error" };
+
+async function drawQueue(box) {
+  try {
+    const cola = (await listQueue()).slice(-30).reverse();
+    if (!cola.length) { box.replaceChildren(empty("Nada programado.")); return; }
+    box.replaceChildren(...cola.map((x) => h("div", { class: `item col ${x.estado === "error" ? "late" : ""}` },
+      h("div", { class: "row between" }, h("strong", { class: "small" }, `${ESTADOS[x.estado] ?? x.estado} · ${fmtWhen(x.cuando)}`), h("span", { class: "muted small" }, x.canales.join(" + "))),
+      x.texto ? h("p", { class: "preview" }, x.texto.slice(0, 160)) : null,
+      ...Object.entries(x.resultados ?? {}).map(([canal, r]) => h("p", { class: r.ok ? "ok-text small" : "warn small" }, `${canal}: ${r.ok ? "publicada" : r.error}`)),
+      h("div", { class: "row wrap gap-s" },
+        ...Object.values(x.resultados ?? {}).filter((r) => r.ok && r.url).map((r) => btn("Ver", () => openExternal(r.url), "small ghost")),
+        x.estado === "pendiente" ? btn("Cancelar", async () => { try { await cancelPost(x.id); toast("Cancelada"); drawQueue(box); } catch (e) { toast(e.message, 5000); } }, "small ghost") : null))));
+  } catch (e) { box.replaceChildren(h("p", { class: "warn" }, e.message)); }
 }
 
 function adView(r) {

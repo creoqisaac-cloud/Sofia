@@ -6,6 +6,7 @@
 // Configuración: variables de entorno o un archivo prueba/servidor/.env (KEY=valor por renglón):
 //   PORT=8080 · SOFIA_TOKEN (si falta, se genera y se guarda en datos/clave.txt) · SOFIA_DATA_DIR
 //   META_APP_SECRET · META_VERIFY_TOKEN · WA_TOKEN · WA_PHONE_NUMBER_ID · WA_WABA_ID · FB_PAGE_ID · FB_PAGE_TOKEN
+//   IG_USER_ID (Instagram) · PUBLIC_URL (dirección HTTPS pública: Instagram descarga de ahí las fotos programadas)
 // Funciona en tu computadora (con túnel HTTPS para Meta), Render, Railway, Fly, Koyeb o un VPS.
 import http from "node:http";
 import fs from "node:fs";
@@ -13,7 +14,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { handle, VERSION } from "./core.mjs";
+import { handle, runScheduled, VERSION } from "./core.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.resolve(here, "..");
@@ -97,6 +98,22 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ ok: false, error: e.message }));
   }
 });
+
+// Programador de publicaciones: cada minuto publica en Facebook/Instagram lo que ya tocaba, aunque la app
+// esté cerrada. Para Instagram define PUBLIC_URL (la dirección HTTPS pública de este servidor o del túnel).
+let programando = false;
+setInterval(async () => {
+  if (programando) return; // la corrida anterior sigue publicando
+  programando = true;
+  try {
+    const r = await runScheduled(process.env, store);
+    if (r.publicadas || r.fallidas) console.log(`Programador: ${r.publicadas} publicada(s), ${r.fallidas} con error.`);
+  } catch (e) {
+    console.error("Programador:", e.message);
+  } finally {
+    programando = false;
+  }
+}, 60_000);
 
 server.listen(PORT, "0.0.0.0", () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === "IPv4" && !i.internal).map((i) => i.address);

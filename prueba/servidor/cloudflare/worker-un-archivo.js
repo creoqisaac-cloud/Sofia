@@ -1,11 +1,17 @@
 // Archivo único para pegar en el editor de Cloudflare (Workers → Edit code). GENERADO desde worker.mjs + core.mjs.
 
 // prueba/servidor/core.mjs
-var VERSION = "conector-1.0";
+var VERSION = "conector-1.1";
 var MAX_MSGS = 500;
 var CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type" };
 var json = (body, status2 = 200) => new Response(JSON.stringify(body), { status: status2, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...CORS } });
 var fail = (error, status2 = 400) => json({ ok: false, error }, status2);
+var invalido = (msg) => Object.assign(new Error(msg), { status: 400 });
+var borrar = (store, key) => store.delete ? store.delete(key) : store.put(key, null);
+function ahoraDe(opciones) {
+  const v = typeof opciones?.ahora === "function" ? opciones.ahora() : opciones?.ahora;
+  return v ? new Date(v) : /* @__PURE__ */ new Date();
+}
 var enc = new TextEncoder();
 function sameSecret(a, b) {
   const x = enc.encode(String(a ?? ""));
@@ -23,6 +29,7 @@ async function hmacHex(secret, body) {
 var graphUrl = (env) => (env.META_GRAPH_URL || "https://graph.facebook.com/v23.0").replace(/\/+$/, "");
 var waReady = (env) => Boolean(env.WA_TOKEN && env.WA_PHONE_NUMBER_ID);
 var fbReady = (env) => Boolean(env.FB_PAGE_ID && env.FB_PAGE_TOKEN);
+var igReady = (env) => Boolean(env.IG_USER_ID && env.FB_PAGE_TOKEN);
 async function graph(env, path, { method = "GET", token, body, form } = {}) {
   const res = await fetch(`${graphUrl(env)}/${path}`, {
     method,
@@ -36,25 +43,31 @@ async function graph(env, path, { method = "GET", token, body, form } = {}) {
   }
   return data;
 }
-async function addMessage(store, channel, peer, name, msg) {
+var DIA_MS = 24 * 3600 * 1e3;
+var marcasRecientes = (marcas, hasta) => Object.fromEntries(Object.entries(marcas ?? {}).filter(([, at]) => new Date(hasta) - new Date(at) < 30 * DIA_MS));
+async function addMessage(store, channel, peer, name, msg, autoKey) {
   const key = `${channel}:${peer}`;
   const list = await store.get(`inbox:c:${key}`) ?? [];
-  if (msg.id && list.some((m) => m.id === msg.id)) return;
+  if (msg.id && list.some((m) => m.id === msg.id)) return null;
   list.push(msg);
   if (list.length > MAX_MSGS) list.splice(0, list.length - MAX_MSGS);
   await store.put(`inbox:c:${key}`, list);
   const index = await store.get("inbox:index") ?? {};
-  const prev = index[key] ?? { channel, id: peer, count: 0 };
+  const prev = index[key] ?? null;
+  const base = prev ?? { channel, id: peer, count: 0 };
   index[key] = {
-    ...prev,
-    name: name || prev.name || "",
+    ...base,
+    name: name || base.name || "",
     lastAt: msg.at,
     lastText: msg.text || (msg.media ? `[${msg.type}]` : ""),
     lastDir: msg.dir,
-    lastInAt: msg.dir === "in" ? msg.at : prev.lastInAt ?? null,
-    count: prev.count + 1
+    lastInAt: msg.dir === "in" ? msg.at : base.lastInAt ?? null,
+    count: base.count + 1,
+    ...msg.dir === "out" && !msg.auto ? { lastManualAt: msg.at } : {},
+    ...autoKey ? { autoAt: marcasRecientes({ ...base.autoAt, [autoKey]: msg.at }, msg.at) } : {}
   };
   await store.put("inbox:index", index);
+  return { prev };
 }
 async function setStatus(store, channel, peer, id, status2) {
   const k = `inbox:c:${channel}:${peer}`;
@@ -86,7 +99,174 @@ function waText(m) {
       return `[${m.type}]`;
   }
 }
-async function handleWebhook(req, env, store) {
+var AGENTE_BASE = {
+  activo: false,
+  zonaHoraria: "America/Monterrey",
+  horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" },
+  // 0 = domingo, 1 = lunes … 6 = sábado
+  bienvenida: "\xA1Hola {nombre}! Gracias por escribir. En un momento te atiendo.",
+  fueraDeHorario: "\xA1Hola {nombre}! Gracias por tu mensaje. En este momento estoy fuera de horario; te contesto en cuanto regrese.",
+  reglas: [],
+  // [ { palabras: ["precio", "cuánto cuesta"], respuesta: "…" } ]
+  esperaHoras: 12,
+  // no repetir la misma respuesta automática al mismo contacto antes de N horas
+  pausaMinutos: 30,
+  // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
+  asesor: "",
+  agencia: ""
+};
+var MAX_REGLAS = 50;
+var MAX_TEXTO_AUTO = 1e3;
+var MIN_ESPERA_HORAS = 1;
+var HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+var SIN_RESPUESTA = /* @__PURE__ */ new Set(["reaction", "system", "unsupported", "errors", "ephemeral"]);
+var DIAS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+function zonaValida(zona) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zona });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function textoAuto(v, campo) {
+  const t = String(v ?? "").trim();
+  if (t.length > MAX_TEXTO_AUTO) throw invalido(`${campo}: m\xE1ximo ${MAX_TEXTO_AUTO} caracteres`);
+  return t;
+}
+function numeroEntre(v, porDefecto, min, max) {
+  const n = Number(v ?? porDefecto);
+  return Number.isFinite(n) && n >= 0 ? Math.min(Math.max(n, min), max) : porDefecto;
+}
+function normalizarConfig(c) {
+  const h = { ...AGENTE_BASE.horario, ...c.horario ?? {} };
+  if (!HORA.test(h.inicio) || !HORA.test(h.fin)) throw invalido("El horario va como HH:MM, por ejemplo 09:00 y 19:00");
+  if (!Array.isArray(h.dias)) throw invalido("Los d\xEDas del horario deben ser una lista");
+  const numeros = h.dias.map((d) => /^\s*[0-7]\s*$/.test(String(d)) ? Number(d) % 7 : NaN);
+  if (numeros.some(Number.isNaN)) throw invalido("Los d\xEDas del horario van del 0 (domingo) al 6 (s\xE1bado)");
+  const dias = [...new Set(numeros)].sort((a, b) => a - b);
+  const zonaHoraria = String(c.zonaHoraria || AGENTE_BASE.zonaHoraria);
+  if (!zonaValida(zonaHoraria)) throw invalido(`Zona horaria desconocida: ${zonaHoraria}`);
+  if (!Array.isArray(c.reglas)) throw invalido("Las reglas deben ser una lista");
+  if (c.reglas.length > MAX_REGLAS) throw invalido(`M\xE1ximo ${MAX_REGLAS} reglas`);
+  const reglas = c.reglas.map((r, i) => {
+    const palabras = (Array.isArray(r?.palabras) ? r.palabras : String(r?.palabras ?? "").split(",")).map((p) => String(p).trim()).filter(Boolean);
+    const respuesta = textoAuto(r?.respuesta, `Regla ${i + 1}`);
+    if (!palabras.length || !respuesta) throw invalido(`La regla ${i + 1} necesita palabras y respuesta`);
+    return { palabras, respuesta };
+  });
+  return {
+    activo: Boolean(c.activo),
+    zonaHoraria,
+    horario: { dias, inicio: h.inicio, fin: h.fin },
+    bienvenida: textoAuto(c.bienvenida, "Bienvenida"),
+    fueraDeHorario: textoAuto(c.fueraDeHorario, "Fuera de horario"),
+    reglas,
+    esperaHoras: numeroEntre(c.esperaHoras, AGENTE_BASE.esperaHoras, MIN_ESPERA_HORAS, 720),
+    pausaMinutos: numeroEntre(c.pausaMinutos, AGENTE_BASE.pausaMinutos, 0, 1440),
+    asesor: String(c.asesor ?? "").trim().slice(0, 80),
+    agencia: String(c.agencia ?? "").trim().slice(0, 80)
+  };
+}
+async function leerConfig(store) {
+  const c = await store.get("agente:config");
+  return { ...AGENTE_BASE, ...c ?? {}, horario: { ...AGENTE_BASE.horario, ...c?.horario ?? {} } };
+}
+function enHorario(cfg, ahora) {
+  let partes;
+  try {
+    partes = new Intl.DateTimeFormat("en-US", { timeZone: cfg.zonaHoraria, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(ahora);
+  } catch {
+    return true;
+  }
+  const p = Object.fromEntries(partes.map((x) => [x.type, x.value]));
+  const { dias, inicio, fin } = cfg.horario;
+  if (!dias.includes(DIAS[p.weekday])) return false;
+  const hhmm = `${p.hour}:${p.minute}`;
+  if (inicio === fin) return true;
+  return inicio < fin ? hhmm >= inicio && hhmm < fin : hhmm >= inicio || hhmm < fin;
+}
+var sinAcentos = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+var escaparRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function contienePalabra(texto, palabra) {
+  const p = sinAcentos(palabra).trim();
+  if (!p) return false;
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escaparRegex(p).replace(/\s+/g, "\\s+")}(?=$|[^\\p{L}\\p{N}])`, "u");
+  return re.test(sinAcentos(texto));
+}
+function primerNombre(nombre) {
+  const t = String(nombre ?? "").normalize("NFC").split(/\s+/).map((x) => x.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "")).find(Boolean) ?? "";
+  if (t.length > 30 || !/^\p{L}[\p{L}\p{M}'’.-]*$/u.test(t)) return "";
+  return t === t.toUpperCase() || t === t.toLowerCase() ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : t;
+}
+function rellenar(plantilla, vars) {
+  const t = plantilla.replace(/\{(nombre|asesor|agencia)\}/gi, (_, k) => vars[k.toLowerCase()] ?? "").replace(/[ \t]+([,.!?;:])/g, "$1").replace(/([¡¿])[ \t]+/g, "$1").replace(/[ \t]{2,}/g, " ").trim();
+  const sinInicio = t.replace(/^[,.;:]+\s*/, "");
+  return sinInicio === t ? t : sinInicio.charAt(0).toUpperCase() + sinInicio.slice(1);
+}
+function huella(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+}
+function elegirRespuesta(cfg, e, ahora) {
+  const candidatas = [];
+  if (e.primero && cfg.bienvenida) candidatas.push(cfg.bienvenida);
+  if (cfg.fueraDeHorario && !enHorario(cfg, ahora)) candidatas.push(cfg.fueraDeHorario);
+  for (const r of cfg.reglas) if (r.palabras.some((p) => contienePalabra(e.texto, p))) candidatas.push(r.respuesta);
+  const espera = Math.max(Number(cfg.esperaHoras) || 0, MIN_ESPERA_HORAS) * 3600 * 1e3;
+  return candidatas.find((t) => {
+    const antes = e.prev?.autoAt?.[huella(t)];
+    return !antes || ahora - new Date(antes) >= espera;
+  });
+}
+async function responderSolo(env, store, cfg, e, ahora) {
+  if (!cfg.activo) return false;
+  if (ahora - new Date(e.at) > DIA_MS) return false;
+  const pausa = cfg.pausaMinutos * 60 * 1e3;
+  if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
+  const plantilla = elegirRespuesta(cfg, e, ahora);
+  if (!plantilla) return false;
+  const text = rellenar(plantilla, { nombre: primerNombre(e.nombre), asesor: cfg.asesor, agencia: cfg.agencia });
+  if (!text) return false;
+  try {
+    await sendMessage(env, store, { channel: e.canal, to: e.id, text }, { ahora, autoKey: huella(plantilla) });
+  } catch (err) {
+    const errores = await store.get("agente:errores") ?? [];
+    errores.unshift({ at: ahora.toISOString(), canal: e.canal, id: e.id, error: err.message ?? String(err) });
+    await store.put("agente:errores", errores.slice(0, 20));
+  }
+  return true;
+}
+var MAX_LEADS = 1e3;
+async function addLead(store, canal, id, nombre, msg) {
+  const leads = await store.get("leads:index") ?? {};
+  const clave = `${canal}:${id}`;
+  if (leads[clave]) return;
+  leads[clave] = { canal, id, nombre: nombre || "", primerMensaje: (msg.text || (msg.media ? `[${msg.type}]` : "")).slice(0, 300), at: msg.at, importado: false };
+  const claves = Object.keys(leads);
+  if (claves.length > MAX_LEADS) {
+    const orden = claves.sort((a, b) => Number(leads[b].importado) - Number(leads[a].importado) || leads[a].at.localeCompare(leads[b].at));
+    for (const k of orden.slice(0, claves.length - MAX_LEADS)) delete leads[k];
+  }
+  await store.put("leads:index", leads);
+}
+async function nombreMessenger(env, store, psid) {
+  if (!fbReady(env)) return "";
+  const prev = (await store.get("inbox:index") ?? {})[`fb:${psid}`];
+  if (prev) return prev.name ?? "";
+  try {
+    const p = await graph(env, `${encodeURIComponent(psid)}?fields=first_name,last_name`, { token: env.FB_PAGE_TOKEN });
+    return [p.first_name, p.last_name].filter(Boolean).join(" ");
+  } catch {
+    return "";
+  }
+}
+function fechaMeta(ms, ahora) {
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? ahora.toISOString() : d.toISOString();
+}
+async function handleWebhook(req, env, store, ahora) {
   const raw = new Uint8Array(await req.arrayBuffer());
   if (!env.META_APP_SECRET) return fail("Falta META_APP_SECRET en el servidor", 500);
   const sig = (req.headers.get("x-hub-signature-256") ?? "").replace(/^sha256=/, "");
@@ -97,39 +277,64 @@ async function handleWebhook(req, env, store) {
   } catch {
     return fail("JSON inv\xE1lido");
   }
-  await store.put("webhook:last", { at: (/* @__PURE__ */ new Date()).toISOString(), object: body.object });
+  await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
+  const cfg = await leerConfig(store);
+  const contestados = /* @__PURE__ */ new Set();
+  const recibido = async (canal, peer, nombre, msg, { contestable, propio = false }) => {
+    const r = await addMessage(store, canal, peer, nombre, msg);
+    if (!r || propio) return;
+    if (!r.prev) await addLead(store, canal, peer, nombre, msg);
+    const clave = `${canal}:${peer}`;
+    if (!contestable || contestados.has(clave)) return;
+    try {
+      if (await responderSolo(env, store, cfg, { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev }, ahora)) contestados.add(clave);
+    } catch (e) {
+      console.error("Agente de Sof\xEDa:", e);
+    }
+  };
   if (body.object === "whatsapp_business_account") {
     for (const entry of body.entry ?? []) for (const ch of entry.changes ?? []) {
       const v = ch.value ?? {};
       const names = Object.fromEntries((v.contacts ?? []).map((c) => [c.wa_id, c.profile?.name ?? ""]));
+      const propio = String(v.metadata?.display_phone_number ?? "").replace(/\D/g, "");
       for (const m of v.messages ?? []) {
         const media = ["image", "video", "document", "audio", "sticker"].includes(m.type) ? { id: m[m.type]?.id, mime: m[m.type]?.mime_type, filename: m[m.type]?.filename ?? "" } : void 0;
-        await addMessage(store, "wa", m.from, names[m.from], { id: m.id, dir: "in", type: m.type, text: waText(m), at: new Date(Number(m.timestamp) * 1e3).toISOString(), ...media ? { media } : {} });
+        await recibido(
+          "wa",
+          m.from,
+          names[m.from],
+          { id: m.id, dir: "in", type: m.type, text: waText(m), at: fechaMeta(Number(m.timestamp) * 1e3, ahora), ...media ? { media } : {} },
+          { contestable: !SIN_RESPUESTA.has(m.type) && !m.errors, propio: Boolean(propio) && m.from === propio }
+        );
       }
       for (const st of v.statuses ?? []) await setStatus(store, "wa", st.recipient_id, st.id, st.status);
     }
   } else if (body.object === "page") {
     for (const entry of body.entry ?? []) for (const ev of entry.messaging ?? []) {
-      if (!ev.message || ev.message.is_echo) continue;
-      const att = ev.message.attachments?.[0];
-      await addMessage(store, "fb", ev.sender.id, "", {
-        id: ev.message.mid,
+      const message = ev.message ?? (ev.postback ? { mid: ev.postback.mid ?? `pb.${ev.sender?.id}.${ev.timestamp}`, text: ev.postback.title ?? "" } : null);
+      if (!message || message.is_echo) continue;
+      const psid = ev.sender?.id;
+      if (!psid || psid === env.FB_PAGE_ID) continue;
+      const att = message.attachments?.[0];
+      await recibido("fb", psid, await nombreMessenger(env, store, psid), {
+        id: message.mid,
         dir: "in",
         type: att ? att.type : "text",
-        text: ev.message.text ?? "",
-        at: new Date(ev.timestamp).toISOString(),
+        text: message.text ?? "",
+        at: fechaMeta(ev.timestamp, ahora),
         ...att?.payload?.url ? { media: { url: att.payload.url, mime: att.type === "image" ? "image/jpeg" : "" } } : {}
-      });
+      }, { contestable: true });
     }
   }
   return json({ ok: true });
 }
-async function sendMessage(env, store, b) {
-  const at = (/* @__PURE__ */ new Date()).toISOString();
+async function sendMessage(env, store, b, { ahora = /* @__PURE__ */ new Date(), autoKey } = {}) {
+  const at = ahora.toISOString();
+  const auto = autoKey ? { auto: true } : {};
   if (b.channel === "fb") {
     if (!fbReady(env)) throw new Error("Facebook no est\xE1 configurado en el servidor");
     const r2 = await graph(env, `${env.FB_PAGE_ID}/messages`, { method: "POST", token: env.FB_PAGE_TOKEN, body: { recipient: { id: b.to }, messaging_type: "RESPONSE", message: { text: b.text } } });
-    await addMessage(store, "fb", b.to, "", { id: r2.message_id, dir: "out", type: "text", text: b.text, at, status: "sent" });
+    await addMessage(store, "fb", b.to, "", { id: r2.message_id, dir: "out", type: "text", text: b.text, at, status: "sent", ...auto }, autoKey);
     return { id: r2.message_id };
   }
   if (!waReady(env)) throw new Error("WhatsApp no est\xE1 configurado en el servidor");
@@ -147,16 +352,19 @@ async function sendMessage(env, store, b) {
   }
   const r = await graph(env, `${env.WA_PHONE_NUMBER_ID}/messages`, { method: "POST", token: env.WA_TOKEN, body: { messaging_product: "whatsapp", to, ...payload } });
   const id = r.messages?.[0]?.id;
-  await addMessage(store, "wa", to, "", { id, dir: "out", type: b.template ? "template" : "text", text, at, status: "sent" });
+  const peer = String(r.contacts?.[0]?.wa_id ?? "").replace(/\D/g, "") || to;
+  await addMessage(store, "wa", peer, "", { id, dir: "out", type: b.template ? "template" : "text", text, at, status: "sent", ...auto }, autoKey);
   return { id };
+}
+function deBase64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
 }
 function dataUrlToBlob(dataUrl) {
   const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl ?? "");
-  if (!m) return null;
-  const bin = atob(m[2]);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: m[1] });
+  return m ? new Blob([deBase64(m[2])], { type: m[1] }) : null;
 }
 async function publishPost(env, store, b) {
   if (!fbReady(env)) throw new Error("Facebook no est\xE1 configurado en el servidor");
@@ -177,8 +385,137 @@ async function publishPost(env, store, b) {
   await store.put("fb:posts", posts.slice(0, 200));
   return { id: postId, url: `https://www.facebook.com/${postId}` };
 }
-async function status(env, store) {
-  const out = { ok: true, version: VERSION, whatsapp: { configured: waReady(env) }, facebook: { configured: fbReady(env) }, webhook: { secret: Boolean(env.META_APP_SECRET), verifyToken: Boolean(env.META_VERIFY_TOKEN), last: await store.get("webhook:last") } };
+async function publishInstagram(env, { caption, imageUrl }) {
+  if (!igReady(env)) throw new Error("Instagram no est\xE1 configurado en el servidor (falta IG_USER_ID)");
+  const contenedor = await graph(env, `${env.IG_USER_ID}/media`, { method: "POST", token: env.FB_PAGE_TOKEN, body: { image_url: imageUrl, caption } });
+  const r = await graph(env, `${env.IG_USER_ID}/media_publish`, { method: "POST", token: env.FB_PAGE_TOKEN, body: { creation_id: contenedor.id } });
+  let url;
+  try {
+    url = (await graph(env, `${r.id}?fields=permalink`, { token: env.FB_PAGE_TOKEN })).permalink;
+  } catch {
+  }
+  return { id: r.id, ...url ? { url } : {} };
+}
+var CANALES = ["facebook", "instagram"];
+var FOTOS = ["image/jpeg", "image/png", "image/gif"];
+var MAX_INTENTOS = 3;
+var MAX_COLA = 100;
+var MAX_FOTO = 8 * 1024 * 1024;
+var MAX_CAPTION_IG = 2200;
+var REINTENTO_MS = 5 * 60 * 1e3;
+var BLOQUEO_MS = 15 * 60 * 1e3;
+var nuevoId = () => crypto.randomUUID().replace(/-/g, "");
+var MEDIA_ID = /^[a-f0-9]{32}$/;
+function baseDe(req) {
+  const u = new URL(req.url);
+  const proto = (req.headers.get("x-forwarded-proto") ?? "").split(",")[0].trim();
+  return `${proto ? `${proto}:` : u.protocol}//${u.host}`;
+}
+var publicBase = (env, base) => String(env.PUBLIC_URL || base || "").replace(/\/+$/, "");
+async function programar(env, store, p, base, ahora) {
+  if (!p || typeof p !== "object") throw invalido("Falta la publicaci\xF3n");
+  const canales = [...new Set(Array.isArray(p.canales) ? p.canales : [])];
+  if (!canales.length || canales.some((c) => !CANALES.includes(c))) throw invalido("Elige Facebook, Instagram o ambos");
+  const texto = String(p.texto ?? "").trim();
+  const cuando = new Date(p.cuando ?? ahora);
+  if (Number.isNaN(cuando.getTime())) throw invalido("Fecha y hora inv\xE1lidas");
+  let foto = null;
+  if (p.imagen) {
+    const m = /^data:([\w/+.-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(p.imagen));
+    if (!m || !FOTOS.includes(m[1])) throw invalido("La foto debe ser JPG, PNG o GIF");
+    foto = { mime: m[1], datos: m[2].replace(/\s+/g, "") };
+    if (foto.datos.length * 0.75 > MAX_FOTO) throw invalido("La foto pesa m\xE1s de 8 MB");
+  }
+  if (!texto && !foto) throw invalido("La publicaci\xF3n est\xE1 vac\xEDa");
+  if (canales.includes("facebook") && !fbReady(env)) throw invalido("Facebook no est\xE1 configurado en el servidor");
+  if (canales.includes("instagram")) {
+    if (!igReady(env)) throw invalido("Instagram no est\xE1 configurado en el servidor (falta IG_USER_ID)");
+    if (!foto) throw invalido("Instagram solo publica con foto");
+    if (foto.mime !== "image/jpeg") throw invalido("Instagram solo acepta fotos JPG");
+    if (texto.length > MAX_CAPTION_IG) throw invalido(`Instagram acepta m\xE1ximo ${MAX_CAPTION_IG} caracteres`);
+    if (!publicBase(env, base).startsWith("https://")) throw invalido("Instagram descarga la foto de una direcci\xF3n p\xFAblica HTTPS: define PUBLIC_URL en el servidor (o usa el t\xFAnel/Cloudflare)");
+  }
+  const cola = await store.get("social:cola") ?? [];
+  const terminadas = cola.filter((x) => x.estado === "publicado" || x.estado === "error");
+  if (cola.length - terminadas.length >= MAX_COLA) throw invalido(`Ya hay ${MAX_COLA} publicaciones en espera`);
+  const item = { id: nuevoId(), texto, cuando: cuando.toISOString(), canales, base, creado: ahora.toISOString(), estado: "pendiente", intentos: 0, resultados: {} };
+  if (foto) {
+    item.mediaId = nuevoId();
+    item.mime = foto.mime;
+    await store.put(`media:${item.mediaId}`, foto);
+  }
+  cola.push(item);
+  const sobran = terminadas.sort((a, b) => a.cuando.localeCompare(b.cuando)).slice(0, Math.max(0, cola.length - MAX_COLA));
+  for (const x of sobran) if (x.mediaId) await borrar(store, `media:${x.mediaId}`);
+  await store.put("social:cola", cola.filter((x) => !sobran.includes(x)));
+  return item;
+}
+function vistaCola(env, x, base) {
+  const v = { ...x, imagen: x.mediaId ? `${publicBase(env, base || x.base)}/media/${x.mediaId}` : null };
+  delete v.base;
+  delete v.bloqueo;
+  return v;
+}
+async function publicarProgramada(env, store, x, base, ahora) {
+  const foto = x.mediaId ? await store.get(`media:${x.mediaId}`) : null;
+  for (const canal of x.canales) {
+    if (x.resultados[canal]?.ok) continue;
+    try {
+      let r;
+      if (x.mediaId && !foto) throw new Error("La foto ya no est\xE1 en el servidor");
+      if (canal === "facebook") {
+        r = await publishPost(env, store, { message: x.texto, ...foto ? { image: `data:${foto.mime};base64,${foto.datos}` } : {} });
+      } else {
+        if (!foto) throw new Error("Instagram solo publica con foto");
+        if (!base) throw new Error("Falta PUBLIC_URL: Instagram necesita una direcci\xF3n p\xFAblica para descargar la foto");
+        r = await publishInstagram(env, { caption: x.texto, imageUrl: `${base}/media/${x.mediaId}` });
+      }
+      x.resultados[canal] = { ok: true, id: r.id, ...r.url ? { url: r.url } : {}, at: ahora.toISOString() };
+    } catch (e) {
+      x.resultados[canal] = { ok: false, error: e.message ?? String(e), at: ahora.toISOString() };
+    }
+  }
+  delete x.bloqueo;
+  if (x.canales.every((c) => x.resultados[c]?.ok)) {
+    x.estado = "publicado";
+    delete x.siguiente;
+  } else if (x.intentos >= MAX_INTENTOS) {
+    x.estado = "error";
+  } else {
+    x.estado = "pendiente";
+    x.siguiente = new Date(ahora.getTime() + x.intentos * REINTENTO_MS).toISOString();
+  }
+}
+async function runScheduled(env, store, ahoraISO = (/* @__PURE__ */ new Date()).toISOString(), baseUrl = "") {
+  const ahora = new Date(ahoraISO);
+  const cola = await store.get("social:cola") ?? [];
+  const vencidas = cola.filter((x) => x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora || x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS);
+  if (!vencidas.length) return { revisadas: cola.length, publicadas: 0, fallidas: 0 };
+  const intentar = [];
+  for (const x of vencidas) {
+    if ((x.intentos ?? 0) >= MAX_INTENTOS) {
+      x.estado = "error";
+      delete x.bloqueo;
+      continue;
+    }
+    Object.assign(x, { estado: "publicando", bloqueo: ahora.toISOString(), intentos: (x.intentos ?? 0) + 1 });
+    intentar.push(x);
+  }
+  await store.put("social:cola", cola);
+  for (const x of intentar) await publicarProgramada(env, store, x, publicBase(env, baseUrl || x.base), ahora);
+  const porId = new Map(vencidas.map((x) => [x.id, x]));
+  const actual = await store.get("social:cola") ?? [];
+  await store.put("social:cola", actual.map((x) => porId.get(x.id) ?? x));
+  return { revisadas: cola.length, publicadas: vencidas.filter((x) => x.estado === "publicado").length, fallidas: vencidas.filter((x) => x.estado !== "publicado").length };
+}
+async function status(env, store, ahora) {
+  const out = { ok: true, version: VERSION, whatsapp: { configured: waReady(env) }, facebook: { configured: fbReady(env) }, instagram: { configured: igReady(env) }, webhook: { secret: Boolean(env.META_APP_SECRET), verifyToken: Boolean(env.META_VERIFY_TOKEN), last: await store.get("webhook:last") }, publicUrl: env.PUBLIC_URL || null };
+  const cfg = await leerConfig(store);
+  const errores = await store.get("agente:errores") ?? [];
+  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null };
+  out.prospectos = { nuevos: Object.values(await store.get("leads:index") ?? {}).filter((l) => !l.importado).length };
+  const cola = await store.get("social:cola") ?? [];
+  out.programadas = { pendientes: cola.filter((x) => x.estado === "pendiente" || x.estado === "publicando").length, conError: cola.filter((x) => x.estado === "error").length };
   if (waReady(env)) {
     try {
       const p = await graph(env, `${env.WA_PHONE_NUMBER_ID}?fields=display_phone_number,verified_name,quality_rating`, { token: env.WA_TOKEN });
@@ -195,19 +532,35 @@ async function status(env, store) {
       Object.assign(out.facebook, { ok: false, error: e.message });
     }
   }
+  if (igReady(env)) {
+    try {
+      const p = await graph(env, `${env.IG_USER_ID}?fields=username`, { token: env.FB_PAGE_TOKEN });
+      Object.assign(out.instagram, { ok: true, username: p.username });
+    } catch (e) {
+      Object.assign(out.instagram, { ok: false, error: e.message });
+    }
+  }
   return out;
 }
-async function handle(req, env, store) {
+async function handle(req, env, store, opciones = {}) {
   const url = new URL(req.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
+  const ahora = ahoraDe(opciones);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (path === "/webhook/meta") {
     if (req.method === "GET") {
       const ok = url.searchParams.get("hub.mode") === "subscribe" && env.META_VERIFY_TOKEN && sameSecret(url.searchParams.get("hub.verify_token"), env.META_VERIFY_TOKEN);
       return ok ? new Response(url.searchParams.get("hub.challenge") ?? "", { status: 200 }) : new Response("Token de verificaci\xF3n incorrecto", { status: 403 });
     }
-    if (req.method === "POST") return handleWebhook(req, env, store);
+    if (req.method === "POST") return handleWebhook(req, env, store, ahora);
     return fail("M\xE9todo no permitido", 405);
+  }
+  if (path.startsWith("/media/")) {
+    if (req.method !== "GET" && req.method !== "HEAD") return fail("M\xE9todo no permitido", 405);
+    const id = path.slice("/media/".length);
+    const foto = MEDIA_ID.test(id) ? await store.get(`media:${id}`) : null;
+    if (!foto?.datos || !FOTOS.includes(foto.mime)) return new Response("No encontrado", { status: 404, headers: { "content-type": "text/plain; charset=utf-8", ...CORS } });
+    return new Response(deBase64(foto.datos), { headers: { "content-type": foto.mime, "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff", ...CORS } });
   }
   if (path === "/api/salud") return json({ ok: true, version: VERSION });
   if (!path.startsWith("/api/")) return null;
@@ -225,7 +578,7 @@ async function handle(req, env, store) {
   try {
     switch (`${req.method} ${path}`) {
       case "GET /api/estado":
-        return json(await status(env, store));
+        return json(await status(env, store, ahora));
       case "GET /api/datos": {
         const doc = await store.get("datos:main");
         if (!doc) return json({ ok: true, updatedAt: null, backup: null });
@@ -247,7 +600,7 @@ async function handle(req, env, store) {
         return json({ ok: true, messages: await store.get(`inbox:c:${key}`) ?? [] });
       }
       case "POST /api/enviar":
-        return json({ ok: true, ...await sendMessage(env, store, body) });
+        return json({ ok: true, ...await sendMessage(env, store, body, { ahora }) });
       case "GET /api/wa/plantillas": {
         if (!env.WA_WABA_ID || !env.WA_TOKEN) return fail("Falta WA_WABA_ID para leer plantillas");
         const r = await graph(env, `${env.WA_WABA_ID}/message_templates?fields=name,language,status,category,components&limit=100`, { token: env.WA_TOKEN });
@@ -265,11 +618,65 @@ async function handle(req, env, store) {
         return json({ ok: true, ...await publishPost(env, store, body) });
       case "GET /api/facebook/publicaciones":
         return json({ ok: true, posts: await store.get("fb:posts") ?? [] });
+      // Agente sin IA
+      case "GET /api/agente/config":
+        return json({ ok: true, config: await leerConfig(store) });
+      case "POST /api/agente/config": {
+        if (!body.config || typeof body.config !== "object") return fail("Falta la configuraci\xF3n");
+        const prev = await leerConfig(store);
+        const config = normalizarConfig({ ...prev, ...body.config, horario: { ...prev.horario, ...body.config.horario ?? {} } });
+        await store.put("agente:config", config);
+        return json({ ok: true, config });
+      }
+      // Prospectos (contactos nuevos que escribieron por WhatsApp o Messenger)
+      case "GET /api/prospectos": {
+        const leads = await store.get("leads:index") ?? {};
+        const prospectos = Object.entries(leads).map(([clave, l]) => ({ clave, ...l })).sort((a, b) => b.at.localeCompare(a.at));
+        return json({ ok: true, prospectos });
+      }
+      case "POST /api/prospectos/marcar": {
+        if (!Array.isArray(body.ids)) return fail("Faltan los prospectos a marcar (ids)");
+        const leads = await store.get("leads:index") ?? {};
+        const importado = body.importado !== false;
+        let marcados = 0;
+        for (const clave of body.ids) {
+          const l = typeof clave === "string" && Object.hasOwn(leads, clave) ? leads[clave] : null;
+          if (!l || l.importado === importado) continue;
+          l.importado = importado;
+          if (importado) l.importadoAt = ahora.toISOString();
+          else delete l.importadoAt;
+          marcados++;
+        }
+        if (marcados) await store.put("leads:index", leads);
+        return json({ ok: true, marcados });
+      }
+      // Programador de publicaciones
+      case "POST /api/social/programar": {
+        const base = baseDe(req);
+        const item = await programar(env, store, body.post, base, ahora);
+        if (new Date(item.cuando) <= ahora) await runScheduled(env, store, ahora.toISOString(), base);
+        const final = (await store.get("social:cola") ?? []).find((x) => x.id === item.id) ?? item;
+        return json({ ok: true, item: vistaCola(env, final, base) });
+      }
+      case "GET /api/social/cola": {
+        const base = baseDe(req);
+        const cola = (await store.get("social:cola") ?? []).map((x) => vistaCola(env, x, base)).sort((a, b) => a.cuando.localeCompare(b.cuando));
+        return json({ ok: true, cola });
+      }
+      case "POST /api/social/cancelar": {
+        const cola = await store.get("social:cola") ?? [];
+        const item = cola.find((x) => x.id === body.id);
+        if (!item) return fail("Esa publicaci\xF3n ya no est\xE1 en la cola", 404);
+        if (item.estado === "publicando") return fail("Se est\xE1 publicando en este momento; intenta en un minuto", 409);
+        await store.put("social:cola", cola.filter((x) => x !== item));
+        if (item.mediaId) await borrar(store, `media:${item.mediaId}`);
+        return json({ ok: true });
+      }
       default:
         return fail("Ruta no encontrada", 404);
     }
   } catch (e) {
-    return fail(e.message ?? String(e), 502);
+    return fail(e.message ?? String(e), e.status ?? 502);
   }
 }
 
@@ -280,6 +687,9 @@ var kvStore = (kv) => ({
   },
   async put(key, value) {
     await kv.put(key, JSON.stringify(value));
+  },
+  async delete(key) {
+    await kv.delete(key);
   }
 });
 var worker = {
@@ -287,6 +697,12 @@ var worker = {
     if (!env.SOFIA_KV) return new Response(JSON.stringify({ ok: false, error: "Falta vincular el KV 'SOFIA_KV' al Worker" }), { status: 500, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } });
     const res = await handle(request, env, kvStore(env.SOFIA_KV));
     return res ?? new Response(`Conector de Sof\xEDa (${VERSION}) funcionando.`, { headers: { "content-type": "text/plain; charset=utf-8" } });
+  },
+  // Publica en Facebook/Instagram lo programado que ya venció, aunque nadie abra la app.
+  async scheduled(event, env, ctx) {
+    if (!env.SOFIA_KV) return;
+    const ahora = new Date(event?.scheduledTime ?? Date.now()).toISOString();
+    ctx.waitUntil(runScheduled(env, kvStore(env.SOFIA_KV), ahora));
   }
 };
 var worker_default = worker;

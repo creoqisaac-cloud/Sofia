@@ -6,13 +6,15 @@
  *  - nunca acepta nombre/apellido con dígitos o símbolos;
  *  - nunca da confianza alta (máximo "medium", y solo si otra fuente independiente lo respalda);
  *  - CURP: estructura + dígito verificador + cruce con fecha/sexo/clave/iniciales; nunca se reconstruye;
+ *  - MRZ del reverso: las confusiones O/0, I/1… se corrigen solo donde el formato exige dígito o letra y
+ *    solo si los dígitos verificadores cuadran; si hubo corrección, se avisa;
  *  - si dos fuentes se contradicen, el dato baja a confianza baja y se avisa;
  *  - si falta evidencia, el dato se deja vacío (el parser puede devolver nada).
  * Todo lo que sale de aquí entra como OBSERVADO; Mario confirma/corrige/ignora.
  * Los avisos no incluyen valores (no hay PII en notas de log).
  */
 import type { Confidence, ExtractedField } from "./index";
-import { curpBirthDate, curpMatchesName, curpSex, isValidCurp, isValidVoterKey, parseMrz, stateForPostalCode, stateFromAbbr, voterKeyBirthYYMMDD, voterKeySex, type MrzData } from "./mx-id";
+import { curpBirthDate, curpMatchesName, curpSex, isValidCurp, isValidVoterKey, mrzRowTexts, parseMrz, stateForPostalCode, stateFromAbbr, voterKeyBirthYYMMDD, voterKeySex, type MrzData } from "./mx-id";
 import { pageLines, type DocumentObservation, type ObsBox } from "./observation";
 
 export interface IneParseResult {
@@ -20,6 +22,8 @@ export interface IneParseResult {
   detected: boolean;
   fields: ExtractedField[];
   warnings: string[];
+  /** MRZ del reverso validada por dígitos verificadores (incluye el vencimiento = vigencia). */
+  mrz?: MrzData | null;
 }
 
 interface L {
@@ -122,6 +126,13 @@ class PageGeo {
     }
     return out;
   }
+  /** Renglón alineado a la izquierda justo arriba (domicilio sin etiqueta legible). */
+  above(line: L): L | undefined {
+    const { h } = this;
+    return this.lines
+      .filter((l) => l !== line && l.box.bottom <= line.box.top + 0.4 * h && line.box.top - l.box.bottom <= 1.6 * h && Math.abs(l.box.left - line.box.left) <= 2.5 * h && !labelOf(l))
+      .sort((a, b) => b.box.top - a.box.top)[0];
+  }
   /** Primer renglón a la derecha de la etiqueta, en la misma altura. */
   right(label: L): L | undefined {
     const { h } = this;
@@ -144,7 +155,8 @@ class PageGeo {
 
 const DATE_RE = /\b(\d{2})\/(\d{2})\/(\d{4})\b/;
 function printedDate(s: string | null | undefined): string | null {
-  const m = s?.match(DATE_RE);
+  // El OCR mete espacios junto a las diagonales o entre dígitos de la fecha ("0 7/04/ 2005").
+  const m = s?.replace(/\s*\/\s*/g, "/").replace(/\b(\d)\s+(\d)(?=\/)/g, "$1$2").match(DATE_RE);
   if (!m) return null;
   const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (y < 1900 || y > new Date().getUTCFullYear() - 15) return null;
@@ -166,6 +178,10 @@ function pick(geo: PageGeo[], key: LabelKey, valid: (v: string) => boolean, scan
 }
 
 const INT_WORDS = new Set(["INT", "INT.", "INTERIOR", "DEPTO", "DEPTO.", "DPTO", "DPTO.", "DEP", "DEP."]);
+// Abreviaturas de vialidad que empiezan con "C" + consonante (no son una "C" de calle pegada).
+const C_TYPES = new Set(["CDA", "CJON", "CTO", "CTRA", "CARR", "CALZ", "CERR"]);
+// Tipos de vialidad con que empieza el renglón de la calle.
+const STREET_TYPES = new Set(["C", "CALLE", "AV", "AVE", "BLVD", "PRIV", "PROL", "AND", ...C_TYPES]);
 const EXT_RE = /^(\d{1,5}[A-Z]?|S\/N|SN)$/;
 
 function parseStreet(n: string): { street: string; ext: string; int?: string } | null {
@@ -178,11 +194,67 @@ function parseStreet(n: string): { street: string; ext: string; int?: string } |
   }
   const ext = t.pop();
   if (!ext || !EXT_RE.test(ext) || t.length === 0) return null;
+  // Orilla de la credencial o sombra leída como un caracter suelto antes del tipo de vialidad ("1 C VALLE…", "| C VALLE…").
+  if (t.length > 2 && t[0]!.length === 1 && STREET_TYPES.has(t[1]!)) t.shift();
   if (t[0] === "C" && t.length > 1) t.shift(); // "C" = calle
+  // "CFALSA": el OCR pegó la "C" de calle (en español ninguna palabra empieza con C + B, D, F, G, J…)
+  else if (/^C[BCDFGJKMNPQSTVWXYZ][A-ZÑ]{2,}$/.test(t[0]!) && !C_TYPES.has(t[0]!)) t[0] = t[0]!.slice(1);
   if (/^\d/.test(t[t.length - 1]!)) return null; // dos números seguidos: ambiguo
   const street = t.join(" ");
   if (!/[A-ZÑ]{2}/.test(street)) return null;
   return { street, ext: ext === "SN" ? "S/N" : ext, int };
+}
+
+interface Address {
+  cp: string;
+  cpState: string | null;
+  colonia: string;
+  municipality: string | null;
+  state: string | null;
+  streetLine: string;
+  street: { street: string; ext: string; int?: string } | null;
+}
+
+/** Domicilio en renglones: calle y número · colonia + CP · municipio, estado. */
+function parseAddress(lines: string[]): Address | "sin-cp" {
+  const cpIdx = lines.findLastIndex((n, i) => i >= 1 && /\b\d{5}$/.test(n));
+  if (cpIdx < 0) return "sin-cp";
+  const cp = lines[cpIdx]!.match(/(\d{5})$/)![1]!;
+  const colonia = lines[cpIdx]!
+    .replace(/\s*\d{5}$/, "")
+    .replace(/^COL(ONIA)?\.?\s+/, "")
+    .trim();
+  const munLine = lines[cpIdx + 1];
+  let municipality: string | null = null;
+  let state: string | null = null;
+  if (munLine) {
+    const comma = munLine.lastIndexOf(",");
+    const [mun, st] = comma >= 0 ? [munLine.slice(0, comma), munLine.slice(comma + 1)] : [munLine.split(" ").slice(0, -1).join(" "), munLine.split(" ").at(-1) ?? ""];
+    state = stateFromAbbr(st);
+    if (state && /^[A-ZÑ][A-ZÑ .]+$/.test(mun.trim())) municipality = mun.trim().replace(/\.$/, "");
+  }
+  const streetLine = lines.slice(0, cpIdx).join(" ");
+  return { cp, cpState: stateForPostalCode(cp), colonia, municipality, state, streetLine, street: streetLine ? parseStreet(streetLine) : null };
+}
+
+/**
+ * Domicilio de una lectura: debajo de la etiqueta DOMICILIO; si la etiqueta no se leyó (letra chica y
+ * pálida), el renglón "COLONIA CP" cuyo renglón de abajo es un estado que CORRESPONDE a ese CP.
+ */
+function readAddress(g: PageGeo): Address | "sin-cp" | null {
+  const label = g.find("domicilio");
+  if (label) {
+    const inline = matchLabel(label.n, LABELS.domicilio);
+    return parseAddress([...(inline ? [inline] : []), ...g.below(label, 4).map((l) => l.n)]);
+  }
+  for (const l of g.lines) {
+    if (!/\b\d{5}$/.test(l.n)) continue;
+    const street = g.above(l), mun = g.below(l, 1)[0];
+    if (!street || !mun) continue;
+    const a = parseAddress([street.n, l.n, mun.n]);
+    if (a !== "sin-cp" && a.cpState && a.state === a.cpState) return a;
+  }
+  return null;
 }
 
 export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolean } = {}): IneParseResult {
@@ -194,7 +266,8 @@ export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolea
     if (value && value.trim()) fields.push({ key, value: value.trim(), confidence, evidence });
   };
 
-  const mrz: MrzData | null = parseMrz(allN);
+  // La MRZ se busca por renglón (ML Kit puede partir un renglón de letras muy espaciadas en pedazos).
+  const mrz: MrzData | null = parseMrz(obs.pages.flatMap((p) => mrzRowTexts(pageLines(p)))) ?? parseMrz(allN);
   const labelsFound = (["nombre", "domicilio", "clave", "curp", "fecha", "sexo"] as LabelKey[]).filter((k) => geo.some((g) => g.find(k))).length;
   const header = allN.some((n) => /ELECTORAL|CREDENCIAL PARA VOTAR/.test(n));
   const detected = Boolean(mrz) || labelsFound >= 2 || (header && labelsFound >= 1) || (Boolean(opts.docTypeIsIne) && labelsFound >= 1);
@@ -240,6 +313,7 @@ export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolea
   if (mrz?.sex) sexSources.push(["reverso (MRZ)", mrz.sex]);
   const sexAgree = new Set(sexSources.map((d) => d[1])).size <= 1;
 
+  if (mrz?.repaired) warnings.push("El reverso (MRZ) traía letras y números confundidos (O/0, I/1…): se corrigieron y los dígitos verificadores los confirman.");
   if (!dateAgree) warnings.push(`La fecha de nacimiento no coincide entre ${dateSources.map((d) => d[0]).join(", ")}: revísala contra la credencial.`);
   if (!sexAgree) warnings.push(`El sexo no coincide entre ${sexSources.map((d) => d[0]).join(", ")}: revísalo.`);
 
@@ -257,8 +331,18 @@ export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolea
     add("gender", sex, corroborated(sexSources.length, sexAgree), "OCR en el dispositivo · SEXO");
   }
 
-  // ── Nombre ──
-  let front: { paternal: string; maternal: string | null; given: string } | null = null;
+  // ── Nombre ── (si hay varias lecturas de la misma cara, se usa la primera que dé un nombre limpio; si otra
+  // da un nombre distinto, se avisa)
+  const mrzName = mrz && mrz.surnames.length >= 1 && mrz.givenNames.length >= 1 && mrz.surnames.length <= 2
+    ? { paternal: mrz.surnames[0]!, maternal: mrz.surnames[1] ?? null, given: mrz.givenNames.join(" ") }
+    : null;
+  const asMrz = (s: string | null) => (s ?? "").replace(/Ñ/g, "N").replace(/[^A-Z]/g, "");
+  // Con el renglón lleno (30 caracteres) la MRZ pudo recortar el último nombre: basta con que sea su inicio.
+  const sameGiven = (given: string) => asMrz(given) === asMrz(mrzName!.given) || Boolean(mrz?.nameTruncated && asMrz(given).startsWith(asMrz(mrzName!.given)));
+  const sameAsMrz = (n: { paternal: string; maternal: string | null; given: string }) =>
+    mrzName ? asMrz(n.paternal) === asMrz(mrzName.paternal) && asMrz(n.maternal) === asMrz(mrzName.maternal) && sameGiven(n.given) : null;
+  const readings: Array<{ paternal: string; maternal: string | null; given: string }> = [];
+  let nameWarning: string | null = null;
   for (const g of geo) {
     const label = g.find("nombre");
     if (!label) continue;
@@ -267,35 +351,53 @@ export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolea
     if (!lines.length) continue;
     const bad = lines.slice(0, 3).some((n) => !isNameLine(n));
     if (bad) {
-      warnings.push("El nombre leído tiene números o símbolos: no se usó. Captúralo a mano.");
-      break;
+      nameWarning ??= "El nombre leído tiene números o símbolos: no se usó. Captúralo a mano.";
+      continue;
     }
     if (lines.length >= 3) {
       const cand = { paternal: lines[0]!, maternal: lines[1]!, given: lines.slice(2).join(" ") };
-      if (lines.length === 3 || (curp && curpMatchesName(curp, cand))) front = cand;
-      else warnings.push("El nombre ocupa más de tres renglones: captúralo a mano.");
+      if (lines.length === 3 || (curp && curpMatchesName(curp, cand))) readings.push(cand);
+      else nameWarning ??= "El nombre ocupa más de tres renglones: captúralo a mano.";
     } else if (lines.length === 2 && curp && curp[2] === "X") {
-      front = { paternal: lines[0]!, maternal: null, given: lines[1]! };
+      readings.push({ paternal: lines[0]!, maternal: null, given: lines[1]! });
     } else {
-      warnings.push("No se pudo distinguir apellidos y nombre(s).");
+      nameWarning ??= "No se pudo distinguir apellidos y nombre(s).";
     }
-    break;
   }
-  const mrzName = mrz && mrz.surnames.length >= 1 && mrz.givenNames.length >= 1 && mrz.surnames.length <= 2
-    ? { paternal: mrz.surnames[0]!, maternal: mrz.surnames[1] ?? null, given: mrz.givenNames.join(" ") }
-    : null;
-  const asMrz = (s: string | null) => (s ?? "").replace(/Ñ/g, "N").replace(/[^A-Z]/g, "");
+  let front = readings[0] ?? null;
+  // Dos lecturas de la misma cara con distinto nombre: una letra mal leída que la CURP (solo revisa iniciales) no delata.
+  const nameDisagree = new Set(readings.map((n) => [n.paternal, n.maternal, n.given].map(asMrz).join("<"))).size > 1;
+  // Sin etiqueta NOMBRE legible (es la letra más chica y pálida): tres renglones seguidos de solo letras,
+  // alineados, y SOLO si la CURP o el reverso (sin correcciones) confirman ese nombre.
+  for (const g of front ? [] : geo) {
+    for (const l of g.lines) {
+      const rest = isNameLine(l.n) && !labelOf(l) ? g.below(l, 2).map((x) => x.n) : [];
+      if (rest.length < 2 || !rest.every(isNameLine)) continue;
+      const cand = { paternal: l.n, maternal: rest[0]!, given: rest[1]! };
+      if ((curp && curpMatchesName(curp, cand)) || (sameAsMrz(cand) && !mrz?.nameRepaired)) {
+        front = cand;
+        break;
+      }
+    }
+    if (front) break;
+  }
+  if (!front && nameWarning) warnings.push(nameWarning);
   let nameConf: Confidence = "low";
   let name = front;
   if (front) {
     const curpOk = curp ? curpMatchesName(curp, front) : null;
-    const mrzOk = mrzName ? asMrz(front.paternal) === asMrz(mrzName.paternal) && asMrz(front.maternal) === asMrz(mrzName.maternal) && asMrz(front.given) === asMrz(mrzName.given) : null;
+    const same = sameAsMrz(front);
+    // El renglón del nombre no tiene dígito verificador: si hubo que corregirlo, no cuenta como respaldo.
+    const mrzOk = same && mrz?.nameRepaired ? null : same;
     if (curpOk === false) warnings.push("El nombre no coincide con las iniciales de la CURP: revisa el orden de apellidos.");
     if (mrzOk === false) warnings.push("El nombre del frente no coincide con el del reverso.");
-    nameConf = curpOk !== false && mrzOk !== false && (curpOk || mrzOk) ? "medium" : "low";
+    if (nameDisagree) warnings.push("El nombre se leyó distinto en dos lecturas de la foto: revísalo.");
+    nameConf = curpOk !== false && mrzOk !== false && (curpOk || mrzOk) && !nameDisagree ? "medium" : "low";
   } else if (mrzName && mrzName.paternal && [mrzName.paternal, mrzName.maternal ?? "X", mrzName.given].every((x) => isNameLine(x))) {
     name = mrzName;
     nameConf = curp && curpMatchesName(curp, mrzName) ? "medium" : "low";
+    if (mrz?.nameRepaired) warnings.push("El nombre del reverso traía caracteres dudosos y se corrigió: revísalo contra la credencial.");
+    else if (mrz?.nameTruncated) warnings.push("El nombre del reverso llena todo el renglón: el último nombre pudo quedar cortado. Revísalo contra la credencial.");
   }
   if (name) {
     const [first, ...middle] = name.given.split(" ");
@@ -305,49 +407,34 @@ export function parseIne(obs: DocumentObservation, opts: { docTypeIsIne?: boolea
     add("middle_name", middle.join(" "), nameConf, "OCR en el dispositivo · NOMBRE");
   }
 
-  // ── Domicilio ──
-  for (const g of geo) {
-    const label = g.find("domicilio");
-    if (!label) continue;
-    const inline = matchLabel(label.n, LABELS.domicilio);
-    const lines = [...(inline ? [inline] : []), ...g.below(label, 4).map((l) => l.n)];
-    const cpIdx = lines.findLastIndex((n, i) => i >= 1 && /\b\d{5}$/.test(n));
-    if (cpIdx < 0) {
-      warnings.push("No se encontró el código postal en el domicilio.");
-      break;
-    }
-    const cp = lines[cpIdx]!.match(/(\d{5})$/)![1]!;
-    const cpState = stateForPostalCode(cp);
-    const colonia = lines[cpIdx]!
-      .replace(/\s*\d{5}$/, "")
-      .replace(/^COL(ONIA)?\.?\s+/, "")
-      .trim();
-    const munLine = lines[cpIdx + 1];
-    let municipality: string | null = null;
-    let state: string | null = null;
-    if (munLine) {
-      const comma = munLine.lastIndexOf(",");
-      const [mun, st] = comma >= 0 ? [munLine.slice(0, comma), munLine.slice(comma + 1)] : [munLine.split(" ").slice(0, -1).join(" "), munLine.split(" ").at(-1) ?? ""];
-      state = stateFromAbbr(st);
-      if (state && /^[A-ZÑ][A-ZÑ .]+$/.test(mun.trim())) municipality = mun.trim().replace(/\.$/, "");
-    }
-    const cpOk = Boolean(cpState && state && cpState === state);
+  // ── Domicilio ── (de varias lecturas se usa la más coherente: CP ↔ estado, calle y municipio)
+  const addresses = geo.map(readAddress).filter((a): a is Address | "sin-cp" => a !== null);
+  const found = addresses.filter((a): a is Address => a !== "sin-cp");
+  const score = (a: Address) => (a.cpState && a.state === a.cpState ? 4 : 0) + (a.street ? 2 : 0) + (a.municipality ? 1 : 0);
+  const addr = found.sort((a, b) => score(b) - score(a))[0];
+  if (!addr && addresses.length) warnings.push("No se encontró el código postal en el domicilio.");
+  if (addr) {
+    const { cp, cpState, state } = addr;
+    // Dos lecturas de la misma foto con distinto CP: un dígito mal leído que el estado no delata.
+    const cpDisagree = new Set(found.map((a) => a.cp)).size > 1;
+    // Foto tan mala que no dejó leer ni la CURP ni el nombre del frente: CP ↔ estado solo revisa los dos
+    // primeros dígitos, así que un dígito mal leído pasaría sin aviso. El domicilio se queda en confianza baja.
+    const poorRead = !curp && !front;
+    const cpOk = Boolean(cpState && state && cpState === state) && !cpDisagree && !poorRead;
+    if (cpDisagree) warnings.push("El código postal se leyó distinto en dos lecturas de la foto: revísalo.");
     if (cpState && state && cpState !== state) warnings.push("El código postal no corresponde al estado leído: revisa el domicilio.");
     if (!cpState) warnings.push("El código postal leído no existe: no se usó.");
     const conf: Confidence = cpOk ? "medium" : "low";
     if (cpState) add("postal_code", cp, conf, "OCR en el dispositivo · DOMICILIO");
-    if (/[A-ZÑ]{3}/.test(colonia)) add("neighborhood", colonia, conf, "OCR en el dispositivo · DOMICILIO");
-    add("municipality", municipality, conf, "OCR en el dispositivo · DOMICILIO");
+    if (/[A-ZÑ]{3}/.test(addr.colonia)) add("neighborhood", addr.colonia, conf, "OCR en el dispositivo · DOMICILIO");
+    add("municipality", addr.municipality, conf, "OCR en el dispositivo · DOMICILIO");
     add("state", state, conf, "OCR en el dispositivo · DOMICILIO");
-    const streetLine = lines.slice(0, cpIdx).join(" ");
-    const st = streetLine ? parseStreet(streetLine) : null;
-    if (st) {
-      add("street", st.street, conf, "OCR en el dispositivo · DOMICILIO");
-      add("exterior_number", st.ext, conf, "OCR en el dispositivo · DOMICILIO");
-      add("interior_number", st.int, conf, "OCR en el dispositivo · DOMICILIO");
-    } else if (streetLine) warnings.push("La calle y número no se pudieron separar con seguridad: captúralos a mano.");
-    break;
+    if (addr.street) {
+      add("street", addr.street.street, conf, "OCR en el dispositivo · DOMICILIO");
+      add("exterior_number", addr.street.ext, conf, "OCR en el dispositivo · DOMICILIO");
+      add("interior_number", addr.street.int, conf, "OCR en el dispositivo · DOMICILIO");
+    } else if (addr.streetLine) warnings.push("La calle y número no se pudieron separar con seguridad: captúralos a mano.");
   }
 
-  return { detected: true, fields, warnings };
+  return { detected: true, fields, warnings, mrz };
 }

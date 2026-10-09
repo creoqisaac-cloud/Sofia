@@ -131,10 +131,36 @@ const ctx = await b.newContext({ ...devices["iPhone 13"], acceptDownloads: true 
 const wa = [];
 await ctx.route("https://wa.me/**", (r) => { wa.push(decodeURIComponent(r.request().url())); r.fulfill({ status: 200, body: "wa" }); });
 await ctx.route("https://api.anthropic.com/**", aiRoute);
+// ───────── Google Apps Script simulado (la prueba real es el botón «Probar» en la cuenta del usuario) ─────────
+const GOOGLE_URL = "https://script.google.com/macros/s/PRUEBA_SOFIA/exec";
+const googleCalls = [];
+await ctx.route("https://script.google.com/**", async (route) => {
+  const body = JSON.parse(route.request().postData() ?? "{}");
+  googleCalls.push(body);
+  const reply = (o) => route.fulfill({ status: 200, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: JSON.stringify(o) });
+  if (body.token !== "clave-google") return reply({ ok: false, error: "Clave incorrecta" });
+  const now = new Date().toISOString();
+  switch (body.action) {
+    case "estado": return reply({ ok: true, version: "google-prueba", cuenta: "asesor@example.com", servicios: { datos: true, correo: true, calendario: true, ocr: true }, correo: { cuotaRestante: 99, agenteActivo: false, seguimientoAuto: false, dias: 3, texto: "", casos: 0 } });
+    case "correo.enviar": return reply({ ok: true, ref: body.ref, threadId: "hilo-1", enviadoAt: now, adjuntos: body.attachments.length, cuotaRestante: 98 });
+    case "correo.revisar": return reply({ ok: true, casos: [{ ref: body.refs?.[0], asunto: "Trámite de placas", enviadoAt: now, esperando: false, respuestas: [{ de: "gestoria@example.com", fecha: now, texto: "Buen día, las placas ya están listas, pueden pasar por ellas.", adjuntos: [], estado: "placas_listas" }], sugerido: { clave: "placas_listas", texto: "Placas listas", coincidencia: "ya están listas" } }] });
+    case "calendario.guardar": return reply({ ok: true, id: `evento-${googleCalls.length}` });
+    case "ocr": return reply({ ok: true, texts: body.images.map(() => INE_TEXT) });
+    default: return reply({ ok: true });
+  }
+});
 const p = await ctx.newPage();
 p.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
 p.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) errors.push(`console: ${m.text()}`); });
 const shot = (n) => p.screenshot({ path: `${shots}/${n}.png`, fullPage: true });
+const cardOf = (title) => p.locator("section.card", { hasText: title });
+const connectServer = async () => {
+  const c = cardOf("Servidor (conector)");
+  await c.locator("label.field", { hasText: "Dirección" }).locator("input").fill(BASE.replace(/\/$/, ""));
+  await c.locator("label.field", { hasText: "Clave" }).locator("input").fill("clave-prueba");
+  await c.getByRole("button", { name: "Conectar y probar" }).click();
+  await p.getByText("+52 81 0000 0000").first().waitFor();
+};
 const fieldIn = (label) => p.locator("label.field", { has: p.locator("span", { hasText: new RegExp(`^${label}`) }) }).first();
 const fill = async (label, value) => {
   const f = fieldIn(label);
@@ -189,12 +215,9 @@ await p.waitForTimeout(500);
 
 // ───── B. Conexiones reales (servidor + IA) ─────
 await p.goto(BASE + "#/conexiones");
-await fieldIn("Dirección").locator("input").fill(BASE.replace(/\/$/, ""));
-await fieldIn("Clave").locator("input").fill("clave-prueba");
-await p.getByRole("button", { name: "Conectar y probar" }).nth(1).click();
-await p.getByText("+52 81 0000 0000").first().waitFor();
+await connectServer();
 await fieldIn("Llave de API de Anthropic").locator("input").fill("sk-ant-prueba");
-await p.getByRole("button", { name: "Conectar y probar" }).first().click();
+await cardOf("Inteligencia artificial").getByRole("button", { name: "Conectar y probar" }).click();
 await p.getByText("Conectada · Claude Opus 5.5").waitFor();
 await shot("02-conexiones");
 step("conexiones: servidor ✓, WhatsApp ✓ (Graph API), Facebook ✓, IA ✓");
@@ -204,12 +227,12 @@ await p.goto(BASE + "#/cliente/nuevo?siguiente=credito");
 await p.getByPlaceholder("Nombre y apellidos").fill("Foto INE Sintética");
 await p.getByRole("button", { name: "Continuar a la INE" }).click();
 await p.locator(".ine-slot").first().locator("input[type=file]:not([capture])").setInputFiles(inePng);
-await p.getByText("IA + lector del teléfono").waitFor({ timeout: 60000 });
+await p.getByText("IA + lectores gratis").waitFor({ timeout: 60000 });
 const table = await p.locator(".reading table").innerText();
 for (const want of ["SINTETICO", "PRUEBA", "06000", "2033", CURP]) if (!table.includes(want)) throw new Error(`Foto sin ${want}: ${table}`);
 if (!aiCalls.some((c) => c.keys.includes("es_ine") && c.hasImage)) throw new Error("La IA no recibió la foto");
 await shot("03-ine-ia");
-step(`INE por foto: IA + lector del teléfono (${(table.match(/✓ verificado/g) ?? []).length} campos verificados por ambos)`);
+step(`INE por foto: IA + lectores gratis (${(table.match(/✓ verificado/g) ?? []).length} campos verificados por ambos)`);
 
 // ───── D. Mi estilo: chats exportados + IA ─────
 await p.goto(BASE + "#/estilo");
@@ -259,7 +282,7 @@ await p.goto(BASE + "#/redes");
 await p.getByPlaceholder("Ej. CR-V Touring 2026, blanca").fill("CR-V 2026");
 await p.getByRole("button", { name: "✨ Escribir con IA" }).click();
 await p.waitForFunction(() => [...document.querySelectorAll("textarea")].some((t) => t.value.includes("#Honda")));
-await p.getByRole("button", { name: "Publicar en Facebook" }).click();
+await p.getByRole("button", { name: "Publicar ahora" }).click();
 await p.getByText("¡Publicado en tu página!").waitFor();
 if (!graphCalls.some((c) => c.path === "/v/333/feed" && c.body.includes("Estrena tu CR-V"))) throw new Error("No se publicó en la página");
 await p.getByRole("button", { name: "✨ Crear anuncio con IA" }).click();
@@ -298,10 +321,7 @@ await p.locator(".modal").getByRole("button", { name: "Borrar todo" }).click();
 await p.waitForTimeout(400);
 await p.goto(BASE + "#/conexiones");
 if (await p.getByRole("button", { name: "Empezar" }).isVisible().catch(() => false)) await p.getByRole("button", { name: "Empezar" }).click();
-await fieldIn("Dirección").locator("input").fill(BASE.replace(/\/$/, ""));
-await fieldIn("Clave").locator("input").fill("clave-prueba");
-await p.getByRole("button", { name: "Conectar y probar" }).nth(1).click();
-await p.getByText("+52 81 0000 0000").first().waitFor();
+await connectServer();
 await p.goto(BASE + "#/ajustes");
 await p.getByRole("button", { name: "Traer del servidor" }).click();
 await p.locator(".modal").getByRole("button", { name: "Traer" }).click();
@@ -309,6 +329,72 @@ await p.getByText("Datos actualizados desde el servidor").waitFor();
 await p.goto(BASE + "#/clientes");
 await p.locator(".item strong", { hasText: "Prueba Ana Sintético Ejemplo" }).first().waitFor();
 step("respaldo: subido, borrado y restaurado desde el servidor");
+
+// ───── K. Google gratis: Gmail (agente de correo), Calendar y lector de Drive ─────
+await p.goto(BASE + "#/conexiones");
+await cardOf("Google (gratis)").locator("label.field", { hasText: "Dirección del script" }).locator("input").fill(GOOGLE_URL);
+await cardOf("Google (gratis)").locator("label.field", { hasText: "Clave" }).locator("input").fill("clave-google");
+await cardOf("Google (gratis)").getByRole("button", { name: "Conectar y probar" }).click();
+await p.getByText("Cuenta: asesor@example.com").waitFor();
+await p.waitForTimeout(4000); // la sincronización con el calendario espera a que dejes de editar
+if (!googleCalls.some((c) => c.action === "calendario.guardar" && c.inicio && c.avisos?.length)) throw new Error("Los recordatorios no se mandaron a Google Calendar");
+step(`Google: cuenta conectada y ${googleCalls.filter((c) => c.action === "calendario.guardar").length} recordatorio(s) en Google Calendar`);
+await p.goto(BASE + "#/clientes");
+await p.locator(".item strong", { hasText: "Prueba Ana Sintético Ejemplo" }).first().click();
+await p.getByRole("button", { name: /Trámite de placas/ }).click();
+await fieldIn("Para").locator("input").fill("gestoria@example.com");
+await fieldIn("Para").locator("input").blur();
+await p.getByRole("button", { name: "Enviar desde mi Gmail (con adjuntos)" }).click();
+await p.getByText(/Enviado desde tu Gmail/).waitFor();
+const mail = googleCalls.find((c) => c.action === "correo.enviar");
+if (mail?.to !== "gestoria@example.com" || !mail.attachments?.length || !mail.attachments[0].base64) throw new Error("El correo no llevó destinatario o adjuntos");
+await p.getByRole("button", { name: "Revisar respuestas" }).click();
+await p.getByRole("button", { name: "Aplicar: Placas listas" }).click();
+await p.getByText("Estado actualizado").waitFor();
+await shot("10-placas-gmail");
+step(`agente de correo: enviado desde Gmail con ${mail.attachments.length} adjunto(s), respuesta leída y estado «Placas listas» aplicado`);
+await p.goto(BASE + "#/cliente/nuevo?siguiente=credito");
+await p.getByPlaceholder("Nombre y apellidos").fill("Doble lector");
+await p.getByRole("button", { name: "Continuar a la INE" }).click();
+// Sin IA para esta prueba: teléfono + Google
+await p.evaluate(async () => { const { state, save } = await import("./js/store.js"); state.settings.ai.enabled = false; await save(); });
+await p.reload();
+await p.locator(".ine-slot").first().locator("input[type=file]:not([capture])").setInputFiles(inePng);
+await p.getByText("Teléfono + Google").waitFor({ timeout: 60000 });
+if (!googleCalls.some((c) => c.action === "ocr" && c.images?.[0]?.base64)) throw new Error("No se pidió la lectura a Google");
+step("INE: lector del teléfono + lector de Google comparados campo por campo");
+
+// ───── L. Agente de WhatsApp sin IA: contesta solo y anota prospectos ─────
+await p.goto(BASE + "#/whatsapp?tab=auto");
+await p.getByText("Contestar automáticamente").click();
+await cardOf("Respuestas automáticas").getByRole("button", { name: "Guardar" }).click();
+await p.getByText(/Sofía contesta sola/).waitFor();
+const before = graphCalls.length;
+await webhook({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { contacts: [{ wa_id: "5218177776666", profile: { name: "Pedro Nuevo" } }], messages: [{ from: "5218177776666", id: "wamid.NUEVO1", timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "Hola, ¿cuánto cuesta el City?" } }] } }] }] });
+await new Promise((r) => setTimeout(r, 800));
+const auto = graphCalls.slice(before).find((c) => c.path === "/v/111/messages");
+if (!auto || !/Pedro/.test(auto.body)) throw new Error(`El agente no contestó solo: ${auto?.body}`);
+step(`agente WhatsApp: contestó solo sin IA → «${JSON.parse(auto.body).text.body.slice(0, 70)}…»`);
+await p.reload(); // misma dirección: recargar para traer los prospectos nuevos
+await p.locator(".item strong", { hasText: "Pedro Nuevo" }).waitFor();
+await p.locator(".item", { hasText: "Pedro Nuevo" }).getByRole("button", { name: "Agregar como cliente" }).click();
+await p.getByText("Pedro Nuevo agregado a clientes").waitFor();
+await shot("11-agente-whatsapp");
+step("prospecto nuevo convertido en cliente");
+
+// ───── M. Programar publicación (sale sola a la hora) y cancelar ─────
+await p.goto(BASE + "#/redes");
+await fieldIn("Texto").locator("textarea").fill("Ven a manejar la nueva CR-V este sábado.");
+const later = new Date(Date.now() + 2 * 86400000);
+const pad = (n) => String(n).padStart(2, "0");
+await cardOf("Dónde y cuándo").locator('input[type="datetime-local"]').fill(`${later.getFullYear()}-${pad(later.getMonth() + 1)}-${pad(later.getDate())}T10:30`);
+await cardOf("Dónde y cuándo").getByRole("button", { name: "Programar" }).click();
+await p.getByText(/Programada para/).waitFor();
+await cardOf("Programadas").getByText("Programada ·").first().waitFor();
+await shot("12-redes-programadas");
+await cardOf("Programadas").getByRole("button", { name: "Cancelar" }).first().click();
+await p.getByText("Cancelada").waitFor();
+step("redes: publicación programada en el servidor y cancelada");
 
 // ───── J. Lector sin IA en el navegador (ruta iPhone/PC sin conexión de IA) ─────
 const ctx2 = await b.newContext({ ...devices["Pixel 7"] });

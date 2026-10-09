@@ -91,27 +91,86 @@ function mrzCheck(s) {
   for (let i = 0; i < s.length; i++) sum += mrzValue(s[i]) * w[i % 3];
   return sum % 10;
 }
+const MRZ_TO_DIGIT = { O: "0", Q: "0", D: "0", U: "0", I: "1", L: "1", Z: "2", A: "4", S: "5", G: "6", B: "8" };
+const MRZ_TO_LETTER = { "0": "O", "1": "I", "2": "Z", "4": "A", "5": "S", "6": "G", "8": "B" };
+const asDigits = (s) => s.replace(/[A-Z]/g, (c) => MRZ_TO_DIGIT[c] ?? c);
+const asLetters = (s) => s.replace(/\d/g, (c) => MRZ_TO_LETTER[c] ?? c);
+function normalizeMrzLine(raw) {
+  return raw.toUpperCase().replace(/«/g, "<<").replace(/[‹〈＜(\[{]/g, "<").replace(/[^A-Z0-9<]/g, "");
+}
+const MRZ_SEX = { H: "male", M: "female", F: "female" };
+function mrzLine2(raw) {
+  if (raw.length < 28 || raw.length > 34) return null;
+  for (let off = 0; off <= Math.max(0, raw.length - 30); off++) {
+    const l = raw.slice(off);
+    const birth = asDigits(l.slice(0, 7)), expiry = asDigits(l.slice(8, 15));
+    if (!/^\d{7}$/.test(birth) || !/^\d{7}$/.test(expiry)) continue;
+    if (mrzCheck(birth.slice(0, 6)) !== Number(birth[6]) || mrzCheck(expiry.slice(0, 6)) !== Number(expiry[6])) continue;
+    const line = (birth + l[7] + expiry + asLetters(l.slice(15, 18)) + l.slice(18)).padEnd(30, "<").slice(0, 30);
+    return { line, repaired: off > 0 || line.slice(0, 18) !== l.slice(0, 18) };
+  }
+  return null;
+}
+function mrzLine3(raw) {
+  if (raw.length < 5 || !/^[A-Z]/.test(asLetters(raw))) return null;
+  let line = asLetters(raw).replace(/K{2,}/g, (k) => "<".repeat(k.length));
+  let repaired = line !== raw;
+  if (!/^[A-Z<]+$/.test(line)) return null;
+  if (line.length > 30) {
+    const core = line.replace(/<+$/, "");
+    if (core.length > 30) repaired = true;
+    line = core.slice(0, 30);
+  }
+  return { line: line.padEnd(30, "<"), repaired };
+}
 function parseMrz(lines) {
-  const cand = lines.map((l) => l.replace(/\s+/g, "").toUpperCase()).filter((l) => /^[A-Z0-9<]{30}$/.test(l));
-  for (let i = 0; i + 2 < cand.length; i++) {
-    const [l1, l2, l3] = [cand[i], cand[i + 1], cand[i + 2]];
-    if (!l1.startsWith("ID") || l1.slice(2, 5) !== "MEX") continue;
-    const birth = l2.slice(0, 6);
-    const expiry = l2.slice(8, 14);
-    if (!/^\d{6}$/.test(birth) || !/^\d{6}$/.test(expiry)) continue;
-    if (mrzCheck(birth) !== Number(l2[6]) || mrzCheck(expiry) !== Number(l2[14])) continue;
-    if (!/^[A-Z<]+$/.test(l3)) continue;
+  const cand = lines.map(normalizeMrzLine).filter((l) => l.length >= 5);
+  for (let j = 0; j < cand.length; j++) {
+    const r2 = mrzLine2(cand[j]);
+    if (!r2) continue;
+    const l2 = r2.line;
+    let raw1 = "";
+    for (const i of [j - 1, j - 2]) {
+      const head = i >= 0 ? cand[i].match(/[I1L][D0O]MEX/) : null;
+      if (head && cand[i].length - head.index >= 26) {
+        raw1 = cand[i].slice(head.index);
+        break;
+      }
+    }
+    if (!raw1 && l2.slice(15, 18) !== "MEX") continue;
+    const l1 = raw1 ? ("IDMEX" + asDigits(raw1.slice(5, 15)) + raw1.slice(15)).padEnd(30, "<").slice(0, 30) : "";
+    const r3 = cand[j + 1] ? mrzLine3(cand[j + 1]) : null;
+    const l3 = r3?.line ?? "";
     const idx = l3.indexOf("<<");
     const sur = idx >= 0 ? l3.slice(0, idx) : l3;
     const giv = idx >= 0 ? l3.slice(idx + 2) : "";
+    const composite = l1.slice(5, 30) + l2.slice(0, 7) + l2.slice(8, 15) + l2.slice(18, 29);
     return {
-      birthYYMMDD: birth,
-      sex: l2[7] === "M" ? "male" : l2[7] === "F" ? "female" : null,
+      birthYYMMDD: l2.slice(0, 6),
+      expiryYYMMDD: l2.slice(8, 14),
+      sex: MRZ_SEX[l2[7]] ?? null,
       surnames: sur.split("<").filter(Boolean),
-      givenNames: giv.split("<").filter(Boolean)
+      givenNames: giv.split("<").filter(Boolean),
+      repaired: r2.repaired || raw1.slice(0, 15) !== l1.slice(0, 15),
+      nameRepaired: Boolean(r3?.repaired),
+      nameTruncated: l3.length === 30 && l3[29] !== "<",
+      compositeOk: Boolean(l1) && mrzCheck(composite) === Number(l2[29])
     };
   }
   return null;
+}
+function mrzRowTexts(lines) {
+  const rows = [];
+  for (const l of [...lines].sort((a, b) => a.box.top - b.box.top)) {
+    const h = l.box.bottom - l.box.top;
+    const row = rows.find((r) => Math.min(r.bottom, l.box.bottom) - Math.max(r.top, l.box.top) >= 0.5 * Math.min(h, r.bottom - r.top));
+    if (row) {
+      row.parts.push({ left: l.box.left, text: l.text });
+      row.top = Math.min(row.top, l.box.top);
+      row.bottom = Math.max(row.bottom, l.box.bottom);
+    } else rows.push({ top: l.box.top, bottom: l.box.bottom, parts: [{ left: l.box.left, text: l.text }] });
+  }
+  return rows.map((r) => r.parts.sort((a, b) => a.left - b.left).map((p) => p.text).join(""));
 }
 const STATE_ABBR = {
   AGS: "Aguascalientes",
@@ -233,6 +292,8 @@ export {
   isValidCurp,
   isValidVoterKey,
   mrzCheck,
+  mrzRowTexts,
+  normalizeMrzLine,
   parseMrz,
   stateForPostalCode,
   stateFromAbbr,

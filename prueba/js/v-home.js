@@ -2,8 +2,8 @@
 import { h, fmtWhen, todayEnd, inDays, toast } from "./util.js";
 import { state, customer, openReminders, updateReminder, lastContact, plateLabel, setFollowUp } from "./store.js";
 import { header, section, empty, btn, go, rerender, sendWhatsApp, stageChip, chip } from "./ui.js";
-import { connectorReady } from "./connector.js";
-import { aiReady } from "./ai.js";
+import { connectorReady, lastStatus } from "./connector.js";
+import { googleReady } from "./google.js";
 import { fillTemplate, suggestTemplateId, template } from "./rules.js";
 
 export function renderHome(root) {
@@ -30,8 +30,11 @@ export function renderHome(root) {
         btn("Solicitud de crédito con INE", () => go("/cliente/nuevo?siguiente=credito")),
         btn(connectorReady() ? "Bandeja de WhatsApp" : "Responder WhatsApp", () => go(connectorReady() ? "/whatsapp?tab=bandeja" : "/whatsapp?tab=responder")),
         btn("Recordatorios", () => go("/recordatorios"), "ghost")),
-      !aiReady() || !connectorReady() ? h("button", { class: "item", onclick: () => go("/conexiones") },
-        h("div", { class: "grow" }, h("strong", {}, "Activa todo el poder de Sofía"), h("div", { class: "muted small" }, [!aiReady() && "IA para INE y mensajes en tu estilo", !connectorReady() && "WhatsApp Business y Facebook reales"].filter(Boolean).join(" · "))),
+      lastStatus()?.prospectos?.nuevos ? h("button", { class: "item late", onclick: () => go("/whatsapp?tab=auto") },
+        h("div", { class: "grow" }, h("strong", {}, `${lastStatus().prospectos.nuevos} prospecto${lastStatus().prospectos.nuevos === 1 ? "" : "s"} nuevo${lastStatus().prospectos.nuevos === 1 ? "" : "s"} por WhatsApp/Messenger`), h("div", { class: "muted small" }, "Agrégalos como clientes")),
+        h("span", { class: "muted" }, "›")) : null,
+      !googleReady() || !connectorReady() ? h("button", { class: "item", onclick: () => go("/conexiones") },
+        h("div", { class: "grow" }, h("strong", {}, "Activa los agentes gratis"), h("div", { class: "muted small" }, [!googleReady() && "Google: correo de placas, recordatorios en tu iPhone, respaldo", !connectorReady() && "WhatsApp, Facebook e Instagram automáticos"].filter(Boolean).join(" · "))),
         h("span", { class: "muted" }, "›")) : null,
       section("Pendientes de hoy",
         due.length ? h("div", { class: "list" }, due.map(reminderRow)) : empty("Nada pendiente para hoy. Programa seguimientos desde la ficha de cada cliente.")),

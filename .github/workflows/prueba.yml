@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [claude/focused-gauss-q4hxvr, claude/laughing-sagan-hbxj3y]
-    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
+    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "tests/33-ine-mrz.test.ts", "tests/34-google-apps-script.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
 
 concurrency:
   group: prueba-${{ github.ref }}
@@ -36,7 +36,7 @@ jobs:
       - name: Prueba de punta a punta (navegador de celular)
         run: |
           npx playwright install --with-deps chromium
-          npx vitest run tests/31-conector.test.ts tests/32-prueba-credito-oficial.test.ts
+          npx vitest run tests/31-conector.test.ts tests/32-prueba-credito-oficial.test.ts tests/33-ine-mrz.test.ts tests/34-google-apps-script.test.ts
           # Conector apuntando a la Graph API de Meta SIMULADA que levanta la prueba (puerto 9099)
           SOFIA_TOKEN=clave-prueba META_APP_SECRET=secreto-app META_VERIFY_TOKEN=verifica WA_TOKEN=tok-wa \
           WA_PHONE_NUMBER_ID=111 WA_WABA_ID=222 FB_PAGE_ID=333 FB_PAGE_TOKEN=tok-fb META_GRAPH_URL=http://127.0.0.1:9099/v \
@@ -86,4 +86,4 @@ jobs:
           gh release create "prueba-${{ github.run_number }}" Sofia-Prueba.apk "$RUNNER_TEMP/Sofia-Prueba-web.zip" \
             --target "${{ github.sha }}" --prerelease \
             --title "Sofía Prueba #${{ github.run_number }}" \
-            --notes "Sofía: clientes y recordatorios, crédito con INE (IA + lector del teléfono) y formatos oficiales BBVA/Banorte, placas, bandeja de WhatsApp Business y Messenger con IA en tu estilo, publicaciones en Facebook. Funciona sin servidor; conexiones en Más → Conexiones (guía: prueba/CONEXIONES.md). Web: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+            --notes "Sofía: clientes y recordatorios, crédito con INE (lector del teléfono + Google, IA opcional) y formatos oficiales BBVA/Banorte. Agentes gratis sin IA: correo de placas en tu Gmail, WhatsApp/Messenger que contesta solo con prospectos, publicaciones programadas en Facebook e Instagram, recordatorios en Google Calendar. Funciona sin servidor; conexiones en Más → Conexiones (guía: prueba/CONEXIONES.md). Web: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"

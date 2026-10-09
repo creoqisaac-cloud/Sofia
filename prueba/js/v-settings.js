@@ -1,6 +1,6 @@
 // Ajustes: perfil, placas, formatos oficiales de crédito, respaldo y comentarios (IA y servidor: Conexiones).
 import { h, toast, download, confirmBox, fmtWhen, inDays } from "./util.js";
-import { state, save, exportAll, importAll, resetAll, serverPush, serverPull, serverBase, addCustomer, setFollowUp, DEFAULT_PLATE_REQS, removeFile } from "./store.js";
+import { state, save, exportAll, importAll, resetAll, serverPush, serverPull, backupReady, addCustomer, setFollowUp, DEFAULT_PLATE_REQS, removeFile } from "./store.js";
 import { header, section, btn, rerender, field, input, textarea, go } from "./ui.js";
 import { deliverFiles, isNative, openExternal } from "./native.js";
 import { BANKS } from "./credit.js";
@@ -56,12 +56,14 @@ export function renderSettings(root) {
             const data = await exportAll();
             data.state = structuredClone(data.state);
             data.state.settings.ai.apiKey = "";
+            data.state.settings.google = { ...data.state.settings.google, token: "" };
+            data.state.settings.server = { ...data.state.settings.server, token: "" };
             const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
             const name = `sofia-respaldo-${new Date().toISOString().slice(0, 10)}.json`;
             if (isNative()) await deliverFiles([{ blob, name }], { title: "Respaldo de Sofía" }); else download(blob, name);
           }, "small primary"),
           btn("Restaurar respaldo", () => restoreInput.click(), "small ghost")),
-        serverBase() ? h("div", { class: "row wrap gap-s" },
+        backupReady() ? h("div", { class: "row wrap gap-s" },
           btn("Subir al servidor ahora", async () => { try { await serverPush(); toast("Datos guardados en el servidor"); rerender(); } catch (e) { toast(e.message, 5000); } }, "small"),
           btn("Traer del servidor", async () => {
             if (!(await confirmBox("Traer del servidor", "Se reemplazarán los datos de este dispositivo por los del servidor.", "Traer"))) return;

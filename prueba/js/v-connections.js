@@ -1,23 +1,89 @@
-// Más → Conexiones: IA real, servidor/conector, WhatsApp Business y Facebook, con su estado verdadero.
+// Más → Conexiones: Google (gratis: datos, Gmail, Calendar, lector), servidor/conector, WhatsApp Business,
+// Facebook/Instagram e IA opcional, cada uno con su estado verdadero.
 import { h, toast, fmtWhen } from "./util.js";
 import { state, save, serverPeek, serverBase, isAppsScript } from "./store.js";
 import { header, section, btn, rerender, field, input, select, chip, go } from "./ui.js";
 import { MODELS, testConnection, aiReady } from "./ai.js";
 import { connectorReady, refreshStatus, lastStatus, sendMessage, waTemplates } from "./connector.js";
+import { googleReady, googleStatus, lastGoogleStatus, setEmailConfig, saveEvent, deleteEvent } from "./google.js";
 
 const GUIDE = "https://github.com/creoqisaac-cloud/Sofia/blob/claude/focused-gauss-q4hxvr/prueba/CONEXIONES.md";
+const GOOGLE_GUIDE = "https://github.com/creoqisaac-cloud/Sofia/blob/claude/focused-gauss-q4hxvr/prueba/servidor/google/LEEME.md";
 const pill = (ok, okText, noText) => h("div", {}, chip(ok ? `● ${okText}` : `○ ${noText}`, ok ? "ok" : "off"));
 
 export function renderConnections(root) {
   root.append(
     header("Conexiones", { back: "/mas" }),
     h("div", { class: "page" },
-      h("p", { class: "muted" }, "Sofía funciona sin nada de esto. Cada conexión agrega poder real: IA para leer INE y escribir como tú, WhatsApp y Facebook para atender y publicar desde aquí."),
-      aiCard(),
+      h("p", { class: "muted" }, "Sofía funciona sin nada de esto. Todo lo de abajo es GRATIS excepto la IA, que es un extra opcional."),
+      googleCard(),
       serverCard(),
       waCard(),
       fbCard(),
+      aiCard(),
       h("p", { class: "muted small" }, "Guía paso a paso (cuentas de Meta, tokens y servidor gratis): ", h("a", { href: GUIDE, target: "_blank", rel: "noopener" }, "CONEXIONES.md"))));
+}
+
+// ───────── Google (gratis) ─────────
+
+function googleCard() {
+  const g = state.settings.google;
+  const st = lastGoogleStatus();
+  const url = input({ type: "url", placeholder: "https://script.google.com/macros/s/…/exec", value: g.url ?? "" });
+  const token = input({ type: "password", autocomplete: "off", value: g.token ?? "" });
+  const out = h("p", { class: "small", role: "status" });
+  const correo = st?.correo ?? {};
+  const auto = h("input", { type: "checkbox", checked: Boolean(correo.seguimientoAuto) });
+  const dias = input({ type: "number", min: "1", max: "30", value: correo.dias ?? 3, style: "max-width:90px" });
+  const connect = async (e) => {
+    const b = e.currentTarget;
+    Object.assign(g, { url: url.value.trim(), token: token.value.trim() });
+    save();
+    b.disabled = true;
+    out.className = "small";
+    out.textContent = "Probando tu cuenta de Google…";
+    try {
+      const primera = !st;
+      const r = await googleStatus();
+      // Sin conector, Google guarda el respaldo: se enciende solo la primera vez (luego manda el interruptor).
+      if (primera && !serverBase()) { state.settings.server.auto = true; save(); }
+      toast(`Google conectado: ${r.cuenta ?? "tu cuenta"}`);
+      rerender();
+    } catch (err) { out.className = "small warn"; out.textContent = err.message; }
+    finally { b.disabled = false; }
+  };
+  const testCalendar = async () => {
+    try {
+      const id = await saveEvent({ title: "Prueba de Sofía", description: "Si te llegó el aviso, los recordatorios funcionan. Puedes borrarlo.", at: new Date(Date.now() + 10 * 60000).toISOString(), alerts: [5] });
+      toast("Listo: en 5 minutos te debe sonar el aviso de Google Calendar.", 6000);
+      setTimeout(() => deleteEvent(id).catch(() => {}), 20 * 60000);
+    } catch (err) { toast(err.message, 6000); }
+  };
+  return section("Google (gratis): datos, correo, recordatorios y lector",
+    h("div", { class: "stack-s" }, pill(googleReady() && Boolean(st), st?.cuenta ?? "Conectado", googleReady() ? "Sin probar" : "Sin conectar"),
+      h("span", { class: "muted small" }, "Tu propia cuenta de Google hace de servidor, sin pagar nada: respaldo en Drive, el agente de correo de placas envía desde tu Gmail y da seguimiento solo, los recordatorios suenan en tu iPhone con Google Calendar y Google Drive lee las INE como segunda opinión.")),
+    field("Dirección del script (…/exec)", url, h("span", {}, "Cómo crearlo en 10 minutos: ", h("a", { href: GOOGLE_GUIDE, target: "_blank", rel: "noopener" }, "guía de Google"))),
+    field("Clave", token),
+    h("div", { class: "row wrap gap-s" },
+      btn(googleReady() && st ? "Volver a probar" : "Conectar y probar", connect, "primary"),
+      googleReady() && st ? btn("Probar recordatorio", testCalendar, "ghost") : null),
+    out,
+    st ? h("ul", { class: "checks" },
+      h("li", { class: "ok" }, `Cuenta: ${st.cuenta ?? "—"}`),
+      h("li", { class: st.servicios?.correo === false ? "bad" : "ok" }, `Gmail${correo.cuotaRestante !== undefined ? ` · te quedan ${correo.cuotaRestante} correos hoy` : ""}`),
+      h("li", { class: st.servicios?.calendario === false ? "bad" : "ok" }, "Google Calendar (calendario «Sofía»)"),
+      h("li", { class: st.servicios?.ocr === false ? "bad" : "ok" }, st.servicios?.ocr === false ? "Lector de Google Drive: falta activar el servicio «Drive API» en el script (ver guía)" : "Lector de Google Drive para INE"),
+      h("li", { class: "info" }, `Revisado ${fmtWhen(st.at)}${st.version ? ` · ${st.version}` : ""}`)) : null,
+    st && !serverBase() ? h("label", { class: "row gap-s small" },
+      h("input", { type: "checkbox", checked: state.settings.server.auto, onchange: (e) => { state.settings.server.auto = e.target.checked; save(); } }),
+      h("span", {}, "Respaldar automáticamente en tu Drive al salir de la app")) : null,
+    st ? h("div", { class: "stack-s" },
+      h("h3", {}, "Agente de correo (placas)"),
+      h("label", { class: "row gap-s small" }, auto, h("span", {}, "Si la gestoría no contesta, mandar seguimiento automático después de")), h("div", { class: "row gap-s" }, dias, h("span", { class: "small muted" }, "días")),
+      btn("Guardar agente de correo", async () => {
+        try { await setEmailConfig({ seguimientoAuto: auto.checked, dias: Number(dias.value) || 3 }); await googleStatus(); toast(auto.checked ? "Agente de correo activo: revisa cada hora aunque Sofía esté cerrada." : "Seguimiento automático apagado"); rerender(); }
+        catch (err) { toast(err.message, 6000); }
+      }, "small")) : null);
 }
 
 // ───────── IA ─────────
@@ -44,7 +110,7 @@ function aiCard() {
     } finally { b.disabled = false; }
   };
   const ineToggle = h("input", { type: "checkbox", checked: ai.ine !== false, onchange: (e) => { ai.ine = e.target.checked; save(); } });
-  return section("Inteligencia artificial (Claude)",
+  return section("Inteligencia artificial (opcional, de pago)",
     h("div", { class: "stack-s" }, pill(aiReady(), `Conectada${ai.modelName ? ` · ${ai.modelName}` : ""}`, "Sin conectar"), h("span", { class: "muted small" }, "Lee INE con precisión, aprende tu estilo, redacta respuestas, plantillas por cliente y publicaciones.")),
     field("Llave de API de Anthropic", key, h("span", {}, "Créala en ", h("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com → API keys"), ". Se guarda solo en este dispositivo.")),
     field("Calidad", model),
@@ -66,7 +132,7 @@ function serverCard() {
   const out = h("p", { class: "small", role: "status" });
   const st = lastStatus();
   return section("Servidor (conector)",
-    h("div", { class: "stack-s" }, pill(Boolean(connectorReady() && st), "Conectado", serverBase() ? (isAppsScript() ? "Solo respaldo (Google)" : "Sin probar") : "Sin conectar"), h("span", { class: "muted small" }, "Respaldo en la nube y puente con WhatsApp/Facebook. Gratis en Cloudflare, o tu propia computadora/hosting.")),
+    h("div", { class: "stack-s" }, pill(Boolean(connectorReady() && st), "Conectado", serverBase() ? (isAppsScript() ? "Es Google: ponlo en la tarjeta de Google" : "Sin probar") : "Sin conectar"), h("span", { class: "muted small" }, "Necesario solo para WhatsApp Business, Messenger, Facebook e Instagram (Meta exige un servidor HTTPS para avisar de mensajes). Gratis en Cloudflare, o tu computadora/hosting. Aquí corren los agentes automáticos aunque Sofía esté cerrada.")),
     field("Dirección", url),
     field("Clave", token),
     h("label", { class: "row gap-s small" }, auto, h("span", {}, "Respaldar automáticamente al salir de la app")),
@@ -121,8 +187,12 @@ function waCard() {
 
 function fbCard() {
   const st = lastStatus()?.facebook;
-  return section("Facebook (página y Messenger)",
-    h("div", { class: "stack-s" }, pill(Boolean(st?.ok), st?.name ?? "Conectada", st?.configured ? "Token con error" : "Sin configurar"), h("span", { class: "muted small" }, "Publicar en tu página, contestar Messenger y preparar anuncios con IA.")),
+  const ig = lastStatus()?.instagram;
+  const prog = lastStatus()?.programadas;
+  return section("Facebook e Instagram",
+    h("div", { class: "stack-s" }, pill(Boolean(st?.ok), st?.name ?? "Conectada", st?.configured ? "Token con error" : "Sin configurar"), h("span", { class: "muted small" }, "Publicar (o programar) en tu página e Instagram, contestar Messenger y preparar anuncios.")),
     st?.error ? h("p", { class: "warn small" }, `Meta dice: ${st.error}`) : null,
+    h("p", { class: "small" }, "Instagram: ", ig?.ok ? `@${ig.username ?? ig.name ?? "conectado"}` : ig?.configured ? `con error${ig.error ? ` (${ig.error})` : ""}` : "sin configurar (IG_USER_ID)"),
+    prog ? h("p", { class: "muted small" }, `Publicaciones programadas: ${prog.pendientes ?? 0} pendientes${prog.conError ? ` · ${prog.conError} con error` : ""}`) : null,
     st?.ok ? btn("Ir a Redes", () => go("/redes"), "small") : null);
 }

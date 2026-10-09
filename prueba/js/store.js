@@ -59,6 +59,7 @@ const emptyState = () => ({
     templates: DEFAULT_TEMPLATES.map((t) => ({ ...t })),
     ai: { enabled: false, apiKey: "", model: "claude-opus-5-5", ine: true },
     server: { url: "", token: "", auto: false, lastSync: null },
+    google: { url: "", token: "", status: null },
     style: { myName: "", examples: [], notes: "", profile: null, analyzedAt: null },
     bankForms: {},
     feedbackTo: "",
@@ -70,6 +71,7 @@ const emptyState = () => ({
   feedback: [],
   posts: [],
   waSeen: {},
+  calTrash: [], // eventos de Google Calendar por borrar (recordatorios hechos o borrados)
 });
 
 export let state = emptyState();
@@ -81,7 +83,7 @@ export async function load() {
   if (saved) {
     const base = emptyState();
     const ss = saved.settings ?? {};
-    state = { ...base, ...saved, settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
+    state = { ...base, ...saved, settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, google: { ...base.settings.google, ...ss.google }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
   }
   return state;
 }
@@ -155,12 +157,15 @@ export function addReminder({ at, text, customerId = null, kind = "recordatorio"
 export function updateReminder(id, patch) {
   const r = state.reminders.find((x) => x.id === id);
   if (r) Object.assign(r, patch);
+  if (r?.done && r.calendarId) { state.calTrash.push(r.calendarId); r.calendarId = null; }
   state.reminders.sort((a, b) => a.at.localeCompare(b.at));
   save();
   return r;
 }
 export function deleteReminder(id) {
-  state.reminders = state.reminders.filter((r) => r.id !== id);
+  const r = state.reminders.find((x) => x.id === id);
+  if (r?.calendarId) state.calTrash.push(r.calendarId);
+  state.reminders = state.reminders.filter((x) => x.id !== id);
   save();
 }
 export const openReminders = () => state.reminders.filter((r) => !r.done);
@@ -174,7 +179,7 @@ export function setFollowUp(customerId, at, text) {
   if (!c) return null;
   const existing = state.reminders.find((r) => r.customerId === customerId && r.kind === "seguimiento" && !r.done);
   if (!at) {
-    if (existing) existing.done = true;
+    if (existing) { existing.done = true; if (existing.calendarId) { state.calTrash.push(existing.calendarId); existing.calendarId = null; } }
     c.nextFollowUp = null;
     save();
     return null;
@@ -239,11 +244,13 @@ export async function importAll(backup) {
   if (!backup || backup.app !== "sofia-prueba" || !backup.state) throw new Error("El archivo no es un respaldo de Sofía.");
   const keepServer = state.settings.server;
   const keepAi = state.settings.ai;
+  const keepGoogle = state.settings.google;
   await clearAll();
   state = backup.state;
   // La conexión y la llave de IA son de este dispositivo: no se sobrescriben con las de otro.
   state.settings.server = keepServer;
   state.settings.ai = keepAi;
+  state.settings.google = keepGoogle;
   for (const [id, f] of Object.entries(backup.files ?? {})) {
     await filePut(id, { name: f.name, mime: f.mime, blob: await dataUrlToBlob(f.dataUrl) });
   }
@@ -272,11 +279,20 @@ export function serverBase() {
 }
 export const isAppsScript = () => /\/exec\/?$/.test(serverBase());
 
-function serverUrl(withToken, extra = {}) {
-  const { token } = state.settings.server;
+/** Dónde se respalda: el servidor (conector) si hay; si no, la cuenta de Google (mismo protocolo). */
+function dataTarget() {
   const base = serverBase();
-  if (!base) throw new Error("Primero conecta tu servidor en Más → Conexiones.");
-  const u = new URL(isAppsScript() ? base : `${base}/api/datos`);
+  if (base) return { base, token: state.settings.server.token, appsScript: isAppsScript() };
+  const g = state.settings.google ?? {};
+  if (g.url?.trim()) return { base: g.url.trim(), token: g.token, appsScript: true };
+  return { base: "", token: "" };
+}
+export const backupReady = () => Boolean(dataTarget().base);
+
+function serverUrl(withToken, extra = {}) {
+  const { base, token, appsScript } = dataTarget();
+  if (!base) throw new Error("Primero conecta tu servidor o tu cuenta de Google en Más → Conexiones.");
+  const u = new URL(appsScript ? base : `${base}/api/datos`);
   if (withToken && token) u.searchParams.set("token", token);
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
   return u.toString();
@@ -286,7 +302,10 @@ export async function serverPush() {
   const backup = await exportAll();
   backup.state = structuredClone(backup.state);
   backup.state.settings.ai = { ...backup.state.settings.ai, apiKey: "" }; // la llave de IA nunca sale del dispositivo
-  const res = await fetch(serverUrl(false), { method: "POST", headers: { "content-type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: state.settings.server.token, backup }) });
+  // La clave de Google permite enviar correo desde el Gmail del asesor: tampoco viaja en respaldos.
+  backup.state.settings.google = { ...backup.state.settings.google, token: "" };
+  backup.state.settings.server = { ...backup.state.settings.server, token: "" };
+  const res = await fetch(serverUrl(false), { method: "POST", headers: { "content-type": "text/plain;charset=utf-8" }, body: JSON.stringify({ token: dataTarget().token, backup }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.ok === false) throw new Error(body.error || `El servidor respondió ${res.status}`);
   state.settings.server.lastSync = new Date().toISOString();
