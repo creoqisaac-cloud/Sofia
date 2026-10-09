@@ -1,6 +1,6 @@
 // Piezas de interfaz compartidas por las pantallas.
 import { h, toast, waDigits, inDays, toLocalInput, fmtWhen } from "./util.js";
-import { STAGES, log, save, setFollowUp, state, stageLabel } from "./store.js";
+import { STAGES, log, save, setFollowUp, state, stageLabel, learnFromAdvisor } from "./store.js";
 import { openExternal } from "./native.js";
 
 // ───────── Router mínimo por #hash ─────────
@@ -44,10 +44,12 @@ export const stageSelect = (value, onchange) => select(STAGES, value, { onchange
 // ───────── Acciones comunes ─────────
 
 /** Abre WhatsApp con el texto (el asesor pulsa Enviar) y lo registra en la bitácora. */
-export function sendWhatsApp(c, text) {
+export function sendWhatsApp(c, text, { learn = true } = {}) {
   const digits = waDigits(c?.phone);
   if (!digits) { toast("Falta un celular válido (10 dígitos) en la ficha del cliente."); return false; }
-  if (c?.id) { log(c.id, "whatsapp", text); save(); }
+  if (c?.id) log(c.id, "whatsapp", text);
+  if (learn) learnFromAdvisor([text], "enviado"); // solo lo que el asesor escribió o editó
+  save();
   openExternal(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`);
   return true;
 }

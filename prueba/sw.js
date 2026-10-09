@@ -1,10 +1,11 @@
 // Modo sin conexión: primero la red (para recibir actualizaciones), si no hay, la copia guardada.
-const CACHE = "sofia-prueba-v1";
+const CACHE = "sofia-prueba-v2";
 const SHELL = [
   "./", "index.html", "app.css", "manifest.webmanifest", "icon.svg", "icon-192.png", "apple-touch-icon.png", "vendor/pdf-lib.min.js",
   "js/app.js", "js/util.js", "js/db.js", "js/store.js", "js/ui.js", "js/native.js", "js/rules.js", "js/ai.js", "js/credit.js",
   "js/ine.js", "js/ine-parser.js", "js/mxid.js", "js/ocr.js", "js/ocr-obs.js",
   "js/v-home.js", "js/v-customers.js", "js/v-credit.js", "js/v-plates.js", "js/v-whatsapp.js", "js/v-reminders.js", "js/v-settings.js",
+  "js/connector.js", "js/chat-import.js", "js/bank-adapters.js", "js/v-connections.js", "js/v-more.js", "js/v-style.js", "js/v-social.js", "vendor/anthropic-sdk.mjs",
 ];
 
 self.addEventListener("install", (e) => {

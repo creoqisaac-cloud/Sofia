@@ -15,7 +15,7 @@ export function renderReminders(root) {
   const done = state.reminders.filter((r) => r.done).slice(-15).reverse();
 
   root.append(
-    header("Recordatorios"),
+    header("Recordatorios", { back: "/mas" }),
     h("div", { class: "page" },
       notif,
       section("Nuevo recordatorio",

@@ -106,11 +106,13 @@ button.item:active { transform: scale(.99); }
 .chip.st-cotizacion, .chip.st-credito { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
 .chip.st-vendido, .chip.st-entregado { border-color: color-mix(in srgb, var(--ok) 60%, transparent); }
 .chip.st-perdido { opacity: .65; }
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.chip.off { color: var(--dim); }
 .chips-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .chip-btn { flex: none; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--raise); cursor: pointer; font-size: 14px; }
 .chip-btn.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.tabs { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--raise); border-radius: 12px; padding: 4px; gap: 4px; }
-.tabs button { min-height: 38px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; font-size: 14px; }
+.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--raise); border-radius: 12px; padding: 4px; gap: 4px; overflow-x: auto; }
+.tabs button { min-height: 38px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; font-size: 13px; padding: 0 6px; white-space: nowrap; }
 .tabs button.on { background: var(--panel); font-weight: 650; }
 
 /* Crédito */
@@ -135,7 +137,8 @@ ul.checks li.info::before { content: "·"; color: var(--accent); left: 6px; }
 /* Navegación inferior */
 nav.bottom { position: fixed; bottom: 0; left: 0; right: 0; z-index: 6; display: grid; grid-template-columns: repeat(5, 1fr); background: color-mix(in srgb, var(--panel) 96%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
 nav.bottom a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 9px; color: var(--dim); text-decoration: none; font-size: 11px; min-height: 56px; justify-content: center; }
-nav.bottom a .ic { line-height: 0; }
+nav.bottom a .ic { line-height: 0; position: relative; }
+.badge { position: absolute; top: -6px; right: -10px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--wa); color: var(--wa-ink); font-size: 11px; line-height: 18px; font-weight: 700; text-align: center; }
 nav.bottom a.on { color: var(--accent); }
 .fab { position: fixed; right: 14px; bottom: calc(68px + env(safe-area-inset-bottom)); z-index: 6; width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); cursor: pointer; box-shadow: 0 4px 14px #0005; color: var(--accent); display: grid; place-items: center; }
 
@@ -147,3 +150,17 @@ nav.bottom a.on { color: var(--accent); }
 @media (min-width: 640px) { .modal-wrap { align-items: center; } .modal { border-radius: 20px; } }
 .modal-head { display: flex; align-items: center; justify-content: space-between; }
 .modal-head h2 { font-size: 18px; }
+
+/* Conversación */
+.chat { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto; padding: 4px; }
+.bubble { max-width: 85%; padding: 8px 12px; border-radius: 14px; background: var(--raise); display: flex; flex-direction: column; gap: 4px; }
+.bubble.in { align-self: flex-start; border-bottom-left-radius: 4px; }
+.bubble.out { align-self: flex-end; border-bottom-right-radius: 4px; background: color-mix(in srgb, var(--wa) 22%, var(--panel)); }
+.chat-img { max-width: 100%; border-radius: 10px; }
+.copy-row { display: flex; gap: 8px; align-items: flex-start; }
+.copy-row .pre { flex: 1; }
+details.fold > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary h2::before { content: "▸ "; color: var(--dim); }
+details.fold[open] > summary h2::before { content: "▾ "; }
+details.fold:not([open]) { gap: 0; }

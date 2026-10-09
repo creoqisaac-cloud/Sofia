@@ -114,11 +114,12 @@ export function monthlyPayment(amount, tasaAnual, months) {
 }
 
 export function creditEstimate(v) {
-  const price = Number(v.price);
-  const down = Number(v.downPayment) || 0;
-  const months = Number(v.months);
-  const rate = v.rate === "" || v.rate === undefined ? NaN : Number(v.rate);
-  const income = (Number(v.incomeFixed) || 0) + (Number(v.incomeVariable) || 0);
+  const n = (x) => Number(String(x ?? "").replace(/[^\d.]/g, ""));
+  const price = n(v.price);
+  const down = n(v.down_payment) || 0;
+  const months = n(v.months);
+  const rate = v.rate === "" || v.rate === undefined ? NaN : n(v.rate);
+  const income = (n(v.monthly_fixed_income) || 0) + (n(v.monthly_variable_income) || 0);
   const amount = price - down;
   const pay = Number.isFinite(rate) ? monthlyPayment(amount, rate, months) : NaN;
   const ratio = income > 0 && Number.isFinite(pay) ? pay / income : NaN;

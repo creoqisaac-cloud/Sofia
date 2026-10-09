@@ -1,7 +1,12 @@
-// Generado desde src/server/extraction/ine.ts (misma lógica que la app completa).
+// GENERADO por scripts/prueba-generar.mjs desde src/server/extraction/ine.ts. No editar a mano.
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+// src/server/extraction/ine.ts
 import { curpBirthDate, curpMatchesName, curpSex, isValidCurp, isValidVoterKey, parseMrz, stateForPostalCode, stateFromAbbr, voterKeyBirthYYMMDD, voterKeySex } from "./mxid.js";
 import { pageLines } from "./ocr-obs.js";
-const normOcr = (s) => s.toUpperCase().replace(/Ñ/g, "\0").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\u0000/g, "\xD1").replace(/\s+/g, " ").trim();
+var normOcr = (s) => s.toUpperCase().replace(/Ñ/g, "\0").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\u0000/g, "\xD1").replace(/\s+/g, " ").trim();
 function lev(a, b) {
   const dp = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {
@@ -15,7 +20,7 @@ function lev(a, b) {
   }
   return dp[b.length];
 }
-const LABELS = {
+var LABELS = {
   nombre: "NOMBRE",
   domicilio: "DOMICILIO",
   clave: "CLAVE DE ELECTOR",
@@ -41,18 +46,18 @@ function matchLabel(n, label) {
   }
   return null;
 }
-const labelOf = (l) => Object.keys(LABELS).find((k) => matchLabel(l.n, LABELS[k]) !== null) ?? null;
-const NON_NAME = /* @__PURE__ */ new Set(["INSTITUTO NACIONAL ELECTORAL", "INSTITUTO FEDERAL ELECTORAL", "MEXICO", "ESTADOS UNIDOS MEXICANOS", "CREDENCIAL PARA VOTAR", "FIRMA", "MUESTRA"]);
-const NAME_LINE = /^[A-ZÑ]+(?:\.?[ '-][A-ZÑ]+)*\.?$/;
-const isNameLine = (n) => NAME_LINE.test(n) && n.length >= 2 && n.length <= 40 && !NON_NAME.has(n);
+var labelOf = (l) => Object.keys(LABELS).find((k) => matchLabel(l.n, LABELS[k]) !== null) ?? null;
+var NON_NAME = /* @__PURE__ */ new Set(["INSTITUTO NACIONAL ELECTORAL", "INSTITUTO FEDERAL ELECTORAL", "MEXICO", "ESTADOS UNIDOS MEXICANOS", "CREDENCIAL PARA VOTAR", "FIRMA", "MUESTRA"]);
+var NAME_LINE = /^[A-ZÑ]+(?:\.?[ '-][A-ZÑ]+)*\.?$/;
+var isNameLine = (n) => NAME_LINE.test(n) && n.length >= 2 && n.length <= 40 && !NON_NAME.has(n);
 function median(xs) {
   const s = [...xs].sort((a, b) => a - b);
   return s.length ? s[Math.floor(s.length / 2)] : 0;
 }
-class PageGeo {
-  lines;
-  h;
+var PageGeo = class {
   constructor(lines) {
+    __publicField(this, "lines");
+    __publicField(this, "h");
     this.lines = lines;
     this.h = Math.max(1, median(lines.map((l) => l.box.bottom - l.box.top)));
   }
@@ -90,8 +95,8 @@ class PageGeo {
     if (r && !labelOf(r)) return r.n;
     return this.below(label, 1)[0]?.n ?? null;
   }
-}
-const DATE_RE = /\b(\d{2})\/(\d{2})\/(\d{4})\b/;
+};
+var DATE_RE = /\b(\d{2})\/(\d{2})\/(\d{4})\b/;
 function printedDate(s) {
   const m = s?.match(DATE_RE);
   if (!m) return null;
@@ -101,7 +106,7 @@ function printedDate(s) {
   const dt = /* @__PURE__ */ new Date(`${iso}T00:00:00Z`);
   return Number.isNaN(dt.getTime()) || dt.toISOString().slice(0, 10) !== iso ? null : iso;
 }
-const yymmdd = (iso) => iso.slice(2, 4) + iso.slice(5, 7) + iso.slice(8, 10);
+var yymmdd = (iso) => iso.slice(2, 4) + iso.slice(5, 7) + iso.slice(8, 10);
 function pick(geo, key, valid, scanLine) {
   for (const g of geo) {
     const v = g.value(key)?.replace(/\s+/g, "");
@@ -111,8 +116,8 @@ function pick(geo, key, valid, scanLine) {
   if (all.size === 1) return { value: [...all][0], ambiguous: false };
   return { value: null, ambiguous: all.size > 1 };
 }
-const INT_WORDS = /* @__PURE__ */ new Set(["INT", "INT.", "INTERIOR", "DEPTO", "DEPTO.", "DPTO", "DPTO.", "DEP", "DEP."]);
-const EXT_RE = /^(\d{1,5}[A-Z]?|S\/N|SN)$/;
+var INT_WORDS = /* @__PURE__ */ new Set(["INT", "INT.", "INTERIOR", "DEPTO", "DEPTO.", "DPTO", "DPTO.", "DEP", "DEP."]);
+var EXT_RE = /^(\d{1,5}[A-Z]?|S\/N|SN)$/;
 function parseStreet(n) {
   if (/\b(MZ|MZA|LT|LOTE|MANZANA|KM)\b/.test(n)) return null;
   const t = n.split(" ");
@@ -151,7 +156,7 @@ function parseIne(obs, opts = {}) {
   const keyPick = pick(geo, "clave", isValidVoterKey, tokens);
   const voterKey = keyPick.value;
   let printed = null;
-  for (const g of geo) printed ??= printedDate(g.value("fecha"));
+  for (const g of geo) printed ?? (printed = printedDate(g.value("fecha")));
   if (!printed) {
     const dates = new Set(allN.map((n) => printedDate(n)).filter((d) => Boolean(d)));
     if (dates.size === 1) printed = [...dates][0];
@@ -159,8 +164,8 @@ function parseIne(obs, opts = {}) {
   let printedSex = null;
   for (const g of geo) {
     const v = g.value("sexo") ?? g.lines.find((l) => /^SEXO[HM]$/.test(l.n.replace(/\s+/g, "")))?.n.replace(/\s+/g, "").slice(4);
-    if (v === "H") printedSex ??= "male";
-    else if (v === "M") printedSex ??= "female";
+    if (v === "H") printedSex ?? (printedSex = "male");
+    else if (v === "M") printedSex ?? (printedSex = "female");
   }
   const dateSources = [];
   if (printed) dateSources.push(["impresa", yymmdd(printed)]);

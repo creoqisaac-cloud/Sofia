@@ -93,7 +93,7 @@ export function renderCustomer(root, id) {
         c.vehicle ? chip(c.vehicle) : null),
       h("div", { class: "row wrap gap-s" },
         btn("WhatsApp", () => go(`/whatsapp?c=${c.id}`), "wa"),
-        btn("Mensaje sugerido", () => sendWhatsApp(c, fillTemplate(template(tplId).text, c)), "ghost"),
+        btn("Mensaje sugerido", () => sendWhatsApp(c, fillTemplate(template(tplId).text, c), { learn: false }), "ghost"),
         btn("Llamar", () => call(c), "ghost"),
         c.email ? btn("Correo", () => { location.href = `mailto:${c.email}`; }, "ghost") : null),
       section("Próximo seguimiento",

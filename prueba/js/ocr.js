@@ -49,15 +49,48 @@ async function tesseract(blob, onProgress) {
     logger: (m) => { if (m.status === "recognizing text") onProgress(`Leyendo la foto… ${Math.round((m.progress ?? 0) * 100)}%`); },
   });
   try {
-    const bmp = await createImageBitmap(blob);
-    const { data } = await worker.recognize(blob);
+    const { image, width, height } = await prepare(blob);
+    const { data } = await worker.recognize(image);
     const segs = (data.lines ?? []).flatMap(splitLine).filter((l) => l.text);
     return {
       engine: "tesseract",
-      pages: [{ width: bmp.width, height: bmp.height, blocks: segs.map((l) => ({ text: l.text, box: l.box, lines: [l] })) }],
+      pages: [{ width, height, blocks: segs.map((l) => ({ text: l.text, box: l.box, lines: [l] })) }],
     };
   } finally {
     await worker.terminate();
+  }
+}
+
+/**
+ * Mejora la foto antes de leerla: tamaño de trabajo de ~2000 px, escala de grises y contraste
+ * estirado (las INE tienen fondos de colores y hologramas que confunden al lector).
+ */
+async function prepare(blob) {
+  try {
+    const bmp = await createImageBitmap(blob, { imageOrientation: "from-image" });
+    const scale = Math.min(2.5, 2000 / Math.max(bmp.width, bmp.height));
+    const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(bmp, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < d.length; i += 4) { const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; d[i] = g; hist[g]++; }
+    // Recorta el 1% más oscuro y más claro y estira el resto a 0–255.
+    const total = w * h;
+    let lo = 0, hi = 255, acc = 0;
+    while (lo < 255 && (acc += hist[lo]) < total * 0.01) lo++;
+    acc = 0;
+    while (hi > 0 && (acc += hist[hi]) < total * 0.01) hi--;
+    const span = Math.max(1, hi - lo);
+    for (let i = 0; i < d.length; i += 4) { const v = Math.max(0, Math.min(255, ((d[i] - lo) * 255) / span)); d[i] = d[i + 1] = d[i + 2] = v; }
+    ctx.putImageData(img, 0, 0);
+    return { image: c, width: w, height: h };
+  } catch {
+    const bmp = await createImageBitmap(blob);
+    return { image: blob, width: bmp.width, height: bmp.height };
   }
 }
 

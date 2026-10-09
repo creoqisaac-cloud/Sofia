@@ -1,4 +1,4 @@
-// Generado desde src/server/extraction/mx-id.ts (misma lógica que la app completa).
+// GENERADO por scripts/prueba-generar.mjs desde src/server/extraction/mx-id.ts. No editar a mano.
 const CURP_STATES = {
   AS: "Aguascalientes",
   BC: "Baja California",

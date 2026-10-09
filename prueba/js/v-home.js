@@ -2,6 +2,8 @@
 import { h, fmtWhen, todayEnd, inDays, toast } from "./util.js";
 import { state, customer, openReminders, updateReminder, lastContact, plateLabel, setFollowUp } from "./store.js";
 import { header, section, empty, btn, go, rerender, sendWhatsApp, stageChip, chip } from "./ui.js";
+import { connectorReady } from "./connector.js";
+import { aiReady } from "./ai.js";
 import { fillTemplate, suggestTemplateId, template } from "./rules.js";
 
 export function renderHome(root) {
@@ -26,7 +28,11 @@ export function renderHome(root) {
       h("div", { class: "row wrap gap-s" },
         btn("+ Cliente", () => go("/cliente/nuevo"), "primary"),
         btn("Solicitud de crédito con INE", () => go("/cliente/nuevo?siguiente=credito")),
-        btn("Responder WhatsApp", () => go("/whatsapp?tab=responder"))),
+        btn(connectorReady() ? "Bandeja de WhatsApp" : "Responder WhatsApp", () => go(connectorReady() ? "/whatsapp?tab=bandeja" : "/whatsapp?tab=responder")),
+        btn("Recordatorios", () => go("/recordatorios"), "ghost")),
+      !aiReady() || !connectorReady() ? h("button", { class: "item", onclick: () => go("/conexiones") },
+        h("div", { class: "grow" }, h("strong", {}, "Activa todo el poder de Sofía"), h("div", { class: "muted small" }, [!aiReady() && "IA para INE y mensajes en tu estilo", !connectorReady() && "WhatsApp Business y Facebook reales"].filter(Boolean).join(" · "))),
+        h("span", { class: "muted" }, "›")) : null,
       section("Pendientes de hoy",
         due.length ? h("div", { class: "list" }, due.map(reminderRow)) : empty("Nada pendiente para hoy. Programa seguimientos desde la ficha de cada cliente.")),
       plates.length ? section("Placas en trámite", h("div", { class: "list" }, plates.map((c) =>
@@ -52,7 +58,7 @@ function reminderRow(r) {
       c ? stageChip(c.stage) : null),
     h("div", { class: "row wrap gap-s" },
       c ? btn("WhatsApp", () => {
-        if (!sendWhatsApp(c, fillTemplate(template(tplId).text, c))) return;
+        if (!sendWhatsApp(c, fillTemplate(template(tplId).text, c), { learn: false })) return;
         // Contactado: el seguimiento no se pierde, se mueve 3 días (se puede cambiar en la ficha).
         if (r.kind === "seguimiento") { setFollowUp(c.id, inDays(3)); toast("Próximo seguimiento en 3 días"); rerender(); } else done(r, c);
       }, "small wa") : null,

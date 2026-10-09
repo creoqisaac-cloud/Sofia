@@ -10,6 +10,12 @@ import { renderPlates } from "./v-plates.js";
 import { renderWhatsApp } from "./v-whatsapp.js";
 import { renderReminders } from "./v-reminders.js";
 import { renderSettings } from "./v-settings.js";
+import { renderChat } from "./v-whatsapp.js";
+import { renderMore } from "./v-more.js";
+import { renderConnections } from "./v-connections.js";
+import { renderStyle } from "./v-style.js";
+import { renderSocial } from "./v-social.js";
+import { connectorReady, inbox, refreshStatus } from "./connector.js";
 import { isNative, nativeNotifications, syncNativeReminders, onNotificationTap, webNotify } from "./native.js";
 
 // Íconos de trazo (heredan el color del texto).
@@ -20,6 +26,8 @@ const ICONS = {
   whatsapp: svg('<path d="M20 11.5a8 8 0 01-11.8 7L4 20l1.5-4.1A8 8 0 1120 11.5z"/><path d="M9 9.5c.3 2.2 2.3 4.2 4.5 4.6"/>'),
   avisos: svg('<path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15L6 16z"/><path d="M10 20.5a2 2 0 004 0"/>'),
   ajustes: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>'),
+  redes: svg('<path d="M3 10v4l3 .5V18a1.5 1.5 0 003 0v-3l9 3V6L6 9.5 3 10z"/><path d="M21 10v4"/>'),
+  mas: svg('<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'),
   comentario: svg('<path d="M4 5h16v11H9l-5 4V5z"/><path d="M8 9.5h8M8 12.5h5"/>'),
 };
 
@@ -27,15 +35,22 @@ const NAV = [
   ["/", "Hoy", ICONS.hoy],
   ["/clientes", "Clientes", ICONS.clientes],
   ["/whatsapp", "WhatsApp", ICONS.whatsapp],
-  ["/recordatorios", "Avisos", ICONS.avisos],
-  ["/ajustes", "Ajustes", ICONS.ajustes],
+  ["/redes", "Redes", ICONS.redes],
+  ["/mas", "Más", ICONS.mas],
 ];
+// Pantallas que se abren desde "Más" (la pestaña Más queda marcada).
+const UNDER_MORE = ["/mas", "/recordatorios", "/ajustes", "/conexiones", "/estilo"];
 
 function screenName(path) {
   if (path === "/") return "Hoy";
   if (path.endsWith("/credito")) return "Crédito";
   if (path.endsWith("/placas")) return "Placas";
   if (path.startsWith("/cliente")) return "Cliente";
+  if (path.startsWith("/whatsapp/chat")) return "Conversación";
+  if (path === "/estilo") return "Mi estilo";
+  if (path === "/conexiones") return "Conexiones";
+  if (path === "/recordatorios") return "Recordatorios";
+  if (path === "/ajustes") return "Ajustes";
   return NAV.find((n) => path.startsWith(n[0]) && n[0] !== "/")?.[1] ?? path;
 }
 
@@ -52,7 +67,12 @@ function render() {
     else if (seg[0] === "cliente" && seg[2] === "credito") renderCredit(view, seg[1]);
     else if (seg[0] === "cliente" && seg[2] === "placas") renderPlates(view, seg[1]);
     else if (seg[0] === "cliente") renderCustomer(view, seg[1]);
+    else if (seg[0] === "whatsapp" && seg[1] === "chat" && seg[2]) renderChat(view, decodeURIComponent(seg[2]));
     else if (seg[0] === "whatsapp") renderWhatsApp(view);
+    else if (seg[0] === "redes") renderSocial(view);
+    else if (seg[0] === "mas") renderMore(view);
+    else if (seg[0] === "conexiones") renderConnections(view);
+    else if (seg[0] === "estilo") renderStyle(view);
     else if (seg[0] === "recordatorios") renderReminders(view);
     else if (seg[0] === "ajustes") renderSettings(view);
     else go("/");
@@ -62,7 +82,11 @@ function render() {
   }
   for (const a of document.querySelectorAll("nav.bottom a")) {
     const p = a.getAttribute("href").slice(1);
-    a.classList.toggle("on", p === "/" ? path === "/" : path.startsWith(p) || (p === "/clientes" && path.startsWith("/cliente")));
+    a.classList.toggle("on", p === "/" ? path === "/" : p === "/mas" ? UNDER_MORE.includes(path) : path.startsWith(p) || (p === "/clientes" && path.startsWith("/cliente")));
+    if (p === "/whatsapp") {
+      a.querySelector(".badge")?.remove();
+      if (unread) a.querySelector(".ic").append(h("span", { class: "badge" }, String(unread)));
+    }
   }
 }
 
@@ -119,6 +143,27 @@ const syncNative = debounce(() => {
   if (nativeNotifications()) syncNativeReminders(state.reminders, (id) => customer(id)?.name).catch((e) => console.warn("Notificaciones:", e));
 }, 800);
 
+// ───────── Bandeja: avisos de mensajes nuevos (si hay conector con WhatsApp/Messenger) ─────────
+
+let unread = 0;
+let lastSeenAt = null;
+async function checkInbox() {
+  if (!connectorReady() || document.visibilityState !== "visible") return;
+  try {
+    const conv = Object.entries(await inbox());
+    unread = conv.filter(([k, c]) => c.lastDir === "in" && (!state.waSeen[k] || state.waSeen[k] < c.lastAt)).length;
+    const newest = conv.map(([, c]) => c).filter((c) => c.lastDir === "in").sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)))[0];
+    if (newest && lastSeenAt && newest.lastAt > lastSeenAt && !route().startsWith("/whatsapp/chat")) {
+      toast(`💬 ${newest.name || "Cliente"}: ${(newest.lastText ?? "").slice(0, 60)}`, 6000);
+      webNotify("Nuevo mensaje", `${newest.name || "Cliente"}: ${newest.lastText ?? ""}`);
+    }
+    if (newest) lastSeenAt = newest.lastAt > (lastSeenAt ?? "") ? newest.lastAt : lastSeenAt;
+    const a = document.querySelector('nav.bottom a[href="#/whatsapp"] .ic');
+    a?.querySelector(".badge")?.remove();
+    if (unread && a) a.append(h("span", { class: "badge" }, String(unread)));
+  } catch { /* sin red: se reintenta en la siguiente vuelta */ }
+}
+
 // ───────── Servidor propio (opcional) ─────────
 
 let dirty = false;
@@ -159,6 +204,8 @@ async function start() {
   tick();
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autoPush(); else { tick(); if (route() === "/") render(); } });
   checkServerOnStart();
+  if (connectorReady()) { refreshStatus().catch(() => {}); checkInbox(); }
+  setInterval(checkInbox, 30000);
   if ("serviceWorker" in navigator && !isNative() && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 

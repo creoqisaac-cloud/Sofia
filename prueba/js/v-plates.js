@@ -48,7 +48,7 @@ export function renderPlates(root, id) {
         h("div", { class: "grid2" }, field("Estado", statusSel), field("VIN / serie", vin)),
         p.sentAt ? h("p", { class: "muted small" }, `Enviado a gestoría ${fmtWhen(p.sentAt)}`) : null,
         h("div", { class: "row wrap gap-s" },
-          btn("Avisar al cliente por WhatsApp", () => sendWhatsApp(c, fillTemplate(template("placas").text, c)), "small wa"))),
+          btn("Avisar al cliente por WhatsApp", () => sendWhatsApp(c, fillTemplate(template("placas").text, c), { learn: false }), "small wa"))),
       section(`Documentos (${have}/${reqs.length})`,
         h("p", { class: "muted small" }, "Marca lo recibido y adjunta foto o PDF de cada documento. La lista se cambia en Ajustes."),
         h("div", { class: "list" }, reqs.map((r) => docRow(c, r)))),

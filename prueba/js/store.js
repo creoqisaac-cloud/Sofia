@@ -57,8 +57,10 @@ const emptyState = () => ({
     platesEmail: "",
     platesRequirements: [...DEFAULT_PLATE_REQS],
     templates: DEFAULT_TEMPLATES.map((t) => ({ ...t })),
-    ai: { enabled: false, apiKey: "", model: "claude-opus-5-5" },
+    ai: { enabled: false, apiKey: "", model: "claude-opus-5-5", ine: true },
     server: { url: "", token: "", auto: false, lastSync: null },
+    style: { myName: "", examples: [], notes: "", profile: null, analyzedAt: null },
+    bankForms: {},
     feedbackTo: "",
     onboarded: false,
   },
@@ -66,6 +68,8 @@ const emptyState = () => ({
   activity: [],
   reminders: [],
   feedback: [],
+  posts: [],
+  waSeen: {},
 });
 
 export let state = emptyState();
@@ -76,7 +80,8 @@ export async function load() {
   const saved = await kvGet("state");
   if (saved) {
     const base = emptyState();
-    state = { ...base, ...saved, settings: { ...base.settings, ...saved.settings, ai: { ...base.settings.ai, ...saved.settings?.ai }, server: { ...base.settings.server, ...saved.settings?.server } } };
+    const ss = saved.settings ?? {};
+    state = { ...base, ...saved, settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
   }
   return state;
 }
@@ -191,6 +196,25 @@ export async function saveFile(blob, name) {
 export const readFile = (id) => fileGet(id);
 export const removeFile = (id) => fileDelete(id);
 
+// ───────── Estilo de venta: mensajes reales del asesor ─────────
+
+/** Guarda mensajes que el asesor escribió (para que la IA imite su estilo). */
+export function learnFromAdvisor(texts, source = "app") {
+  const st = state.settings.style;
+  const seen = new Set(st.examples.map((e) => e.text));
+  let added = 0;
+  for (const raw of texts) {
+    const text = String(raw ?? "").trim();
+    if (text.length < 4 || text.length > 1200 || seen.has(text)) continue;
+    if (/^<(Multimedia omitido|Media omitted)>$|^(imagen|video|audio|sticker) omitid/i.test(text)) continue;
+    seen.add(text);
+    st.examples.push({ text, source, at: new Date().toISOString() });
+    added++;
+  }
+  if (st.examples.length > 1500) st.examples.splice(0, st.examples.length - 1500);
+  return added;
+}
+
 // ───────── Comentarios (retroalimentación de la prueba) ─────────
 
 export function addFeedback(screen, text) {
@@ -239,10 +263,20 @@ export async function resetAll() {
  *   POST <url>  (text/plain JSON) → { token, backup }  → { ok: true, updatedAt }
  * text/plain evita la "preflight" de CORS: funciona con Google Apps Script y servidores simples.
  */
+/** Dirección base del conector (sin /api/…). Una URL de Google Apps Script (…/exec) se usa tal cual. */
+export function serverBase() {
+  const url = (state.settings.server.url ?? "").trim();
+  if (!url) return "";
+  if (/\/exec\/?$/.test(url)) return url;
+  return url.replace(/\/api\/datos\/?$/, "").replace(/\/+$/, "");
+}
+export const isAppsScript = () => /\/exec\/?$/.test(serverBase());
+
 function serverUrl(withToken, extra = {}) {
-  const { url, token } = state.settings.server;
-  if (!url) throw new Error("Primero escribe la dirección del servidor en Ajustes.");
-  const u = new URL(url);
+  const { token } = state.settings.server;
+  const base = serverBase();
+  if (!base) throw new Error("Primero conecta tu servidor en Más → Conexiones.");
+  const u = new URL(isAppsScript() ? base : `${base}/api/datos`);
   if (withToken && token) u.searchParams.set("token", token);
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
   return u.toString();

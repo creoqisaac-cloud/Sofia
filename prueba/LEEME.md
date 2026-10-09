@@ -1,65 +1,56 @@
-# Sofía — versión de prueba (gratis, sin servidor)
+# Sofía: herramienta comercial para asesores de autos
 
-Esta versión está hecha para que el cliente la use **2–3 días** y deje comentarios, **sin pagar nada**: no necesita servidor, base de datos ni IA. Todo se guarda en el propio teléfono, tablet o computadora.
+Funciona **desde el primer minuto, gratis y sin servidor**. Los datos se guardan en el teléfono, la tablet o la computadora.
 
-| Qué hace | Cómo, sin IA |
-|---|---|
-| **Seguimiento de clientes con recordatorios** | Ficha por cliente, etapas, bitácora, "próximo seguimiento" con botones (mañana, 3 días, 1 semana). Pantalla **Hoy** con lo pendiente. En Android los avisos suenan con la app cerrada; en iPhone se agregan al Calendario (.ics). |
-| **Solicitud de crédito con INE por cámara** | Android: escáner nativo (recorta la credencial y lee el texto en el teléfono, sin internet). iPhone/PC: foto → lector incluido en la app. Valida CURP (dígito verificador), clave de elector, fecha/sexo cruzados, CP ↔ estado, vigencia y mayoría de edad. Calcula enganche, mensualidad estimada y relación pago/ingreso. Genera el **PDF** con datos, análisis, firmas y fotos de la INE. |
-| **Correos para trámite de placas** | Checklist de documentos (editable), fotos/PDF de cada uno, correo a la gestoría armado solo, envío **con adjuntos** desde Gmail/Correo del teléfono, correo de seguimiento y recordatorio automático para pedir estatus. |
-| **Asistente de WhatsApp** | Plantillas editables con variables, mensaje sugerido según la etapa del cliente, **"Responder"**: pegas lo que escribió el cliente → detecta el tema (precio, crédito, cita, documentos, placas, entrega, no interesado…) → respuesta sugerida + siguiente paso. Lista de pendientes del día. Abre WhatsApp con el texto listo; tú pulsas Enviar. |
-| **Comentarios de la prueba** | Botón de comentario en todas las pantallas. Se juntan en Ajustes → Comentarios y se mandan por correo o WhatsApp. |
+Cuando la conectas (ver [CONEXIONES.md](CONEXIONES.md)), suma:
+- IA real.
+- WhatsApp Business oficial.
+- Facebook.
 
-## Cómo dársela al cliente hoy
-
-1. **Activar la página gratis (una sola vez, 1 minuto):** en GitHub → repositorio *Sofia* → **Settings → Pages** → *Source: Deploy from a branch* → rama **`gh-pages`**, carpeta **`/ (root)`** → **Save**.
-   La app queda en **https://creoqisaac-cloud.github.io/Sofia/**. Cada cambio en `prueba/` la actualiza solo (flujo *Sofía Prueba*).
-2. **Android:** descargar **https://creoqisaac-cloud.github.io/Sofia/Sofia-Prueba.apk** (o del release *Sofía Prueba* en GitHub) e instalar (permitir "orígenes desconocidos"). Se llama **Sofía Prueba** y no choca con la app de la tablet. Las actualizaciones se instalan encima sin borrar datos.
-3. **iPhone:** abrir el enlace en **Safari** → Compartir → **Agregar a pantalla de inicio**.
-4. **Computadora (Windows/Mac):** abrir el enlace en Chrome o Edge → menú → *Instalar Sofía*. No hace falta un .exe.
-
-Para que el cliente vea cómo funciona: **Ajustes → Prueba → Cargar clientes de ejemplo**.
-
-## Dónde quedan los datos
-
-- En el dispositivo (IndexedDB del navegador o de la app). **No salen de ahí** salvo que se descargue un respaldo o se conecte un servidor.
-- **Ajustes → Respaldo**: descarga un archivo `.json` con todo (clientes, recordatorios, fotos). Se restaura en cualquier otro dispositivo.
-- Si se borran los datos del navegador o se desinstala la app, se pierde lo que no esté respaldado.
-
-## Conectar un servidor propio (opcional, también gratis)
-
-Sirve para respaldar automáticamente y usar varios dispositivos. Cualquiera de estas, sin atarse a ninguna:
-
-| Opción | Costo | Cómo |
+| Función | Sin conexiones | Con conexiones |
 |---|---|---|
-| **Google Apps Script + Drive** | Gratis, sin tarjeta | Seguir las instrucciones de [`servidor/google-apps-script.gs`](servidor/google-apps-script.gs). Pegar la URL `…/exec` y la clave en Ajustes → Servidor propio. |
-| **Tu computadora** | Gratis | `node prueba/servidor/servidor.mjs` (solo Node, sin instalar nada más). Sirve la app y guarda los datos con versiones. Para usarla desde fuera de casa con HTTPS: `cloudflared tunnel --url http://localhost:8080`. |
-| **Cualquier hosting con Node** (Render, Railway, Fly, Koyeb, VPS) | Gratis o de pago | El mismo `servidor.mjs`. Variables: `PORT`, `SOFIA_TOKEN`, `SOFIA_DATA_DIR`. |
+| **Clientes y seguimiento** | Ficha, etapas, bitácora, próximo contacto, pantalla **Hoy**, recordatorios (Android: suenan con la app cerrada; iPhone: Calendario) | Clientes creados solos desde chats de WhatsApp, con su interés y etapa leídos por IA |
+| **Crédito con INE** | Escáner nativo en Android y lector en iPhone/PC. Valida CURP (dígito verificador), clave de elector, fecha/sexo/nombre contra la CURP, RFC, CP ↔ estado, vigencia y edad. Llena el **PDF oficial de BBVA o Banorte** con su mapeo real de campos, más la pre-solicitud de Sofía | La **IA lee la INE** y el lector del teléfono la verifica campo por campo; lo que no coincide se marca para revisar |
+| **Placas** | Checklist de documentos con fotos, correo a la gestoría con adjuntos, seguimiento automático | — |
+| **WhatsApp** | Plantillas, mensaje sugerido por etapa, respuestas por tema, pendientes del día; abre WhatsApp con el texto listo | **Bandeja real** (WhatsApp Business y Messenger): mensajes entrantes, borradores de IA **en tu estilo**, envío desde Sofía, plantillas aprobadas, fotos del cliente → INE |
+| **Tu estilo de venta** | Importa tus chats exportados y muestra tus estadísticas: saludo, emojis, largo, trato | La IA aprende cómo vendes y **personaliza las plantillas para cada cliente** |
+| **Redes** | Texto y foto para compartir en Facebook/Instagram | **Publica en tu página de Facebook**, escribe publicaciones y anuncios con IA |
 
-El protocolo es mínimo (un `GET` y un `POST` de un JSON), así que cualquier backend futuro (Supabase, Firebase, el servidor completo de Sofía) puede implementarlo.
+## Cómo usarla hoy
 
-> Si la app se abre desde `https://…github.io`, el servidor también debe ser `https` (Apps Script, túnel o hosting). Un `http://192.168…` solo funciona abriendo la app desde ese mismo servidor.
+- **Web (iPhone, Android y computadora):** https://creoqisaac-cloud.github.io/Sofia/
+  - En iPhone: Safari → Compartir → *Agregar a pantalla de inicio*.
+  - En computadora: Chrome o Edge → *Instalar*.
+- **APK de Android:** https://creoqisaac-cloud.github.io/Sofia/Sofia-Prueba.apk. También está en los releases *Sofía Prueba* de GitHub. Las actualizaciones se instalan encima sin borrar datos.
+- **Para ver un ejemplo:** Más → Ajustes → *Cargar clientes de ejemplo*.
+- **Formatos oficiales de crédito:** Más → Ajustes → *Formatos oficiales de crédito*. Sube **una vez** el PDF rellenable en blanco de BBVA y el de Banorte. Sofía revisa que sea la versión conocida (cuántos campos reconoce).
 
-## Publicar la app en otro lado (sin ataduras)
+## IA: opcional y bajo tu control
 
-`prueba/` es una carpeta de archivos estáticos: se puede subir a **GitHub Pages**, **Firebase Hosting** (`cd prueba && firebase deploy`, ya incluye `firebase.json`), **Netlify**, **Cloudflare Pages** o cualquier hosting. En cada release viene también `Sofia-Prueba-web.zip`.
+Todo lo de la columna "Sin conexiones" funciona sin IA. La IA se conecta en **Más → Conexiones** con tu propia llave de Anthropic. Puedes elegir la calidad (Opus 5.5, Sonnet 5.5 o Haiku 5.5) y apagar la lectura de INE con IA. Nada se envía a un cliente sin que tú lo revises y toques **Enviar**.
 
-## IA: opcional, apagada por defecto
+## Datos y respaldo
 
-Nada de lo anterior usa IA. En **Ajustes → Asistente con IA** se puede activar con una llave propia de Anthropic: aparece "✨ Mejorar con IA" en WhatsApp para redactar o pulir mensajes. La llave se guarda solo en el dispositivo y nunca va a respaldos ni al servidor. Si se apaga o no hay internet, todo sigue funcionando.
+- **Sin servidor:** todo queda en el dispositivo. Para respaldar: **Más → Ajustes → Respaldo** (archivo `.json` con clientes, recordatorios y fotos).
+- **Con servidor:** el conector guarda una copia, permite usar varios dispositivos y conserva versiones anteriores. Puede ser Cloudflare gratis, tu computadora o cualquier hosting con Node.
 
-**¿Y la app completa (Next.js)?** Tampoco depende de IA: por defecto usa `SOFIA_LLM_PROVIDER=demo`, un motor de reglas. Claude solo se usaría en el simulador de conversación si se activa `SOFIA_LLM_PROVIDER=anthropic`. INE, crédito, placas, recordatorios y cotizador son reglas deterministas.
+## Límites honestos
 
-## Límites honestos de esta prueba
-
-- Sin servidor, cada dispositivo tiene sus propios datos (usar respaldo o servidor propio para compartir).
-- WhatsApp: prepara y abre el mensaje, **no envía ni lee solo**. Leer/contestar automáticamente requiere WhatsApp Business API (Meta) en la fase de pago.
-- Correo: se envía desde la app de correo del teléfono (con adjuntos); Sofía no guarda contraseñas de correo.
-- El lector de fotos del navegador (iPhone/PC) es menos preciso que el escáner de Android; siempre se muestran los datos para revisarlos.
-- El PDF es una **pre-solicitud** propia. Los PDFs oficiales BBVA/Banorte se llenan en la app completa.
+- **INE:** ningún lector es infalible.
+  - Con IA más la verificación del teléfono y las reglas oficiales (dígito verificador de la CURP, cruces de fecha, sexo y nombre), los errores quedan **marcados**, no ocultos.
+  - Siempre se muestran los datos para confirmarlos.
+- **WhatsApp:**
+  - Después de 24 h sin mensaje del cliente, Meta solo permite plantillas aprobadas.
+  - Sofía prepara las respuestas, pero no contesta sola.
+- **Anuncios pagados:** Sofía los escribe con IA y te lleva al Administrador de anuncios. Crear campañas automáticamente requiere un permiso de Meta (`ads_management`) que se tramita aparte.
+- **Formatos de crédito:** se llenan los datos. PEP, consentimientos y firmas los responde y firma el cliente.
 
 ## Para desarrolladores
 
-- Sin compilación: HTML + JavaScript (módulos). `js/ine-parser.js` y `js/mxid.js` se generan desde `src/server/extraction/` (misma lógica que la app completa).
-- Prueba de punta a punta: `SOFIA_TOKEN=clave-prueba node prueba/servidor/servidor.mjs` y en otra terminal `node scripts/prueba-e2e.mjs`.
-- APK local: `SOFIA_PRUEBA=1 npx cap sync android && cd android && ./gradlew -PsofiaPrueba assembleDebug`.
+- **Sin compilación:** HTML + módulos de JavaScript.
+- **Código generado:** `js/ine-parser.js`, `js/mxid.js`, `js/bank-adapters.js`, `vendor/anthropic-sdk.mjs` y el Worker de un archivo se generan con `node scripts/prueba-generar.mjs`. Salen de la app completa (`src/`), así que la lógica es la misma.
+- **Conector:** `servidor/core.mjs` es independiente del hosting. Lo envuelven `servidor.mjs` (Node) y `cloudflare/worker.mjs`.
+- **Pruebas:**
+  - `npx vitest run tests/31-conector.test.ts tests/32-prueba-credito-oficial.test.ts`
+  - Prueba de punta a punta: ver el encabezado de `scripts/prueba-e2e.mjs`. Simula la IA y la API de Meta.
+- **APK local:** `SOFIA_PRUEBA=1 npx cap sync android && cd android && ./gradlew -PsofiaPrueba assembleDebug`.
