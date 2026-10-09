@@ -1,7 +1,7 @@
 // Más → Conexiones: Google (gratis: datos, Gmail, Calendar, lector), servidor/conector, WhatsApp Business,
 // Facebook/Instagram e IA opcional, cada uno con su estado verdadero.
-import { h, toast, fmtWhen } from "./util.js";
-import { state, save, serverPeek, serverBase, isAppsScript } from "./store.js";
+import { h, toast, fmtWhen, modal } from "./util.js";
+import { state, save, serverPeek, serverPull, serverBase, isAppsScript } from "./store.js";
 import { header, section, btn, rerender, field, input, select, chip, go } from "./ui.js";
 import { MODELS, testConnection, aiReady } from "./ai.js";
 import { connectorReady, refreshStatus, lastStatus, sendMessage, waTemplates } from "./connector.js";
@@ -27,7 +27,7 @@ export function renderConnections(root) {
 // ───────── Google (gratis) ─────────
 
 function googleCard() {
-  const g = state.settings.google;
+  const g = state.settings.google; // solo para mostrar: al conectar se escribe en state.settings.google
   const st = lastGoogleStatus();
   const url = input({ type: "url", placeholder: "https://script.google.com/macros/s/…/exec", value: g.url ?? "" });
   const token = input({ type: "password", autocomplete: "off", value: g.token ?? "" });
@@ -37,7 +37,7 @@ function googleCard() {
   const dias = input({ type: "number", min: "1", max: "30", value: correo.dias ?? 3, style: "max-width:90px" });
   const connect = async (e) => {
     const b = e.currentTarget;
-    Object.assign(g, { url: url.value.trim(), token: token.value.trim() });
+    state.settings.google = { ...state.settings.google, url: url.value.trim(), token: token.value.trim() };
     save();
     b.disabled = true;
     out.className = "small";
@@ -45,9 +45,18 @@ function googleCard() {
     try {
       const primera = !st;
       const r = await googleStatus();
-      // Sin conector, Google guarda el respaldo: se enciende solo la primera vez (luego manda el interruptor).
-      if (primera && !serverBase()) { state.settings.server.auto = true; save(); }
       toast(`Google conectado: ${r.cuenta ?? "tu cuenta"}`);
+      // Sin conector, Google guarda el respaldo: se enciende solo la primera vez (luego manda el interruptor).
+      // Si tu Drive ya tiene datos (otro teléfono), primero se ofrece traerlos para no taparlos con este.
+      if (primera && !serverBase()) {
+        const m = await serverPeek().catch(() => ({}));
+        if (m.updatedAt && !state.settings.server.lastSync) {
+          modal("Ya hay datos en tu Drive", h("p", {}, `Hay un respaldo del ${fmtWhen(m.updatedAt)}. ¿Traerlo a este dispositivo? Si no, el respaldo automático queda apagado para no taparlo.`), [
+            { label: "Ahora no" },
+            { label: "Traer", kind: "primary", onClick: async () => { try { await serverPull(); state.settings.server.auto = true; save(); toast("Datos traídos de tu Drive"); rerender(); } catch (err) { toast(err.message, 6000); return false; } } },
+          ]);
+        } else { state.settings.server.auto = true; save(); }
+      }
       rerender();
     } catch (err) { out.className = "small warn"; out.textContent = err.message; }
     finally { b.disabled = false; }

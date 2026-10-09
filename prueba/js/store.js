@@ -78,13 +78,16 @@ export let state = emptyState();
 const listeners = new Set();
 export const onChange = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 
+/** Completa con los valores por defecto lo que falte (datos guardados por una versión anterior). */
+function withDefaults(saved) {
+  const base = emptyState();
+  const ss = saved.settings ?? {};
+  return { ...base, ...saved, calTrash: saved.calTrash ?? [], settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, google: { ...base.settings.google, ...ss.google }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
+}
+
 export async function load() {
   const saved = await kvGet("state");
-  if (saved) {
-    const base = emptyState();
-    const ss = saved.settings ?? {};
-    state = { ...base, ...saved, settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, google: { ...base.settings.google, ...ss.google }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
-  }
+  if (saved) state = withDefaults(saved);
   return state;
 }
 
@@ -94,6 +97,13 @@ export function save() {
   const snapshot = structuredClone(state);
   saving = saving.then(() => kvSet("state", snapshot)).catch((e) => console.error("No se pudo guardar", e));
   for (const fn of listeners) fn();
+  return saving;
+}
+
+/** Guarda sin contarlo como cambio de datos (no mueve updatedAt ni dispara respaldo): para el estado de las conexiones. */
+export function persist() {
+  const snapshot = structuredClone(state);
+  saving = saving.then(() => kvSet("state", snapshot)).catch((e) => console.error("No se pudo guardar", e));
   return saving;
 }
 
@@ -125,6 +135,7 @@ export async function deleteCustomer(id) {
   for (const f of customerFileIds(c)) await fileDelete(f).catch(() => {});
   state.customers = state.customers.filter((x) => x.id !== id);
   state.activity = state.activity.filter((a) => a.customerId !== id);
+  for (const r of state.reminders) if (r.customerId === id && r.calendarId) state.calTrash.push(r.calendarId);
   state.reminders = state.reminders.filter((r) => r.customerId !== id);
   save();
 }
@@ -245,12 +256,24 @@ export async function importAll(backup) {
   const keepServer = state.settings.server;
   const keepAi = state.settings.ai;
   const keepGoogle = state.settings.google;
+  // Eventos de Google Calendar de este dispositivo: los recordatorios que el respaldo ya no trae se borran
+  // de Google, y los que sí trae conservan su evento (si no, sonarían dos veces).
+  const incoming = new Set((backup.state.reminders ?? []).map((r) => r.id));
+  const local = new Map(state.reminders.filter((r) => r.calendarId).map((r) => [r.id, r]));
+  const keepTrash = [...(state.calTrash ?? []), ...[...local.values()].filter((r) => !incoming.has(r.id)).map((r) => r.calendarId)];
   await clearAll();
-  state = backup.state;
+  state = withDefaults(backup.state);
   // La conexión y la llave de IA son de este dispositivo: no se sobrescriben con las de otro.
   state.settings.server = keepServer;
   state.settings.ai = keepAi;
   state.settings.google = keepGoogle;
+  state.calTrash = [...state.calTrash, ...keepTrash];
+  for (const r of state.reminders) {
+    const l = local.get(r.id);
+    if (!l) continue;
+    if (!r.calendarId && !r.done) Object.assign(r, { calendarId: l.calendarId, calendarSig: l.calendarSig });
+    else if (l.calendarId !== r.calendarId) state.calTrash.push(l.calendarId); // hecho, o con otro evento
+  }
   for (const [id, f] of Object.entries(backup.files ?? {})) {
     await filePut(id, { name: f.name, mime: f.mime, blob: await dataUrlToBlob(f.dataUrl) });
   }

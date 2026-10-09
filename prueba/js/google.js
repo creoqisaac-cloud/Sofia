@@ -3,7 +3,7 @@
 //  - Calendario: recordatorios en el calendario "Sofía" con aviso (suenan en el iPhone vía Google Calendar).
 //  - OCR:        segundo lector de fotos (INE) con el OCR gratuito de Google Drive.
 // Es un extra: todo lo demás funciona sin esto. La app guarda solo la dirección …/exec y su clave.
-import { state, save, isAppsScript } from "./store.js";
+import { state, persist, isAppsScript } from "./store.js";
 import { blobToBase64, shrinkImage } from "./util.js";
 import { textToObservation } from "./ocr-obs.js";
 
@@ -49,8 +49,9 @@ export async function gcall(action, payload = {}) {
 
 export async function googleStatus() {
   const st = await gcall("estado");
-  state.settings.google = { ...state.settings.google, status: { at: new Date().toISOString(), cuenta: st.cuenta, servicios: st.servicios, correo: st.correo, version: st.version } };
-  save();
+  // Se cambia en el mismo objeto (las pantallas abiertas lo siguen viendo) y sin contarlo como cambio de datos.
+  state.settings.google.status = { at: new Date().toISOString(), cuenta: st.cuenta, servicios: st.servicios, correo: st.correo, version: st.version };
+  persist();
   return st;
 }
 
@@ -90,10 +91,11 @@ export const closeEmailCase = (ref) => gcall("correo.cerrar", { ref });
  * Crea o mueve el evento en el calendario "Sofía" con aviso emergente (Google acepta de 5 min a 4 semanas antes).
  * Devuelve el id del evento: guárdalo en el recordatorio para moverlo o borrarlo después.
  */
-export async function saveEvent({ id, title, description = "", at, minutes = 15, alerts = [5] }) {
+export async function saveEvent({ id, ref, title, description = "", at, minutes = 15, alerts = [5] }) {
   const inicio = new Date(at);
   if (Number.isNaN(inicio.getTime())) throw new Error("La fecha del recordatorio no es válida.");
-  const r = await gcall("calendario.guardar", { id, titulo: title, descripcion: description, inicio: inicio.toISOString(), minutos: minutes, avisos: alerts });
+  // ref (id del recordatorio): si la respuesta se perdió o otro dispositivo ya lo creó, Google reutiliza ese evento.
+  const r = await gcall("calendario.guardar", { id, ref, titulo: title, descripcion: description, inicio: inicio.toISOString(), minutos: minutes, avisos: alerts });
   return r.id;
 }
 

@@ -16,7 +16,7 @@ import { renderConnections } from "./v-connections.js";
 import { renderStyle } from "./v-style.js";
 import { renderSocial } from "./v-social.js";
 import { connectorReady, inbox, refreshStatus } from "./connector.js";
-import { googleReady, googleStatus, saveEvent, deleteEvent } from "./google.js";
+import { googleReady, googleStatus, saveEvent, deleteEvent, closeEmailCase } from "./google.js";
 import { isNative, nativeNotifications, syncNativeReminders, onNotificationTap, webNotify } from "./native.js";
 
 // Íconos de trazo (heredan el color del texto).
@@ -168,32 +168,43 @@ async function checkInbox() {
 // ───────── Google Calendar: los recordatorios suenan en el iPhone aunque Sofía esté cerrada ─────────
 
 let calBusy = false;
+let calAgain = false; // llegó otro cambio mientras sincronizaba: se repite al terminar
 const syncCalendar = debounce(async () => {
-  if (!googleReady() || calBusy || !navigator.onLine) return;
+  if (!googleReady() || !navigator.onLine) return;
+  if (calBusy) { calAgain = true; return; }
   calBusy = true;
   let changed = false;
   try {
     while (state.calTrash.length) {
-      await deleteEvent(state.calTrash[0]).catch(() => {}); // ya borrado en Google: no importa
+      await deleteEvent(state.calTrash[0]); // si falla se queda en la cola (si ya no existe, Google contesta ok)
       state.calTrash.shift();
       changed = true;
     }
     const now = Date.now();
-    for (const r of state.reminders) {
+    for (const r of [...state.reminders]) {
       const t = new Date(r.at).getTime();
-      if (r.done || t < now - 3600000 || t > now + 60 * 86400000) continue; // solo lo próximo (60 días)
+      // Eventos nuevos solo para lo próximo (60 días); uno que ya tiene evento se mueve a donde vaya.
+      if (r.done || (!r.calendarId && (t < now - 3600000 || t > now + 60 * 86400000))) continue;
       const c = r.customerId ? customer(r.customerId) : null;
       const sig = `${r.at}|${r.text}|${c?.name ?? ""}|${c?.phone ?? ""}`;
-      if (r.calendarId && r.calendarSig === sig) continue;
-      r.calendarId = await saveEvent({ id: r.calendarId ?? undefined, title: c ? `${r.text} · ${c.name}` : r.text, description: c?.phone ? `Cliente: ${c.name}\nTel. ${c.phone}\nWhatsApp: https://wa.me/${c.phone.replace(/\D/g, "").replace(/^(\d{10})$/, "52$1")}` : "Recordatorio de Sofía", at: r.at, alerts: [5] });
-      r.calendarSig = sig;
+      if (r.calendarSig === sig && r.calendarId) continue;
+      if (!state.reminders.includes(r)) continue; // lo borraron durante la vuelta
+      const id = await saveEvent({ id: r.calendarId ?? undefined, ref: r.id, title: c ? `${r.text} · ${c.name}` : r.text, description: c?.phone ? `Cliente: ${c.name}\nTel. ${c.phone}\nWhatsApp: https://wa.me/${c.phone.replace(/\D/g, "").replace(/^(\d{10})$/, "52$1")}` : "Recordatorio de Sofía", at: r.at, alerts: [5] });
       changed = true;
+      // Lo marcaron hecho o lo borraron mientras Google contestaba: su evento va a la papelera.
+      if (r.done || !state.reminders.includes(r)) { state.calTrash.push(id); calAgain = true; continue; }
+      r.calendarId = id;
+      r.calendarSig = sig;
     }
   } catch (e) {
-    console.warn("Calendario:", e.message); // se reintenta en el siguiente cambio
+    console.warn("Calendario:", e.message); // se reintenta en el siguiente cambio, al volver a la app o al haber red
   } finally {
     calBusy = false;
-    if (changed) save();
+    if (changed) {
+      save();
+      if (document.visibilityState === "hidden") autoPush(); // el respaldo ya lleva los ids de los eventos
+    }
+    if (calAgain) { calAgain = false; syncCalendar(); }
   }
 }, 2500);
 
@@ -235,10 +246,16 @@ async function start() {
   onNotificationTap((extra) => { if (extra.customerId) go(`/cliente/${extra.customerId}`); });
   setInterval(tick, 30000);
   tick();
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autoPush(); else { tick(); if (route() === "/") render(); } });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autoPush(); else { tick(); syncCalendar(); if (route() === "/") render(); } });
+  window.addEventListener("online", () => syncCalendar());
   checkServerOnStart();
-  if (connectorReady()) { refreshStatus().catch(() => {}); checkInbox(); }
-  if (googleReady()) { googleStatus().catch(() => {}); syncCalendar(); }
+  if (connectorReady()) { refreshStatus().then(() => { if (route() === "/") render(); }).catch(() => {}); checkInbox(); }
+  if (googleReady()) {
+    googleStatus().catch(() => {});
+    syncCalendar();
+    // Casos de placas entregadas cuyo cierre en Gmail no llegó: se reintenta para que no haya más seguimientos.
+    for (const c of state.customers) if (c.plates?.closePending) closeEmailCase(c.id).then(() => { delete c.plates.closePending; save(); }).catch(() => {});
+  }
   setInterval(checkInbox, 30000);
   if ("serviceWorker" in navigator && !isNative() && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 }

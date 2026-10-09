@@ -26,10 +26,10 @@ Qué se activa:
 - **Placas:**
   - **Enviar a la gestoría** sale de tu Gmail con las fotos de los documentos.
   - **Revisar respuestas** lee lo que contestó la gestoría y propone el estado (*falta documento*, *pago*, *placas listas*, *en trámite*). Tú lo aplicas con un toque.
-  - **Seguimiento automático:** si no contestan en N días, Google manda un recordatorio en el mismo hilo. Es uno por periodo, con un máximo de 3, y Sofía no tiene que estar abierta.
+  - **Seguimiento automático:** actívalo en **Conexiones → Google → Agente de correo** (viene apagado). Si la gestoría no contesta en N días, Google manda un recordatorio en el mismo hilo. Es uno por periodo, con un máximo de 3, y Sofía no tiene que estar abierta.
 - **Recordatorios:** cada recordatorio de Sofía se copia al calendario **Sofía** con aviso.
 - **Crédito:** la INE la leen el lector del teléfono **y** el de Google. Los campos se comparan uno por uno y lo que no coincide se marca.
-- **Respaldo:** si no tienes el conector, los datos se respaldan en tu Drive.
+- **Respaldo:** si no tienes el conector, los datos (con las fotos) se respaldan solos en tu Drive. Si tu Drive ya tenía un respaldo de otro teléfono, Sofía primero te ofrece traerlo.
 
 Límites de una cuenta gratuita: 100 destinatarios de correo al día y unas 250 lecturas de INE con Google al día.
 
@@ -43,7 +43,7 @@ Límites de una cuenta gratuita: 100 destinatarios de correo al día y unas 250 
 4. Crea el almacén de datos:
    - **Storage & Databases → KV → Create**, con el nombre `SOFIA_KV`.
    - En tu Worker: **Settings → Bindings → Add → KV namespace**. Usa el nombre de variable `SOFIA_KV` y elige el KV que creaste.
-5. **Programador de publicaciones:** en tu Worker, **Settings → Triggers → Cron Triggers → Add**, con `*/5 * * * *` (cada 5 minutos). Sin esto, lo programado solo sale cuando alguien abre la app.
+5. **Programador de publicaciones:** en tu Worker, **Settings → Triggers → Cron Triggers → Add**, con `*/5 * * * *` (cada 5 minutos). Sin esto, lo programado no se publica solo: solo sale cuando usas **Publicar ahora**, que también envía lo que ya venció.
 6. En **Settings → Variables and Secrets**, agrega como **Secret**:
    - `SOFIA_TOKEN`: una clave larga que inventes. Es la misma que pondrás en Sofía.
    - `PUBLIC_URL`: la dirección de tu Worker (paso 7). Instagram descarga de ahí las fotos programadas.
@@ -196,4 +196,4 @@ La llave se guarda solo en ese teléfono. No viaja a respaldos ni al servidor.
 - Los tokens de Meta viven **solo en el conector** (secretos de Cloudflare o tu `.env`), nunca en los teléfonos.
 - El conector **verifica la firma** de cada aviso de Meta (`META_APP_SECRET`). Rechaza mensajes falsificados.
 - La app habla con el conector usando la clave `SOFIA_TOKEN`, y con Google usando la clave `TOKEN` de tu script. Quien tenga la dirección **y** la clave de Google puede enviar correos desde tu Gmail: no la compartas.
-- Las fotos de INE se guardan en el teléfono. Solo salen para leerlas: a tu Google (el script borra el archivo temporal) o a la IA, si la conectas. La lectura con IA se puede apagar en Conexiones.
+- Las fotos de INE se guardan en el teléfono y van dentro de los respaldos: el archivo que descargas, tu Drive o tu conector, según lo que tengas conectado. Además salen para leerlas: a tu Google (el script borra el archivo temporal) o a la IA, si la conectas. La lectura con IA se puede apagar en Conexiones.
