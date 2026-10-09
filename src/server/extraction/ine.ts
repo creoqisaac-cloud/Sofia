@@ -155,7 +155,7 @@ class PageGeo {
 
 const DATE_RE = /\b(\d{2})\/(\d{2})\/(\d{4})\b/;
 function printedDate(s: string | null | undefined): string | null {
-  // El OCR mete espacios junto a las diagonales o entre dígitos de la fecha ("0 7/04/ 2005").
+  // El OCR mete espacios junto a las diagonales o entre dígitos de la fecha ("0 5/05/ 1985").
   const m = s?.replace(/\s*\/\s*/g, "/").replace(/\b(\d)\s+(\d)(?=\/)/g, "$1$2").match(DATE_RE);
   if (!m) return null;
   const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
@@ -194,7 +194,7 @@ function parseStreet(n: string): { street: string; ext: string; int?: string } |
   }
   const ext = t.pop();
   if (!ext || !EXT_RE.test(ext) || t.length === 0) return null;
-  // Orilla de la credencial o sombra leída como un caracter suelto antes del tipo de vialidad ("1 C VALLE…", "| C VALLE…").
+  // Orilla de la credencial o sombra leída como un caracter suelto antes del tipo de vialidad ("1 C FALSA…", "| C FALSA…").
   if (t.length > 2 && t[0]!.length === 1 && STREET_TYPES.has(t[1]!)) t.shift();
   if (t[0] === "C" && t.length > 1) t.shift(); // "C" = calle
   // "CFALSA": el OCR pegó la "C" de calle (en español ninguna palabra empieza con C + B, D, F, G, J…)

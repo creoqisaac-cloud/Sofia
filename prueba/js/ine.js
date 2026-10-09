@@ -24,7 +24,7 @@ function readValidity(obs, now = new Date()) {
   const lines = obs.pages.flatMap((p) => pageLines(p).map((l) => l.text.toUpperCase()));
   let loose = null;
   for (const l of lines) {
-    // Con anticipación (?=…): en "07/04/2005 2023 - 2033" el 2023 también se prueba como inicio de rango.
+    // Con anticipación (?=…): en "05/05/1985 2023 - 2033" el 2023 también se prueba como inicio de rango.
     for (const m of l.matchAll(/\b(20\d{2})(?=\s*[-–—]?\s*(20\d{2})\b)/g)) {
       const [from, to] = [Number(m[1]), Number(m[2])];
       if (!plausible(to) || to <= from || to - from > 10) continue;
