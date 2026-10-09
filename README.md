@@ -1,5 +1,7 @@
 # Sofía — asistente comercial con IA para Mario Abarca (Honda)
 
+> **Versión de prueba gratis, sin servidor y sin IA obligatoria:** carpeta [`prueba/`](prueba/LEEME.md) — clientes con recordatorios, crédito con INE por cámara, correos de placas y asistente de WhatsApp. Web en GitHub Pages + APK Android, datos en el dispositivo, servidor propio opcional (Google Apps Script o `node`).
+
 - Sprint 1: **cerebro, persistencia y simulador**.
 - Sprint 2: **app operativa iPhone-first**. Incluye clientes con procedencia y conflictos, solicitudes de crédito BBVA/Banorte en PDF, memoria de corridas y control de ventas.
 - Sprint 3: **piloto para Mario**. Sofía como copiloto operativo: comando universal por texto o voz, cotizador V2 con calibración, seguimiento, citas, placas, correos y los PDFs reales de BBVA/Banorte. Ver [Sprint 3](#sprint-3--piloto-operativo).

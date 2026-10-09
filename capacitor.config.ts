@@ -10,18 +10,22 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const serverUrl = process.env.SOFIA_SERVER_URL?.trim();
+// SOFIA_PRUEBA=1 empaqueta la versión de prueba (carpeta prueba/): funciona sola, sin servidor.
+const prueba = process.env.SOFIA_PRUEBA === "1";
 
 const config: CapacitorConfig = {
-  appId: "mx.sofia.mario",
-  appName: "Sofía",
-  webDir: "android-shell/www",
-  appendUserAgent: "SofiaTablet/1",
-  server: {
-    ...(serverUrl ? { url: serverUrl } : {}),
-    cleartext: true,
-    errorPath: "conexion.html",
-    androidScheme: "https",
-  },
+  appId: prueba ? "mx.sofia.prueba" : "mx.sofia.mario",
+  appName: prueba ? "Sofía Prueba" : "Sofía",
+  webDir: prueba ? "prueba" : "android-shell/www",
+  appendUserAgent: prueba ? "SofiaPrueba/1" : "SofiaTablet/1",
+  server: prueba
+    ? { androidScheme: "https" }
+    : {
+        ...(serverUrl ? { url: serverUrl } : {}),
+        cleartext: true,
+        errorPath: "conexion.html",
+        androidScheme: "https",
+      },
   android: {
     allowMixedContent: false,
     webContentsDebuggingEnabled: false,

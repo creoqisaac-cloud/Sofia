@@ -1,0 +1,85 @@
+name: Sofía Prueba (web gratis + APK)
+
+# Versión de prueba SIN servidor (carpeta prueba/):
+#  1. prueba de punta a punta en Chromium (celular) con datos sintéticos;
+#  2. APK Android "Sofía Prueba" (mx.sofia.prueba, se instala junto a la de la tablet);
+#  3. publica la app web + la APK en la rama gh-pages (GitHub Pages, gratis) y en un release.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/focused-gauss-q4hxvr, claude/laughing-sagan-hbxj3y]
+    paths: ["prueba/**", "scripts/prueba-e2e.mjs", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
+
+concurrency:
+  group: prueba-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci --ignore-scripts
+
+      - name: Prueba de punta a punta (navegador de celular)
+        run: |
+          npx playwright install --with-deps chromium
+          SOFIA_TOKEN=clave-prueba SOFIA_DATA_DIR=$RUNNER_TEMP/datos nohup node prueba/servidor/servidor.mjs > $RUNNER_TEMP/servidor.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:8080/api/salud && break; sleep 1; done
+          BASE=http://localhost:8080/ SHOTS=capturas node scripts/prueba-e2e.mjs
+
+      - name: APK de prueba
+        env:
+          SOFIA_PRUEBA: "1"
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          npx cap sync android
+          sed -i 's#<string name="app_name">Sofía</string>#<string name="app_name">Sofía Prueba</string>#; s#<string name="title_activity_main">Sofía</string>#<string name="title_activity_main">Sofía Prueba</string>#' android/app/src/main/res/values/strings.xml
+          # Firma fija de prueba: cada versión nueva se instala encima SIN borrar los datos del teléfono.
+          mkdir -p ~/.android && cp android/prueba-debug.keystore ~/.android/debug.keystore
+          cd android && chmod +x gradlew && ./gradlew --no-daemon -PsofiaPrueba :app:assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../Sofia-Prueba.apk
+          ls -la ../Sofia-Prueba.apk
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sofia-prueba-${{ github.run_number }}
+          path: |
+            Sofia-Prueba.apk
+            capturas/
+          retention-days: 30
+
+      - name: Publicar en GitHub Pages (rama gh-pages)
+        run: |
+          rm -rf "$RUNNER_TEMP/site" && mkdir -p "$RUNNER_TEMP/site"
+          cp -r prueba/. "$RUNNER_TEMP/site/"
+          rm -rf "$RUNNER_TEMP/site/servidor/datos"
+          cp Sofia-Prueba.apk "$RUNNER_TEMP/site/Sofia-Prueba.apk"
+          touch "$RUNNER_TEMP/site/.nojekyll"
+          (cd "$RUNNER_TEMP/site" && zip -qr "$RUNNER_TEMP/Sofia-Prueba-web.zip" . -x "Sofia-Prueba.apk")
+          cd "$RUNNER_TEMP/site"
+          git init -q -b gh-pages && git add -A -f
+          git -c user.name="sofia-ci" -c user.email="sofia-ci@users.noreply.github.com" commit -qm "Sofía Prueba #${{ github.run_number }} (${{ github.sha }})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages
+
+      - name: Release con la APK y la web en .zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "prueba-${{ github.run_number }}" Sofia-Prueba.apk "$RUNNER_TEMP/Sofia-Prueba-web.zip" \
+            --target "${{ github.sha }}" --prerelease \
+            --title "Sofía Prueba #${{ github.run_number }}" \
+            --notes "Versión de prueba SIN servidor: clientes y recordatorios, solicitud de crédito con INE por cámara, placas por correo y asistente de WhatsApp. Los datos se guardan en el teléfono. IA opcional. Web: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"

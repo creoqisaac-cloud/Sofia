@@ -4,7 +4,8 @@ android {
     namespace "mx.sofia.mario"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "mx.sofia.mario"
+        // -PsofiaPrueba: versión de prueba (sin servidor), se instala junto a la de la tablet.
+        applicationId project.hasProperty("sofiaPrueba") ? "mx.sofia.prueba" : "mx.sofia.mario"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 4

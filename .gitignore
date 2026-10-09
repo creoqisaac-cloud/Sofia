@@ -41,3 +41,5 @@ npm-debug.log*
 *.aab
 *.keystore
 *.jks
+/prueba/servidor/datos/
+!/android/prueba-debug.keystore
