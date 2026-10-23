@@ -4,6 +4,12 @@ on:
   pull_request:
     paths:
       - 'src/server/whatsapp/**'
+      - 'src/server/agent/**'
+      - 'src/app/api/mario/voice/**'
+      - 'src/app/settings/mario-voice/**'
+      - 'src/components/mario/MarioVoiceTrainer.tsx'
+      - 'tests/35-mario-voice.test.ts'
+      - 'src/app/whatsapp/**'
       - 'src/server/biky/**'
       - 'src/app/api/webhooks/biky-booking/**'
       - 'tests/34-biky-booking-notify.test.ts'
