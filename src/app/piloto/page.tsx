@@ -17,7 +17,9 @@ export default async function PilotPage({ searchParams }: { searchParams: Promis
   const { cita } = await searchParams;
   const app = await getAppContext();
   const now = app.clock.now();
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Monterrey", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const dateParts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Monterrey", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const datePart = (type: string) => dateParts.find(p => p.type === type)?.value ?? "";
+  const today = `${datePart("year")}-${datePart("month")}-${datePart("day")}`;
   const appointments = await app.db.select({
     appointment: s.appointments, name: s.customers.displayName, phone: s.customers.phone, isDemo: s.customers.isDemo,
   }).from(s.appointments).innerJoin(s.customers, eq(s.customers.id, s.appointments.customerId))
