@@ -173,7 +173,10 @@ export const conversations = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("conversations_customer_idx").on(t.customerId)],
+  (t) => [
+    index("conversations_customer_idx").on(t.customerId),
+    uniqueIndex("conversations_one_whatsapp_per_customer_uq").on(t.workspaceId, t.customerId).where(sql`${t.channel} = 'whatsapp'`),
+  ],
 );
 
 /** Mensajes originales, inmutables. Nunca se editan ni se borran desde la app. */
@@ -196,7 +199,10 @@ export const messages = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [index("messages_conversation_seq_idx").on(t.conversationId, t.seq)],
+  (t) => [
+    index("messages_conversation_seq_idx").on(t.conversationId, t.seq),
+    uniqueIndex("messages_whatsapp_id_uq").on(sql`(${t.metadata} ->> 'whatsappMessageId')`).where(sql`${t.metadata} ? 'whatsappMessageId'`),
+  ],
 );
 
 // ───────────────────────────── memoria del cliente ─────────────────────────────
