@@ -16,7 +16,7 @@ const clientName=id=>cache.clients.find(c=>c.id===id)?.name||"Cliente no encontr
 const client=id=>cache.clients.find(c=>c.id===id);
 const badge=(status)=>`<span class="badge ${status==="hot"?"hot":status==="cold"?"cold":status==="sold"?"sold":""}">${E(stages[status]||status)}</span>`;
 const time=iso=>{try{return dateFormat.format(new Date(iso))}catch{return "Fecha inválida"}};
-const minToDate=iso=>new Date(iso).toLocaleDateString("en-CA",{timeZone:timezone});
+const minToDate=iso=>{const parts=new Intl.DateTimeFormat("en-US",{year:"numeric",month:"2-digit",day:"2-digit",timeZone:timezone}).formatToParts(new Date(iso));const m=Object.fromEntries(parts.map(p=>[p.type,p.value]));return `${m.year}-${m.month}-${m.day}`};
 const inputTime=d=>{const n=d||new Date(Date.now()+86400000);const parts=new Intl.DateTimeFormat("en-US",{timeZone:timezone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(n);const a=Object.fromEntries(parts.map(x=>[x.type,x.value]));return `${a.year}-${a.month}-${a.day}T${a.hour==="24"?"00":a.hour}:${a.minute}`};
 const safePhone=phone=>String(phone||"").replace(/\D/g,"");
 function wa(phone){const num=safePhone(phone);return num?/^\d{12,15}$/.test(num)?`https://wa.me/${num}`:null:null}
@@ -64,8 +64,8 @@ function getDays(year,month){const first=new Date(year,month,1).getDay(),offset=
 function renderAgenda(){
  const year=app.month.getFullYear(),month=app.month.getMonth(),label=new Intl.DateTimeFormat("es-MX",{month:"long",year:"numeric",timeZone:timezone}).format(new Date(year,month,3)),today=new Date(),isToday=d=>d===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
  const stamp=d=>`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
- const events=cache.appointments.filter(a=>a.status!=="cancelled"&&new Date(a.startsAt).getTime()>=Date.now()-86400000).sort((a,b)=>sortDates(a.startsAt,b.startsAt));
- const chosen=app.selectedDay?events.filter(a=>minToDate(a.startsAt)===app.selectedDay):events;
+ const events=cache.appointments.filter(a=>a.status!=="cancelled").sort((a,b)=>sortDates(a.startsAt,b.startsAt));
+ const chosen=app.selectedDay?events.filter(a=>minToDate(a.startsAt)===app.selectedDay):events.filter(a=>new Date(a.startsAt).getTime()>=Date.now()-86400000);
  return `${top("Agenda de Mario","Las citas manuales se guardan en este dispositivo. No son reservas de BIKY ni verificaciones de la agencia.")}
  <div class="actions">${btn("＋ Nueva cita","new-appointment","primary")}${btn("Exportar calendario","export-calendar")}</div>
  <section class="section"><div class="row-between" style="margin-bottom:12px">${btn("‹","month-prev","smallbtn")}<h2 class="sectiontitle" style="text-transform:capitalize">${E(label)}</h2>${btn("›","month-next","smallbtn")}</div><div class="calendar">
