@@ -55,8 +55,13 @@ async function findOrCreateConversation(app: AppContext, input: WhatsAppText) {
   if (conversation) return { customerId: customer.id, conversationId: conversation.id, mode: conversation.controlMode };
   const [created] = await app.db.insert(s.conversations).values({
     workspaceId: app.workspaceId, customerId: customer.id, channel: "whatsapp",
-  }).returning();
-  return { customerId: customer.id, conversationId: created!.id, mode: created!.controlMode };
+  }).onConflictDoNothing().returning();
+  if (created) return { customerId: customer.id, conversationId: created.id, mode: created.controlMode };
+  const [concurrent] = await app.db.select().from(s.conversations).where(and(
+    eq(s.conversations.customerId, customer.id), eq(s.conversations.channel, "whatsapp"),
+  )).limit(1);
+  if (!concurrent) throw new Error("No se pudo recuperar la conversación de WhatsApp.");
+  return { customerId: customer.id, conversationId: concurrent.id, mode: concurrent.controlMode };
 }
 
 /** Return false when another delivery owns a non-expired processing lease. */
