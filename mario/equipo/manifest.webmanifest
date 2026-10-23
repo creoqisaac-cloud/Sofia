@@ -1,0 +1,23 @@
+{
+  "id": "./",
+  "name": "Sofía Equipo · Mario Abarca",
+  "short_name": "Sofía Equipo",
+  "description": "Cartera comercial sincronizada y privada para Mario y su equipo",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#10151e",
+  "theme_color": "#10151e",
+  "icons": [
+    {
+      "src": "../../icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "../../icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
