@@ -75,7 +75,7 @@ describe("BIKY confirmado → Sofía → Mario por WhatsApp", () => {
       WHATSAPP_PHONE_NUMBER_ID: "111", WHATSAPP_ACCESS_TOKEN: "testing",
       SOFIA_MARIO_WHATSAPP_TO: "528112345678", SOFIA_MARIO_TEMPLATE: "mario_cita_confirmada",
       WHATSAPP_GRAPH_VERSION: "v26.0",
-    } as NodeJS.ProcessEnv, stub as typeof fetch);
+    } as unknown as NodeJS.ProcessEnv, stub as typeof fetch);
     expect(result.channel).toBe("meta_template");
     expect(outgoing.type).toBe("template");
     expect((outgoing.template as { name: string }).name).toBe("mario_cita_confirmada");
