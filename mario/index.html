@@ -5,12 +5,19 @@
 <meta name="theme-color" content="#10151e"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Sofía Mario">
 <title>Sofía · Mario Abarca</title>
 <link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="../icon-192.png"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<link rel="stylesheet" href="./styles.css?v=4"><script src="./db.js?v=4" defer></script><script src="./app.js?v=4" defer></script>
+<link rel="stylesheet" href="./styles.css?v=5"><script src="./db.js?v=5" defer></script><script src="./app.js?v=5" defer></script>
 </head>
 <body>
 <div id="app">
   <header class="header"><div class="brand"><span class="brand-mark">S</span><div><div class="brand-name">SOFÍA <span class="brand-light">/ MARIO</span></div><div class="brand-sub">HONDA VALLE ORIENTE</div></div></div><div class="header-tools"><span id="offlineIndicator" class="connect-indicator">Local</span><button class="icon-btn" id="openQuick" aria-label="Nuevo registro" title="Nuevo registro">＋</button></div></header>
-  <main id="view" class="content" aria-live="polite"><div class="loading">Preparando tu agenda…</div></main>
+  <main id="view" class="content" aria-live="polite">
+    <div class="loading" id="bootStatus">
+      <div style="font-size:22px;font-weight:800;color:#e7c78c;margin-bottom:14px">SOFÍA PARA MARIO</div>
+      <div>Abriendo tu registro de clientes…</div>
+      <div style="margin-top:22px;font-size:13px;line-height:1.6;color:#bbc9d7">¿Ves la pantalla oscura? Abre el enlace directamente en Safari o Chrome, fuera de WhatsApp.</div>
+      <a href="./entrar.html?rescate=5" style="display:inline-block;margin-top:16px;padding:13px 16px;background:#e7c78c;border-radius:12px;color:#10151e;font-size:15px;text-decoration:none;font-weight:800">Solucionar pantalla negra</a>
+    </div>
+  </main>
   <nav class="tabbar" aria-label="Secciones">
     <button data-tab="inicio" class="tab active"><span class="tab-icon">⌂</span><span>Inicio</span></button>
     <button data-tab="clientes" class="tab"><span class="tab-icon">♙</span><span>Clientes</span></button>
@@ -22,6 +29,20 @@
 </div>
 <dialog id="sheet" aria-label="Editar registro"><div id="sheetBody"></div></dialog>
 <input id="backupInput" type="file" accept=".json,application/json" hidden>
+<script>
+(function(){
+  function rescue(reason){
+    var main=document.getElementById('view');
+    if(!main || !document.getElementById('bootStatus'))return;
+    var status=document.getElementById('bootStatus');
+    status.innerHTML='<div style="font-weight:800;font-size:22px;color:#e7c78c;margin-bottom:16px">Sofía no pudo abrir el registro</div><p style="line-height:1.5">Abre el enlace en Safari o Chrome normal. No borres los datos de este sitio.</p><p style="font-size:13px;color:#abb6c7">Problema detectado: '+String(reason).replace(/[&<>]/g,'').slice(0,150)+'</p><a href="./entrar.html?rescate=5" style="display:inline-block;padding:14px;background:#e7c78c;color:#10151e;border-radius:12px;font-weight:800;text-decoration:none">Abrir versión de recuperación</a>';
+  }
+  window.sofiaRescue=rescue;
+  window.addEventListener('error',function(e){if(document.getElementById('bootStatus'))rescue(e.message||'JavaScript no pudo iniciar')});
+  window.addEventListener('unhandledrejection',function(e){if(document.getElementById('bootStatus'))rescue((e.reason&&e.reason.message)||'Falla de almacenamiento')});
+  window.setTimeout(function(){if(document.getElementById('bootStatus'))rescue('La carga superó 8 segundos o el navegador bloqueó el almacenamiento')},8000);
+})();
+</script>
 <noscript>Esta aplicación necesita JavaScript para guardar los datos de manera local.</noscript>
 </body>
 </html>
