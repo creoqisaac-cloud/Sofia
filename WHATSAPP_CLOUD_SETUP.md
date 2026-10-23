@@ -36,3 +36,7 @@ Estado: **integración de canal preparada, pendiente de credenciales de Meta, mi
 - Este cambio **no confirma citas reales automáticamente**: actualmente el orquestador registra `requestedWindow`, pero no verifica disponibilidad ni asigna `scheduledAt`. Debemos integrar una fuente real de horarios (Google Calendar o Bivky, si este último tiene API autorizada), agregar reserva atómica y confirmación antes de indicar al cliente que su cita está confirmada.
 - No hay integración Bivky todavía. Hace falta documentación técnica, permisos y credenciales institucionales.
 - Para producción hay que añadir alertas operativas sobre errores de salida y soporte de medios/plantillas.
+
+## ¿La agencia ya utiliza BIKY.ai / Keybe?
+
+Si "Bivky" es realmente **BIKY.ai**, el proveedor ya podría tener conectado el número WhatsApp y una agenda con disponibilidad. **No conectes el mismo número directamente a Meta desde Sofía antes de revisar la integración existente.** Consulta [BIKY_INTEGRATION.md](./BIKY_INTEGRATION.md): propone un mapeo de CRM, mensajes y calendario por API oficial, sin inventar endpoints ni duplicar automatizaciones. La selección de arquitectura depende de confirmar con Mario y con el administrador de Keybe quién controla el canal.
