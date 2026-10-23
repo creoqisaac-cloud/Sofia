@@ -28,8 +28,8 @@ async function txOne(store,method,...args){
 }
 async function all(store){const db=await open();return request(db.transaction(store,"readonly").objectStore(store).getAll())}
 async function get(store,id){const db=await open();return request(db.transaction(store,"readonly").objectStore(store).get(id))}
-const id=()=>crypto.randomUUID?crypto.randomUUID():"s"+Date.now().toString(36)+Math.random().toString(36).slice(2);
-async function put(store,object){return txOne(store,"put",structuredClone(object))}
+const id=()=>globalThis.crypto&&typeof crypto.randomUUID==="function"?crypto.randomUUID():"s"+Date.now().toString(36)+Math.random().toString(36).slice(2);
+async function put(store,object){return txOne(store,"put",typeof structuredClone==="function"?structuredClone(object):JSON.parse(JSON.stringify(object)))}
 async function del(store,key){return txOne(store,"delete",key)}
 async function activity(type,detail,clientId=null){return put("events",{id:id(),at:new Date().toISOString(),type,detail:String(detail).slice(0,160),clientId})}
 function canonicalPhone(raw){const d=String(raw||"").replace(/\D/g,"");return /^521\d{10}$/.test(d)?"52"+d.slice(3):/^\d{10}$/.test(d)?"52"+d:d}
