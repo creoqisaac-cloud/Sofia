@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import Link from "next/link";
 import { MobileHeader, Page } from "@/components/app/AppShell";
 import { WhatsAppAssistant } from "@/components/sofia/WhatsAppAssistant";
 import { getAppContext } from "@/server/app";
@@ -23,6 +24,7 @@ export default async function WhatsAppPage({ searchParams }: { searchParams: Pro
     <>
       <MobileHeader title="WhatsApp" back={valid ? `/customers/${cliente}` : "/more"} subtitle="Borradores para conversar con clientes" />
       <Page>
+        <Link href="/piloto" className="mb-3 flex min-h-12 items-center justify-center rounded-2xl bg-sand px-3 text-[15px] font-semibold text-ink">Registrar prospecto y cita desde WhatsApp</Link>
         <WhatsAppAssistant initialName={customer?.name ?? ""} initialPhone={customer?.phone ?? ""} />
         <section className="rounded-2xl border border-white/10 bg-panel p-4 text-[13px] leading-relaxed text-dim">
           <strong className="block text-ivory">Conector oficial WhatsApp Cloud API</strong>
