@@ -14,3 +14,8 @@ CREATE TABLE IF NOT EXISTS "biky_booking_receipts" (
 CREATE UNIQUE INDEX IF NOT EXISTS "biky_bookings_external_uq" ON "biky_booking_receipts" ("workspace_id", "external_booking_id");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "biky_bookings_workspace_idx" ON "biky_booking_receipts" ("workspace_id");
+
+--> statement-breakpoint
+ALTER TABLE "biky_booking_receipts" ENABLE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE "whatsapp_inbound_events" ENABLE ROW LEVEL SECURITY;
