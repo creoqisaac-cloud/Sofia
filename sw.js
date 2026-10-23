@@ -13,12 +13,14 @@ self.addEventListener("install", (e) => {
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith("sofia-prueba-") && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
+  // Sofía Móvil tiene su propio service worker y caché; la PWA original nunca debe interceptarla.
+  if (url.pathname.startsWith(new URL("./mario/", self.registration.scope).pathname)) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {
