@@ -8,6 +8,7 @@
  *   conversación reciente, mensaje nuevo).
  */
 import type { TurnContext } from "../turn-context";
+import { renderMarioVoiceProfile, type MarioVoiceProfile } from "../mario-voice";
 import { renderCommercialContext, renderConversation, renderCustomerContext, renderMemory } from "./context";
 import { CORE_IDENTITY } from "./identity";
 import { OUTPUT_CONTRACT } from "./output";
@@ -36,13 +37,15 @@ export const STABLE_LAYERS: PromptLayer[] = [
   { name: "output_contract", text: OUTPUT_CONTRACT },
 ];
 
-export function buildPrompt(ctx: TurnContext, opts: { correction?: string } = {}): BuiltPrompt {
+export function buildPrompt(ctx: TurnContext, opts: { correction?: string; marioVoiceProfile?: MarioVoiceProfile | null } = {}): BuiltPrompt {
   const user: PromptLayer[] = [
     { name: "customer_context", text: renderCustomerContext(ctx) },
     { name: "memory", text: renderMemory(ctx) },
     { name: "commercial_context", text: renderCommercialContext(ctx) },
     { name: "conversation", text: renderConversation(ctx) },
   ];
+  const learnedStyle = renderMarioVoiceProfile(opts.marioVoiceProfile ?? null);
+  if (learnedStyle) user.push({ name: "mario_voice_patterns", text: learnedStyle });
   if (opts.correction) {
     user.push({
       name: "correction",
