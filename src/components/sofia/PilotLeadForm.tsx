@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { registerPilotAction, type PilotFormState } from "@/app/piloto/actions";
-import { HONDA_MODELS } from "@/server/services/pilot-delivery";
+import { HONDA_MODELS } from "@/domain/pilot";
 
 const style = "mt-1 block min-h-12 w-full rounded-xl bg-raise px-4 py-3 text-[16px] text-ivory";
 
