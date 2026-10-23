@@ -224,7 +224,7 @@ function remind(){
 }
 function updateNetwork(){const e=$("#offlineIndicator");e.textContent=navigator.onLine?"Datos locales":"Sin red · local";e.style.color=navigator.onLine?"var(--green)":"var(--brand)"}
 async function init(){
- try{await D.open();if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});await render();remind();updateNetwork()}
+ try{if(!D||typeof D.open!=="function")throw Error("No se cargó el módulo de almacenamiento. Abre Sofía en Safari o Chrome.");await Promise.race([D.open(),new Promise((_,reject)=>setTimeout(()=>reject(Error("El almacenamiento local no respondió. Abre este enlace en Safari o Chrome normal, fuera de WhatsApp.")),6500))]);if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});await render();remind();updateNetwork();window.sofiaAppReady=true}
  catch(err){$("#view").innerHTML=`<div class="notice warn">No se pudo iniciar el guardado local: ${E(err.message)}. Abre desde Safari o Chrome normal, fuera del modo incógnito.</div>`;}
  document.addEventListener("click",ev=>{void handleClick(ev.target)});
  document.addEventListener("submit",ev=>{if(ev.target instanceof HTMLFormElement && ev.target.getAttribute("id")==="editForm")void handleForm(ev)});
@@ -237,5 +237,5 @@ async function init(){
  setInterval(()=>{void render().then(remind)},60000);
  if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js",{scope:"./"}).catch(err=>console.warn("Sin modo offline:",err));
 }
-document.addEventListener("DOMContentLoaded",()=>void init());
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>void init());else void init();
 })();
