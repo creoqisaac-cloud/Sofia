@@ -9,10 +9,10 @@ import * as s from "@/server/db/schema";
 import { createCustomer } from "@/server/services/customers";
 import { scheduleAppointment } from "@/server/services/agenda";
 import { ServiceError } from "@/server/services/errors";
+import { HONDA_MODELS } from "@/domain/pilot";
 
 const MX_ZONE = "America/Monterrey";
 const KINDS = ["visit", "test_drive"] as const;
-export const HONDA_MODELS = ["City", "Civic", "Accord", "HR-V", "CR-V", "BR-V", "Odyssey", "Pilot", "Otro"] as const;
 export type PilotKind = typeof KINDS[number];
 
 export function normalizePilotPhone(raw: string): string {
