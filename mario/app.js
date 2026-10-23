@@ -29,7 +29,7 @@ function renderHome(){
  const t=Date.now(),up=cache.appointments.filter(a=>["scheduled","confirmed"].includes(a.status)&&new Date(a.startsAt).getTime()>=t).sort((a,b)=>sortDates(a.startsAt,b.startsAt)).slice(0,4),
  pending=cache.followups.filter(f=>f.status==="pending").sort((a,b)=>sortDates(a.dueAt,b.dueAt)),
  overdue=pending.filter(f=>new Date(f.dueAt).getTime()<=t),due=pending.slice(0,5);
- return `${top("Tu operación, bajo control.","${CLOUD?"Clientes, notas, citas y seguimientos sincronizados con tu equipo privado.":"Clientes, citas y pendientes guardados en este dispositivo. Sin servidor y sin datos de demostración."}")}
+ return `${top("Tu operación, bajo control.",CLOUD?"Clientes, notas, citas y seguimientos sincronizados con tu equipo privado.":"Clientes, citas y pendientes guardados en este dispositivo. Sin servidor y sin datos de demostración.")}
  <div class="metrics"><div class="metric first"><strong>${cache.clients.length}</strong><span>Clientes</span></div><div class="metric"><strong>${up.length}</strong><span>Próximas citas</span></div><div class="metric"><strong>${pending.length}</strong><span>Seguimientos</span></div></div>
  ${overdue.length?`<div class="notice warn section">Tienes <strong>${overdue.length} seguimiento(s) vencido(s)</strong>. Revísalos antes de contactar a tus clientes.</div>`:""}
  <section class="section"><div class="sectionhead"><h2 class="sectiontitle">Acceso rápido</h2></div><div class="two-actions">${btn("＋ Nuevo cliente","new-client","primary full")}${btn("▦ Agendar cita","new-appointment","full")}</div></section>
