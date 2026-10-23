@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'src/server/whatsapp/**'
+      - 'src/server/biky/**'
+      - 'src/app/api/webhooks/biky-booking/**'
+      - 'tests/34-biky-booking-notify.test.ts'
       - 'src/server/services/pilot-delivery.ts'
       - 'src/domain/pilot.ts'
       - 'src/app/piloto/**'
