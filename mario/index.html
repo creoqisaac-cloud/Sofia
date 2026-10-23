@@ -15,7 +15,7 @@
       <div style="font-size:22px;font-weight:800;color:#e7c78c;margin-bottom:14px">SOFÍA PARA MARIO</div>
       <div>Abriendo tu registro de clientes…</div>
       <div style="margin-top:22px;font-size:13px;line-height:1.6;color:#bbc9d7">¿Ves la pantalla oscura? Abre el enlace directamente en Safari o Chrome, fuera de WhatsApp.</div>
-      <a href="./entrar.html?rescate=5" style="display:inline-block;margin-top:16px;padding:13px 16px;background:#e7c78c;border-radius:12px;color:#10151e;font-size:15px;text-decoration:none;font-weight:800">Solucionar pantalla negra</a>
+      <a href="./entrar.html?rescate=6" style="display:inline-block;margin-top:16px;padding:13px 16px;background:#e7c78c;border-radius:12px;color:#10151e;font-size:15px;text-decoration:none;font-weight:800">Solucionar pantalla negra</a>
     </div>
   </main>
   <nav class="tabbar" aria-label="Secciones">
@@ -35,7 +35,7 @@
     var main=document.getElementById('view');
     if(!main || !document.getElementById('bootStatus'))return;
     var status=document.getElementById('bootStatus');
-    status.innerHTML='<div style="font-weight:800;font-size:22px;color:#e7c78c;margin-bottom:16px">Sofía no pudo abrir el registro</div><p style="line-height:1.5">Abre el enlace en Safari o Chrome normal. No borres los datos de este sitio.</p><p style="font-size:13px;color:#abb6c7">Problema detectado: '+String(reason).replace(/[&<>]/g,'').slice(0,150)+'</p><a href="./entrar.html?rescate=5" style="display:inline-block;padding:14px;background:#e7c78c;color:#10151e;border-radius:12px;font-weight:800;text-decoration:none">Abrir versión de recuperación</a>';
+    status.innerHTML='<div style="font-weight:800;font-size:22px;color:#e7c78c;margin-bottom:16px">Sofía no pudo abrir el registro</div><p style="line-height:1.5">Abre el enlace en Safari o Chrome normal. No borres los datos de este sitio.</p><p style="font-size:13px;color:#abb6c7">Problema detectado: '+String(reason).replace(/[&<>]/g,'').slice(0,150)+'</p><a href="./entrar.html?rescate=6" style="display:inline-block;padding:14px;background:#e7c78c;color:#10151e;border-radius:12px;font-weight:800;text-decoration:none">Abrir versión de recuperación</a>';
   }
   window.sofiaRescue=rescue;
   window.addEventListener('error',function(e){if(document.getElementById('bootStatus'))rescue(e.message||'JavaScript no pudo iniciar')});
