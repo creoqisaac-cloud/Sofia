@@ -1,0 +1,14 @@
+<!doctype html><html lang="es-MX"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10151e"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Sofía Equipo">
+<title>Sofía Equipo · Mario</title><link rel="manifest" href="./manifest.webmanifest"><link rel="apple-touch-icon" href="../../apple-touch-icon.png">
+<link rel="stylesheet" href="../styles.css?v=7">
+<style>.auth-container{max-width:440px;margin:12px auto;padding:22px;background:#1b2430;border:1px solid #344354;border-radius:20px}.auth-container h2{font-size:24px}.auth-container .field{margin-top:15px}.auth-container button{width:100%}.auth-container .warn{color:#ffb6aa}.tabbar[hidden]{display:none}.cloud-badge{color:#66caaa;font-size:12px;font-weight:700}.sync-warn{padding:14px;border:1px solid #ffb6aa;border-radius:12px;color:#ffb6aa;margin-top:12px}</style>
+</head><body><div id="app"><header class="header"><div class="brand"><span class="brand-mark">S</span><div><div class="brand-name">SOFÍA <span class="brand-light">/ EQUIPO</span></div><div class="brand-sub">HONDA VALLE ORIENTE</div></div></div><div class="header-tools"><span id="offlineIndicator" class="connect-indicator">En línea</span><button class="icon-btn" id="openQuick" style="display:none" title="Nuevo cliente" aria-label="Nuevo cliente">＋</button></div></header>
+<main id="view" class="content" aria-live="polite"><p class="loading">Conectando con el registro privado…</p></main>
+<nav class="tabbar" aria-label="Secciones" hidden><button data-tab="inicio" class="tab active"><span class="tab-icon">⌂</span><span>Inicio</span></button><button data-tab="clientes" class="tab"><span class="tab-icon">♙</span><span>Clientes</span></button><button data-tab="agenda" class="tab"><span class="tab-icon">▦</span><span>Agenda</span></button><button data-tab="pendientes" class="tab"><span class="tab-icon">◷</span><span>Pendientes</span></button><button data-tab="mas" class="tab"><span class="tab-icon">⋯</span><span>Más</span></button></nav>
+<div id="toast" role="status" aria-live="polite"></div></div>
+<dialog id="sheet" aria-label="Editar registro"><div id="sheetBody"></div></dialog>
+<input id="backupInput" type="file" accept=".json,application/json" hidden>
+<script src="./cloud-db.js?v=1" defer></script>
+</body></html>
