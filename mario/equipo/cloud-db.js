@@ -135,6 +135,14 @@ async function restore(data){
   }
  }
 }
+async function registerNewAccount(email,password,code){
+ const response=await fetch(URL+"/functions/v1/sofia-mobile-register",{
+  method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password,code}),
+ });
+ let data={};try{data=await response.json()}catch{}
+ if(!response.ok)throw Error(data.error||"No se pudo crear la cuenta");
+ return data;
+}
 async function login(email,password,signup){
  const endpoint=signup?"signup":"token?grant_type=password";
  const result=await request(URL+"/auth/v1/"+endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password})},false);
@@ -150,8 +158,8 @@ function authHtml(message=""){
  <form id="loginForm"><div class="field"><label>Correo personal autorizado</label><input name="email" type="email" autocomplete="email" class="input" required></div>
  <div class="field"><label>Contraseña</label><input name="password" type="password" autocomplete="current-password" minlength="8" class="input" required></div>
  <button class="btn primary" type="submit">Entrar a mi equipo</button></form>
- <div class="divider"></div><button class="btn full" id="signupBtn" type="button">Crear mi cuenta por primera vez</button>
- <p class="small" style="margin-top:15px">Para crear una cuenta te llegará un correo de verificación; revisa también Spam. Nunca pegues tu contraseña aquí en el chat.</p>
+ <div class="divider"></div><div class="field"><label>Invitación privada (solo para crear cuenta nueva)</label><input id="registrationCode" class="input" autocomplete="off" placeholder="Código de 32 caracteres" minlength="32" maxlength="32"></div><button class="btn full" id="signupBtn" type="button">Crear mi cuenta por primera vez</button>
+ <p class="small" style="margin-top:15px">La primera cuenta se activa mediante tu invitación privada, sin depender de correo de confirmación. Usa una contraseña única de al menos 12 caracteres; no la envíes por chat.</p>
  <p id="authMessage" style="color:#ffb6aa;margin-top:15px">${enc(message)}</p>
  </div>`;
  document.getElementById("loginForm").addEventListener("submit",async ev=>{ev.preventDefault();await authSubmit(ev.target,false)});
@@ -160,11 +168,17 @@ function authHtml(message=""){
 async function authSubmit(form,signup){
  const msg=document.getElementById("authMessage");
  const data=new FormData(form),email=String(data.get("email")||"").trim(),password=String(data.get("password")||"");
- if(!email||password.length<8){msg.textContent="Ingresa un correo y contraseña de mínimo 8 caracteres.";return}
+ if(!email||password.length<12){msg.textContent="Ingresa un correo y contraseña de mínimo 12 caracteres.";return}
  msg.textContent="Comprobando acceso privado…";
  try{
-  const ready=await login(email,password,signup);
-  if(!ready){msg.style.color="#66caaa";msg.textContent="Cuenta creada. Revisa el correo de confirmación y después inicia sesión.";return}
+  if(signup){
+   const code=document.getElementById("registrationCode").value.trim();
+   const result=await registerNewAccount(email,password,code);
+   msg.style.color="#66caaa";msg.textContent=result.message||"Cuenta creada. Ahora inicia sesión con tu correo y contraseña.";
+   return;
+  }
+  const ready=await login(email,password,false);
+  if(!ready)throw Error("No se recibió una sesión válida");
   await bootstrap();
  }catch(err){msg.style.color="#ffb6aa";msg.textContent=err.message}
 }
