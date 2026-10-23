@@ -1234,3 +1234,25 @@ export const aiUsageEvents = pgTable("ai_usage_events", {
   outputTokens: integer("output_tokens"),
   createdAt: createdAt(),
 });
+
+/**
+ * Mensajes entrantes desde Meta Cloud API.
+ * El ID externo es globalmente único (wamid), no contiene contenido del cliente.
+ * Una concesión de 2 min evita trabajo duplicado mientras Meta reintenta el webhook.
+ */
+export const whatsappInboundEvents = pgTable(
+  "whatsapp_inbound_events",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: workspaceId(),
+    phone: text("phone").notNull(),
+    state: text("state").notNull().default("received"), // received | processing | retry | manual | sent
+    inboundMessageId: uuid("inbound_message_id").references(() => messages.id, { onDelete: "set null" }),
+    replyMessageId: uuid("reply_message_id").references(() => messages.id, { onDelete: "set null" }),
+    outboundMessageId: text("outbound_message_id"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("whatsapp_inbound_workspace_idx").on(t.workspaceId)],
+);
