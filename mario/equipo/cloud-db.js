@@ -154,54 +154,17 @@ function authHtml(message=""){
  document.querySelector(".tabbar").hidden=true;
  document.getElementById("openQuick").style.display="none";
  document.getElementById("offlineIndicator").textContent="Acceso privado";
- document.getElementById("view").innerHTML=`<div class="auth-container"><p class="eyebrow">ACCESO COMPARTIDO · MARIO</p><h1 class="title">Tu cartera, protegida.</h1><p class="sub">La información se sincroniza entre Mario y el equipo autorizado. Necesitas iniciar sesión y una invitación privada.</p>
- <form id="loginForm"><div class="field"><label>Correo personal autorizado</label><input name="email" type="email" autocomplete="email" class="input" required></div>
- <div class="field"><label>Contraseña</label><input name="password" type="password" autocomplete="current-password" minlength="8" class="input" required></div>
- <button class="btn primary" type="submit">Entrar a mi equipo</button></form>
- <div class="divider"></div><div class="field"><label>Invitación privada (solo para crear cuenta nueva)</label><input id="registrationCode" class="input" autocomplete="off" placeholder="Código de 32 caracteres" minlength="32" maxlength="32"></div><button class="btn full" id="signupBtn" type="button">Crear mi cuenta por primera vez</button>
- <p class="small" style="margin-top:15px">La primera cuenta se activa mediante tu invitación privada, sin depender de correo de confirmación. Usa una contraseña única de al menos 12 caracteres; no la envíes por chat.</p>
- <p id="authMessage" style="color:#ffb6aa;margin-top:15px">${enc(message)}</p>
- </div>`;
- document.getElementById("loginForm").addEventListener("submit",async ev=>{ev.preventDefault();await authSubmit(ev.target,false)});
- document.getElementById("signupBtn").addEventListener("click",async()=>{await authSubmit(document.getElementById("loginForm"),true)});
-}
-async function authSubmit(form,signup){
- const msg=document.getElementById("authMessage");
- const data=new FormData(form),email=String(data.get("email")||"").trim(),password=String(data.get("password")||"");
- if(!email||password.length<12){msg.textContent="Ingresa un correo y contraseña de mínimo 12 caracteres.";return}
- msg.textContent="Comprobando acceso privado…";
+ document.getElementById("view").innerHTML=`<div class="auth-container"><p class="eyebrow">SOFÍA EQUIPO · HONDA VALLE ORIENTE</p><h1 class="title">Bienvenido a Sofía</h1><p class="sub">Ingresa el código compartido para acceder a la cartera del equipo.</p><form id="pinForm"><div class="field"><label>Código de acceso</label><input name="code" type="password" class="input" autocomplete="off" required minlength="4" maxlength="50" placeholder="Código de equipo"></div><button type="submit" class="btn primary">Entrar a Sofía</button></form><p class="small" style="margin-top:15px">El código valida el acceso en el servicio privado. Necesitas internet para consultar o guardar clientes.</p><p id="authMessage" style="color:#ffb6aa;margin-top:15px">${enc(message)}</p></div>`;
+ document.getElementById("pinForm").addEventListener("submit",async e=>{
+ e.preventDefault();const msg=document.getElementById("authMessage");const btn=e.target.querySelector("button");btn.disabled=true;msg.textContent="Verificando código…";
  try{
-  if(signup){
-   const code=document.getElementById("registrationCode").value.trim();
-   const result=await registerNewAccount(email,password,code);
-   msg.style.color="#66caaa";msg.textContent=result.message||"Cuenta creada. Ahora inicia sesión con tu correo y contraseña.";
-   return;
-  }
-  const ready=await login(email,password,false);
-  if(!ready)throw Error("No se recibió una sesión válida");
-  await bootstrap();
- }catch(err){msg.style.color="#ffb6aa";msg.textContent=err.message}
-}
-async function claim(code){
- if(!/^[0-9a-f]{32}$/i.test(code))throw Error("La invitación tiene 32 caracteres");
- const result=await request(URL+"/rest/v1/rpc/sofia_mobile_claim_invite",{
-  method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invite_code:code})
+  const code=String(new FormData(e.target).get("code")||"");
+  const res=await fetch(URL+"/functions/v1/sofia-mobile-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});
+  const data=await res.json();if(!res.ok)throw Error(data.error||"No se pudo entrar");
+  if(!data.access_token||!data.refresh_token)throw Error("El servidor no devolvió una sesión");
+  saveSession(data);await bootstrap();
+ }catch(err){msg.textContent=err.message}finally{btn.disabled=false}
  });
- if(!result)throw Error("No se pudo activar el equipo");
- return result;
-}
-function inviteHtml(message=""){
- document.querySelector(".tabbar").hidden=true;
- document.getElementById("view").innerHTML=`<div class="auth-container"><p class="eyebrow">ACCESO VALIDADO</p><h1 class="title">Une tu cuenta al equipo.</h1><p class="sub">La invitación distingue al propietario y al asesor. Cada código funciona una vez y caduca.</p>
- <form id="inviteForm"><div class="field"><label>Código personal de invitación</label><input name="code" class="input" minlength="32" maxlength="32" autocomplete="off" required></div>
- <button type="submit" class="btn primary">Unirme a Sofía</button></form>
- <button type="button" id="exitBtn" class="btn full" style="margin-top:15px">Cerrar sesión</button>
- <p id="authMessage" style="color:#ffb6aa">${enc(message)}</p></div>`;
- document.getElementById("inviteForm").addEventListener("submit",async e=>{
-  e.preventDefault();let msg=document.getElementById("authMessage");msg.textContent="Validando invitación…";
-  try{await claim(String(new FormData(e.target).get("code")).trim());await bootstrap()}catch(err){msg.textContent=err.message}
- });
- document.getElementById("exitBtn").addEventListener("click",()=>logout());
 }
 function logout(){saveSession(null);teamId=null;location.replace("./?logout=1")}
 async function bootstrap(){
@@ -210,7 +173,7 @@ async function bootstrap(){
   const user=await request(URL+"/auth/v1/user");
   if(!user?.id)throw Error("Cuenta no verificada");
   const list=await membership();
-  if(!list.length){inviteHtml();return}
+  if(!list.length){authHtml("No se encontró el equipo. Introduce el código nuevamente.");return}
   window.SOFIA_CLOUD=true;
   window.SofiaStore={open:async()=>{},all,get,put,del:async()=>{throw Error("Eliminar datos compartidos no está habilitado.")},id:localId,activity,canonicalPhone,saveClient,addNote,saveAppointment,setAppointmentStatus,addFollowup,setFollowupStatus,snapshot,restore};
   document.querySelector(".tabbar").hidden=false;
