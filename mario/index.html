@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10151e"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Sofía Mario">
+<title>Sofía · Mario Abarca</title>
+<link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="../icon-192.png"><link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="stylesheet" href="./styles.css?v=3"><script src="./app.js?v=3" defer></script>
+</head>
+<body>
+<div id="app">
+  <header class="header"><div class="brand"><span class="brand-mark">S</span><div><div class="brand-name">SOFÍA <span class="brand-light">/ MARIO</span></div><div class="brand-sub">HONDA VALLE ORIENTE</div></div></div><div class="header-tools"><span id="offlineIndicator" class="connect-indicator">Local</span><button class="icon-btn" id="openQuick" aria-label="Nuevo registro" title="Nuevo registro">＋</button></div></header>
+  <main id="view" class="content" aria-live="polite"><div class="loading">Preparando tu agenda…</div></main>
+  <nav class="tabbar" aria-label="Secciones">
+    <button data-tab="inicio" class="tab active"><span class="tab-icon">⌂</span><span>Inicio</span></button>
+    <button data-tab="clientes" class="tab"><span class="tab-icon">♙</span><span>Clientes</span></button>
+    <button data-tab="agenda" class="tab"><span class="tab-icon">▦</span><span>Agenda</span></button>
+    <button data-tab="pendientes" class="tab"><span class="tab-icon">◷</span><span>Pendientes</span></button>
+    <button data-tab="mas" class="tab"><span class="tab-icon">⋯</span><span>Más</span></button>
+  </nav>
+  <div id="toast" role="status" aria-live="polite"></div>
+</div>
+<dialog id="sheet" aria-label="Editar registro"><div id="sheetBody"></div></dialog>
+<input id="backupInput" type="file" accept=".json,application/json" hidden>
+<noscript>Esta aplicación necesita JavaScript para guardar los datos de manera local.</noscript>
+</body>
+</html>
