@@ -9,6 +9,7 @@ const timezone="America/Monterrey";
 const dateFormat=new Intl.DateTimeFormat("es-MX",{timeZone:timezone,weekday:"short",day:"numeric",month:"short",hour:"numeric",minute:"2-digit",hour12:true});
 const shortDay=new Intl.DateTimeFormat("es-MX",{timeZone:timezone,day:"numeric",month:"short"});
 const app={tab:"inicio",clientId:null,filter:"all",month:new Date(),selectedDay:null,installPrompt:null};
+const CLOUD=Boolean(window.SOFIA_CLOUD);
 const now=()=>new Date(),sortDates=(a,b)=>new Date(a).getTime()-new Date(b).getTime();
 let cache={clients:[],notes:[],appointments:[],followups:[],events:[]};
 let toastTimer;
@@ -28,7 +29,7 @@ function renderHome(){
  const t=Date.now(),up=cache.appointments.filter(a=>["scheduled","confirmed"].includes(a.status)&&new Date(a.startsAt).getTime()>=t).sort((a,b)=>sortDates(a.startsAt,b.startsAt)).slice(0,4),
  pending=cache.followups.filter(f=>f.status==="pending").sort((a,b)=>sortDates(a.dueAt,b.dueAt)),
  overdue=pending.filter(f=>new Date(f.dueAt).getTime()<=t),due=pending.slice(0,5);
- return `${top("Tu operación, bajo control.","Clientes, citas y pendientes guardados en este dispositivo. Sin servidor y sin datos de demostración.")}
+ return `${top("Tu operación, bajo control.","${CLOUD?"Clientes, notas, citas y seguimientos sincronizados con tu equipo privado.":"Clientes, citas y pendientes guardados en este dispositivo. Sin servidor y sin datos de demostración."}")}
  <div class="metrics"><div class="metric first"><strong>${cache.clients.length}</strong><span>Clientes</span></div><div class="metric"><strong>${up.length}</strong><span>Próximas citas</span></div><div class="metric"><strong>${pending.length}</strong><span>Seguimientos</span></div></div>
  ${overdue.length?`<div class="notice warn section">Tienes <strong>${overdue.length} seguimiento(s) vencido(s)</strong>. Revísalos antes de contactar a tus clientes.</div>`:""}
  <section class="section"><div class="sectionhead"><h2 class="sectiontitle">Acceso rápido</h2></div><div class="two-actions">${btn("＋ Nuevo cliente","new-client","primary full")}${btn("▦ Agendar cita","new-appointment","full")}</div></section>
@@ -36,7 +37,7 @@ function renderHome(){
  ${up.length?up.map(a=>`<div class="card"><div class="cardheader"><div><h3>${E(clientName(a.clientId))}</h3><div class="small">${E(time(a.startsAt))} · ${E(kinds[a.kind])}</div></div><span class="badge">${E(apptStages[a.status])}</span></div><div class="actions">${btn("Ver cliente","view-client","smallbtn",`data-id="${E(a.clientId)}"`)}${btn("Calendario ↗","ics-one","smallbtn",`data-type="appointment" data-id="${E(a.id)}"`)}</div></div>`).join(""):empty("Agenda despejada","Tus citas aparecerán aquí cuando las registres.","new-appointment","Registrar cita")}</section>
  <section class="section"><div class="sectionhead"><h2 class="sectiontitle">Seguimientos</h2><button class="sectionlink" data-tab="pendientes">Ver todos →</button></div>
  ${due.length?due.map(f=>`<div class="listrow"><div><h3>${E(clientName(f.clientId))}</h3><div class="small">${E(f.reason)} · ${E(time(f.dueAt))}</div></div>${btn("Ver","view-client","smallbtn",`data-id="${E(f.clientId)}"`)}</div>`).join(""):empty("Sin pendientes","Registra los compromisos para no perder ninguna oportunidad.","new-followup","Nuevo seguimiento")}</section>
- <section class="section notice"><strong>Privacidad local</strong><div class="small">Estos datos no se envían a GitHub ni a un servidor. Haz un respaldo en «Más» y guárdalo de forma privada.</div></section>`;
+ <section class="section notice"><strong>Privacidad local</strong><div class="small">${CLOUD?"Tu cartera está protegida en Supabase, accesible únicamente para tu equipo. Haz también un respaldo privado en «Más».":"Estos datos no se envían a GitHub ni a un servidor. Haz un respaldo en «Más» y guárdalo de forma privada."}</div></section>`;
 }
 function renderClients(){
  const filtered=cache.clients.filter(c=>app.filter==="all"||c.stage===app.filter).sort((a,b)=>sortDates(b.updatedAt,a.updatedAt));
@@ -88,15 +89,15 @@ function renderMore(){
  return `${top("Reportes y respaldo","Tus estadísticas salen únicamente de los registros guardados en este teléfono.")}
  <section class="section"><h2 class="sectiontitle" style="margin-bottom:13px">Pipeline de ventas</h2><div class="card">${by.map(x=>`<div class="report-stat"><span>${E(x.label)}</span><strong>${x.n}</strong></div><div class="progressbar"><span style="width:${total?100*x.n/total:0}%"></span></div>`).join("")}</div>
  <div class="two-actions">${btn("Exportar CSV","export-csv","full")}${btn("Calendario .ics","export-calendar","full")}</div></section>
- <section class="section"><h2 class="sectiontitle" style="margin-bottom:12px">Respaldo del teléfono</h2><div class="card"><p class="sub">Los datos están solo en este dispositivo. Si cambias de teléfono, lo pierdes o se borran los datos del navegador, necesitarás este archivo para recuperarlos.</p>
+ <section class="section"><h2 class="sectiontitle" style="margin-bottom:12px">Respaldo del teléfono</h2><div class="card"><p class="sub">${CLOUD?"La cartera vive en la base compartida. Descarga una copia adicional privada cuando lo necesites; al restaurar se fusionan registros, sin borrar los de otro compañero.":"Los datos están solo en este dispositivo. Si cambias de teléfono, lo pierdes o se borran los datos del navegador, necesitarás este archivo para recuperarlos."}</p>
  <div class="two-actions" style="margin-top:15px">${btn("↓ Descargar copia","export-backup","primary full")}${btn("↑ Restaurar copia","import-backup","full")}</div></div></section>
  <section class="section"><h2 class="sectiontitle" style="margin-bottom:12px">WhatsApp empresarial</h2><div class="card"><div class="pill-line"><strong class="whatsapp-logo">WhatsApp Cloud API</strong><span class="badge warn">Sin conectar</span></div>
- <p class="sub" style="margin-top:10px">Esta versión móvil registra clientes manualmente y abre WhatsApp para contactarlos. No lee chats, no responde sola ni confirma citas por WhatsApp. Eso requiere autorización del número empresarial y un receptor HTTPS oficial.</p>
+ <p class="sub" style="margin-top:10px">Esta aplicación registra clientes manualmente y abre WhatsApp para contactarlos. Todavía NO recibe chats empresariales ni responde sola; requerimos autorización de Meta para enlazar el número oficial.</p>
  <p class="small" style="margin-top:11px">Puedes usarla para Mario hoy sin habilitar esa integración. Nunca confundiremos un chat abierto con un mensaje sincronizado.</p></div></section>
  <section class="section"><h2 class="sectiontitle" style="margin-bottom:12px">Actividad reciente · ${cache.events.length}</h2>${cache.events.slice().sort((a,b)=>sortDates(b.at,a.at)).slice(0,25).map(ev=>`<div class="listrow"><div><h3>${E(ev.type)}</h3><div class="small">${E(ev.detail)} · ${E(time(ev.at))}</div></div></div>`).join("")||'<p class="sub">Aún no hay movimientos.</p>'}</section>
  <section class="section"><h2 class="sectiontitle" style="margin-bottom:12px">Instalar Sofía</h2><div class="card"><p class="sub"><strong>iPhone:</strong> abre el enlace en Safari, toca Compartir y después «Agregar a pantalla de inicio». <strong>Samsung:</strong> abre en Chrome y selecciona «Instalar aplicación» en el menú.</p>
  <div class="actions">${btn("Instalar si está disponible","install-pwa","primary")}</div>
- <p class="small" style="margin-top:10px">La instalación descarga la interfaz para que pueda abrir sin internet. Los datos se guardan en el teléfono, no se sincronizan con la PC. No guardes INE, RFC, documentos de identidad o datos bancarios.</p></div></section>`;
+ <p class="small" style="margin-top:10px">${CLOUD?"En esta versión compartida necesitas internet para ver y guardar la cartera central. La app se puede instalar como acceso directo. No subas INE, RFC, documentos sensibles ni tarjetas.":"La instalación descarga la interfaz para que pueda abrir sin internet. Los datos se guardan en el teléfono, no se sincronizan con la PC. No guardes INE, RFC, documentos de identidad o datos bancarios."}</p></div></section>`;
 }
 async function render(){
  try{
@@ -184,8 +185,8 @@ function exportICS(only=null){
 async function restoreFile(file){
  if(!file||file.size>12*1024*1024)throw Error("Selecciona un respaldo JSON menor de 12 MB.");
  const raw=JSON.parse(await file.text());
- if(!confirm("ATENCIÓN: Restaurar reemplazará TODOS los clientes, notas, citas y seguimientos de ESTE dispositivo. ¿Deseas continuar?"))return;
- if(!confirm("Última confirmación: ¿ya respaldaste lo que hay ahora?"))return;
+ if(!confirm(CLOUD?"Esto importará y fusionará registros a la cartera compartida. No elimina los existentes. ¿Continuar?":"ATENCIÓN: Restaurar reemplazará TODOS los clientes, notas, citas y seguimientos de ESTE dispositivo. ¿Deseas continuar?"))return;
+ if(!confirm(CLOUD?"¿Confirmas que el archivo corresponde a la cartera autorizada de Mario?":"Última confirmación: ¿ya respaldaste lo que hay ahora?"))return;
  await D.restore(raw);app.clientId=null;app.tab="inicio";await render();toast("Respaldo restaurado correctamente");
 }
 async function handleClick(target){
@@ -222,7 +223,7 @@ function remind(){
  if(!cache.followups.length)return;const past=cache.followups.filter(f=>f.status==="pending"&&new Date(f.dueAt).getTime()<=Date.now());
  const marker="sofia-reminder-"+new Date().toISOString().slice(0,10);if(past.length&&!sessionStorage.getItem(marker)){sessionStorage.setItem(marker,"1");toast("Tienes "+past.length+" seguimiento(s) pendiente(s) o vencido(s).");}
 }
-function updateNetwork(){const e=$("#offlineIndicator");e.textContent=navigator.onLine?"Datos locales":"Sin red · local";e.style.color=navigator.onLine?"var(--green)":"var(--brand)"}
+function updateNetwork(){const e=$("#offlineIndicator");e.textContent=CLOUD?(navigator.onLine?"Equipo sincronizado":"Sin internet · no guardar"):(navigator.onLine?"Datos locales":"Sin red · local");e.style.color=navigator.onLine?"var(--green)":"var(--brand)"}
 async function init(){
  try{if(!D||typeof D.open!=="function")throw Error("No se cargó el módulo de almacenamiento. Abre Sofía en Safari o Chrome.");await Promise.race([D.open(),new Promise((_,reject)=>setTimeout(()=>reject(Error("El almacenamiento local no respondió. Abre este enlace en Safari o Chrome normal, fuera de WhatsApp.")),6500))]);if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});await render();remind();updateNetwork();window.sofiaAppReady=true}
  catch(err){$("#view").innerHTML=`<div class="notice warn"><strong>No se pudo abrir el registro local.</strong><p>${E(err.message)}</p><p>Abre Sofía desde Safari o Chrome normal, fuera del visor de WhatsApp y fuera del modo incógnito. No borres los datos del sitio.</p><a class="btn primary full" style="margin-top:12px" href="./entrar.html?rescate=7">Abrir recuperación</a></div>`;}
@@ -234,8 +235,8 @@ async function init(){
  window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();app.installPrompt=e});
  window.addEventListener("focus",async()=>{await render();remind()});
  document.addEventListener("visibilitychange",async()=>{if(!document.hidden){await render();remind()}});
- setInterval(()=>{void render().then(remind)},60000);
- if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js",{scope:"./"}).catch(err=>console.warn("Sin modo offline:",err));
+ setInterval(()=>{if(!document.hidden&&navigator.onLine)void render().then(remind)},60000);
+ if(!CLOUD&&"serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js",{scope:"./"}).catch(err=>console.warn("Sin modo offline:",err));
 }
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",()=>void init());else void init();
 })();
