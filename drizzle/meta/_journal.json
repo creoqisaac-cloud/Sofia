@@ -36,6 +36,13 @@
       "when": 1791343399555,
       "tag": "0004_tablet_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792713480000,
+      "tag": "0005_whatsapp_cloud",
+      "breakpoints": true
     }
   ]
 }
