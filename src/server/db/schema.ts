@@ -1262,3 +1262,27 @@ export const whatsappInboundEvents = pgTable(
   },
   (t) => [index("whatsapp_inbound_workspace_idx").on(t.workspaceId)],
 );
+
+/**
+ * Confirmed BIKY bookings, not speculative AI appointment proposals.
+ * Source booking ID deduplicates retries across webhook executions.
+ */
+export const bikyBookingReceipts = pgTable(
+  "biky_booking_receipts",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    externalBookingId: text("external_booking_id").notNull(),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
+    notificationState: text("notification_state").notNull().default("pending"),
+    notificationProviderId: text("notification_provider_id"),
+    notificationChannel: text("notification_channel"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("biky_bookings_external_uq").on(t.workspaceId, t.externalBookingId),
+    index("biky_bookings_workspace_idx").on(t.workspaceId),
+  ],
+);
