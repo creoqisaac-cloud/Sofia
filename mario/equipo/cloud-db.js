@@ -202,7 +202,7 @@ async function bootstrap(){
   document.querySelector(".tabbar").hidden=false;
   document.getElementById("openQuick").style.display="";
   document.getElementById("offlineIndicator").textContent="Equipo sincronizado";
-  const sc=document.createElement("script");sc.src="../app.js?v=7";
+  const sc=document.createElement("script");sc.src="../app.js?v=8";
   sc.onerror=()=>{document.getElementById("view").innerHTML='<div class="notice warn">No se cargó la interfaz. Abre Sofía en Safari o Chrome y actualiza.</div>'};
   document.body.appendChild(sc);
  }catch(err){authHtml(err.message)}
