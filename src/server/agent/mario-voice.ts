@@ -13,6 +13,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import type { Db } from "@/server/db/client";
 import * as s from "@/server/db/schema";
+import { z } from "zod";
 
 export interface MarioVoiceProfile {
   sampleCount: number;
@@ -61,13 +62,43 @@ export function analyzeMarioVoice(messages: readonly string[]): MarioVoiceProfil
   };
 }
 
+export const MarioVoiceProfileSchema = z.object({
+  sampleCount: z.number().int().min(6).max(1000),
+  meanLength: z.number().int().min(0).max(1200),
+  paragraphStyle: z.enum(["compacto", "varios_parrafos"]),
+  tone: z.enum(["campechano", "profesional_cercano", "formal"]),
+  greeting: z.enum(["que_onda", "hola", "directo"]),
+  usesCompare: z.boolean(), usesOye: z.boolean(), usesMira: z.boolean(),
+  emoji: z.enum(["casi_nunca", "ocasional", "frecuente"]),
+  question: z.enum(["directa", "sin_abusar"]),
+});
+
+export async function calibrateMarioVoice(db: Db, workspaceId: string, samples: string[]): Promise<MarioVoiceProfile> {
+  const profile = analyzeMarioVoice(samples);
+  if (!profile) throw new Error("Se necesitan por lo menos seis mensajes auténticos.");
+  const [ws] = await db.select({ settings: s.workspaces.settings })
+    .from(s.workspaces).where(eq(s.workspaces.id, workspaceId)).limit(1);
+  if (!ws) throw new Error("El espacio de trabajo no existe.");
+  // Only numeric/categorical signals are stored. Raw messages are never persisted.
+  await db.update(s.workspaces).set({
+    settings: { ...ws.settings, marioVoiceCalibration: profile, marioVoiceCalibratedAt: new Date().toISOString() },
+  }).where(eq(s.workspaces.id, workspaceId));
+  return profile;
+}
+
 export async function loadMarioVoiceProfile(db: Db, workspaceId: string): Promise<MarioVoiceProfile | null> {
   const rows = await db.select({ body: s.messages.body })
     .from(s.messages)
     .where(and(eq(s.messages.workspaceId, workspaceId), eq(s.messages.sender, "mario")))
     .orderBy(desc(s.messages.createdAt))
     .limit(200);
-  return analyzeMarioVoice(rows.map(row => row.body));
+  const live = analyzeMarioVoice(rows.map(row => row.body));
+  const [ws] = await db.select({ settings: s.workspaces.settings })
+    .from(s.workspaces).where(eq(s.workspaces.id, workspaceId)).limit(1);
+  const calibration = MarioVoiceProfileSchema.safeParse(ws?.settings?.marioVoiceCalibration);
+  // With enough real messages, take Mario's more recent observed behavior.
+  // Until then, use explicitly approved calibration without storing originals.
+  return live ?? (calibration.success ? calibration.data : null);
 }
 
 export function renderMarioVoiceProfile(profile: MarioVoiceProfile | null): string {
