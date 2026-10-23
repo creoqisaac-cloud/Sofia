@@ -34,6 +34,9 @@ export default async function WhatsAppPage() {
           </div>
           <p className="mt-4 text-[12px] text-faint">Sofía no debe confirmar citas por texto hasta recibir la reserva del calendario real. El motor DEMO nunca se envía automáticamente a clientes.</p>
         </section>
+        <Link href="/settings/mario-voice" className="flex min-h-14 items-center justify-center rounded-2xl bg-sand px-4 text-[15px] font-semibold text-ink">
+          Entrenar la personalidad de Mario
+        </Link>
         <div className="grid grid-cols-2 gap-3 text-center">
           <Link href="/agenda" className="flex min-h-14 items-center justify-center rounded-2xl bg-panel px-4 text-[15px] text-ivory">Ver agenda</Link>
           <Link href="/mario" className="flex min-h-14 items-center justify-center rounded-2xl bg-panel px-4 text-[15px] text-ivory">Alertas Mario</Link>
