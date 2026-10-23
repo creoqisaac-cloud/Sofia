@@ -11,5 +11,10 @@ CREATE TABLE IF NOT EXISTS "whatsapp_inbound_events" (
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "whatsapp_inbound_workspace_idx" ON "whatsapp_inbound_events" ("workspace_id");
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "messages_whatsapp_id_uq" ON "messages" ((metadata ->> 'whatsappMessageId'))
   WHERE metadata ? 'whatsappMessageId';
+
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "conversations_one_whatsapp_per_customer_uq" ON "conversations" ("workspace_id", "customer_id") WHERE "channel" = 'whatsapp';
