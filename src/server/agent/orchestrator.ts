@@ -11,6 +11,7 @@
  * El texto libre del modelo nunca modifica la BD directamente.
  */
 import { isAiProvider, recordAiUsage } from "../services/ai-usage";
+import { loadMarioVoiceProfile } from "./mario-voice";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { guardReply, type GuardReport, type GuardViolation } from "@/domain/guards";
@@ -54,6 +55,7 @@ export async function runSofiaTurn(app: AppContext, args: { conversationId: stri
   const started = Date.now();
   const now = app.clock.now();
   const ctx = await buildTurnContext(app.db, { workspaceId: app.workspaceId, conversationId: args.conversationId, newMessageId: args.inboundMessageId, now });
+  const marioVoiceProfile = await loadMarioVoiceProfile(app.db, app.workspaceId);
   const scratch = newScratch();
   const tools = new ReadToolExecutor(ctx, scratch);
 
@@ -71,7 +73,7 @@ export async function runSofiaTurn(app: AppContext, args: { conversationId: stri
 
   while (attempts < maxAttempts) {
     attempts++;
-    const prompt = buildPrompt(ctx, { correction });
+    const prompt = buildPrompt(ctx, { correction, marioVoiceProfile });
     contextStats = prompt.stats;
     try {
       const t0 = Date.now();

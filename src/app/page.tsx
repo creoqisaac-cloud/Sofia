@@ -87,7 +87,7 @@ async function TabletHome({ items, app }: { items: Awaited<ReturnType<typeof get
         {[
           { href: "/correos", label: "✉️ Correos" },
           { href: "/settings/reminders", label: "⏰ Avisos" },
-          { href: "/whatsapp", label: "💬 WhatsApp" },
+          { href: "/whatsapp", label: "🤖 Sofía WA" },
         ].map((a) => (
           <Link key={a.href} href={a.href} className="flex min-h-14 items-center justify-center rounded-2xl bg-raise px-2 text-center text-[13px] text-ivory">
             {a.label}

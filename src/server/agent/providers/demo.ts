@@ -92,8 +92,8 @@ export function demoBrain(ctx: TurnContext): AgentOutput {
   const isFirstReply = !ctx.recentMessages.some((m) => m.sender === "sofia");
   const lastNonCustomer = [...ctx.recentMessages].reverse().find((m) => m.id !== ctx.newMessage.id && m.sender !== "customer");
   const resumingAfterMario = lastNonCustomer?.sender === "mario" || (lastNonCustomer?.sender === "system" && /retoma/i.test(lastNonCustomer.body));
-  if (isFirstReply) parts.push(`¡Hola${firstName ? `, ${firstName}` : ""}! Soy Sofía, te escribo de parte de Mario Abarca, asesor Honda 🙌`);
-  else if (resumingAfterMario) parts.push(`Retomo por aquí${firstName ? `, ${firstName}` : ""} 🙌`);
+  if (isFirstReply) parts.push(`¡Qué onda${firstName ? ` ${firstName}` : ""}! Me llegó tu mensaje de Honda Valle Oriente.`);
+  else if (resumingAfterMario) parts.push(`Oye${firstName ? ` ${firstName}` : ""}, retomando lo que platicamos.`);
   const escalations = ctx.deterministicEscalations;
   if (!isFirstReply && !resumingAfterMario && escalations.length === 0) {
     const isQ = ctx.newMessage.body.includes("?");

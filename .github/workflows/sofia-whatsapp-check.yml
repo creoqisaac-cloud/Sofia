@@ -1,0 +1,50 @@
+name: Sofía WhatsApp checks
+
+on:
+  pull_request:
+    paths:
+      - 'src/server/whatsapp/**'
+      - 'src/server/agent/**'
+      - 'src/app/api/mario/voice/**'
+      - 'src/app/settings/mario-voice/**'
+      - 'src/components/mario/MarioVoiceTrainer.tsx'
+      - 'tests/35-mario-voice.test.ts'
+      - 'src/app/whatsapp/**'
+      - 'src/server/biky/**'
+      - 'src/app/api/webhooks/biky-booking/**'
+      - 'tests/34-biky-booking-notify.test.ts'
+      - 'src/server/services/pilot-delivery.ts'
+      - 'src/domain/pilot.ts'
+      - 'src/app/piloto/**'
+      - 'src/components/sofia/PilotLeadForm.tsx'
+      - 'tests/33-pilot-delivery.test.ts'
+      - 'src/app/api/webhooks/whatsapp/**'
+      - 'src/server/db/schema.ts'
+      - 'drizzle/**'
+      - 'tests/31-whatsapp-meta.test.ts'
+      - 'tests/32-whatsapp-inbox.test.ts'
+      - 'package*.json'
+      - '.github/workflows/sofia-whatsapp-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm run test
+      - name: Production build
+        run: npm run build

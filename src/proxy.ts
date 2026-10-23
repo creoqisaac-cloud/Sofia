@@ -17,7 +17,7 @@ function withMode(request: NextRequest, res: NextResponse): NextResponse {
 
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  if (path === "/api/alexa" || path === "/api/health" || path === "/acceso" || path === "/salir") {
+  if (path === "/api/alexa" || path === "/api/health" || path === "/api/webhooks/whatsapp" || path === "/api/webhooks/biky-booking" || path === "/acceso" || path === "/salir") {
     return NextResponse.next();
   }
 

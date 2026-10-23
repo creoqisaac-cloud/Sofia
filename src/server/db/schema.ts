@@ -173,7 +173,10 @@ export const conversations = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("conversations_customer_idx").on(t.customerId)],
+  (t) => [
+    index("conversations_customer_idx").on(t.customerId),
+    uniqueIndex("conversations_one_whatsapp_per_customer_uq").on(t.workspaceId, t.customerId).where(sql`${t.channel} = 'whatsapp'`),
+  ],
 );
 
 /** Mensajes originales, inmutables. Nunca se editan ni se borran desde la app. */
@@ -196,7 +199,10 @@ export const messages = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [index("messages_conversation_seq_idx").on(t.conversationId, t.seq)],
+  (t) => [
+    index("messages_conversation_seq_idx").on(t.conversationId, t.seq),
+    uniqueIndex("messages_whatsapp_id_uq").on(sql`(${t.metadata} ->> 'whatsappMessageId')`).where(sql`${t.metadata} ? 'whatsappMessageId'`),
+  ],
 );
 
 // ───────────────────────────── memoria del cliente ─────────────────────────────
@@ -1234,3 +1240,49 @@ export const aiUsageEvents = pgTable("ai_usage_events", {
   outputTokens: integer("output_tokens"),
   createdAt: createdAt(),
 });
+
+/**
+ * Mensajes entrantes desde Meta Cloud API.
+ * El ID externo es globalmente único (wamid), no contiene contenido del cliente.
+ * Una concesión de 2 min evita trabajo duplicado mientras Meta reintenta el webhook.
+ */
+export const whatsappInboundEvents = pgTable(
+  "whatsapp_inbound_events",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: workspaceId(),
+    phone: text("phone").notNull(),
+    state: text("state").notNull().default("received"), // received | processing | retry | manual | sent
+    inboundMessageId: uuid("inbound_message_id").references(() => messages.id, { onDelete: "set null" }),
+    replyMessageId: uuid("reply_message_id").references(() => messages.id, { onDelete: "set null" }),
+    outboundMessageId: text("outbound_message_id"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("whatsapp_inbound_workspace_idx").on(t.workspaceId)],
+);
+
+/**
+ * Confirmed BIKY bookings, not speculative AI appointment proposals.
+ * Source booking ID deduplicates retries across webhook executions.
+ */
+export const bikyBookingReceipts = pgTable(
+  "biky_booking_receipts",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    externalBookingId: text("external_booking_id").notNull(),
+    appointmentId: uuid("appointment_id").references(() => appointments.id, { onDelete: "set null" }),
+    notificationState: text("notification_state").notNull().default("pending"),
+    notificationProviderId: text("notification_provider_id"),
+    notificationChannel: text("notification_channel"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("biky_bookings_external_uq").on(t.workspaceId, t.externalBookingId),
+    index("biky_bookings_workspace_idx").on(t.workspaceId),
+  ],
+);
