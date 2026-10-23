@@ -225,7 +225,7 @@ function remind(){
 function updateNetwork(){const e=$("#offlineIndicator");e.textContent=navigator.onLine?"Datos locales":"Sin red · local";e.style.color=navigator.onLine?"var(--green)":"var(--brand)"}
 async function init(){
  try{if(!D||typeof D.open!=="function")throw Error("No se cargó el módulo de almacenamiento. Abre Sofía en Safari o Chrome.");await Promise.race([D.open(),new Promise((_,reject)=>setTimeout(()=>reject(Error("El almacenamiento local no respondió. Abre este enlace en Safari o Chrome normal, fuera de WhatsApp.")),6500))]);if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});await render();remind();updateNetwork();window.sofiaAppReady=true}
- catch(err){$("#view").innerHTML=`<div class="notice warn">No se pudo iniciar el guardado local: ${E(err.message)}. Abre desde Safari o Chrome normal, fuera del modo incógnito.</div>`;}
+ catch(err){$("#view").innerHTML=`<div class="notice warn"><strong>No se pudo abrir el registro local.</strong><p>${E(err.message)}</p><p>Abre Sofía desde Safari o Chrome normal, fuera del visor de WhatsApp y fuera del modo incógnito. No borres los datos del sitio.</p><a class="btn primary full" style="margin-top:12px" href="./entrar.html?rescate=7">Abrir recuperación</a></div>`;}
  document.addEventListener("click",ev=>{void handleClick(ev.target)});
  document.addEventListener("submit",ev=>{if(ev.target instanceof HTMLFormElement && ev.target.getAttribute("id")==="editForm")void handleForm(ev)});
  $("#openQuick").addEventListener("click",()=>{try{openForm("client")}catch(e){toast(e.message)}});
