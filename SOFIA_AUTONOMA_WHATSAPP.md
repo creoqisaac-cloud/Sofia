@@ -67,3 +67,23 @@ WhatsApp restringe mensajes proactivos fuera de la ventana de servicio de 24 hor
 3. Configurar un canal aprobado para notificaciones al WhatsApp de Mario.
 4. Conectar PostgreSQL persistente, desplegar la rama y aplicar migraciones 0005/0006.
 5. Prueba end-to-end con Roberto ficticio y teléfono autorizado: cliente escribe > Sofía responde > BIKY reserva > Sofia recibe webhook > Mario recibe aviso.
+
+## Personalidad de Mario: escribir como él, no presentarse como bot
+
+La pantalla `/settings/mario-voice` permite calibrar el estilo de Mario con **6 a 80 mensajes auténticos** (con su autorización) separados por una línea `---`. El servidor calcula rasgos de longitud, saludos, informalidad, modismos, emojis y estructura. **Nunca guarda ni entrega al LLM los ejemplos originales**, solo un perfil estadístico resumido en `workspaces.settings.marioVoiceCalibration`.
+
+Además, el cerebro consulta los últimos **200 mensajes que Mario realmente haya escrito** dentro de Sofía (`sender = mario`, mismo workspace), y cuando existen al menos 6 usa su estilo observado recientemente. Esto no es reentrenar pesos del LLM; es adaptar dinámicamente el prompt para redactar mensajes NUEVOS conforme al estilo detectado. Los mensajes enviados por clientes o por la IA no se usan como material de entrenamiento de personalidad. Los mensajes de BIKY tampoco se importan todavía.
+
+La identidad para clientes se expresa naturalmente desde la cuenta comercial de Mario en Honda Valle Oriente. **No** se abre con «Soy Sofía», «soy asistente virtual» o «te escribo de parte de Mario». En cambio, se responde la pregunta y se avanza en la venta con expresiones de Mario: «qué onda», «oye», «mira», «compare» solo si el contexto lo admite. Los ejemplos iniciales son de estilo, **no guiones prediseñados**.
+
+Restricciones: el bot no finge haber atendido personalmente al cliente, revisado expedientes ni autorizado descuentos; no afirma una cita confirmada sin evidencia de reserva real; si el cliente pregunta «¿eres Mario?» o «¿eres un bot?», responde con transparencia que se usan respuestas automatizadas de su WhatsApp y ofrece atención humana de Mario. Los avisos internos «Hola papi» van exclusivamente al WhatsApp de Mario.
+
+### Validación rápida de personalidad
+
+- Cliente informal: «Compare, ¿tienes CR-V seminueva?» → respuesta conversacional, directa, siguiendo el modelo y disponibilidad documentada.
+- Cliente formal: «Buenas tardes, quisiera una cotización» → saludo profesional sin «compare» forzado.
+- Cliente pregunta quién escribe: decir la verdad sobre la automatización sin largas introducciones.
+- Cliente pregunta por un bono: **no inventar una cifra**; usar datos confirmados o consultar con Mario.
+- Cliente acepta cita: solo emitir «confirmada» después de que el calendario registre la reserva.
+
+**Antes de usar con leads reales:** alimentar ejemplos autorizados, revisar la conducta en el simulador, conectar la fuente oficial de WhatsApp y el calendario, y habilitar el modo automático solo con condiciones verificadas.
