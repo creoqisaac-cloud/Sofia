@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'src/server/whatsapp/**'
+      - 'src/server/services/pilot-delivery.ts'
+      - 'src/domain/pilot.ts'
+      - 'src/app/piloto/**'
+      - 'src/components/sofia/PilotLeadForm.tsx'
+      - 'tests/33-pilot-delivery.test.ts'
       - 'src/app/api/webhooks/whatsapp/**'
       - 'src/server/db/schema.ts'
       - 'drizzle/**'
