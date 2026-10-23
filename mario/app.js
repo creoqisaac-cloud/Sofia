@@ -227,7 +227,7 @@ async function init(){
  try{await D.open();if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});await render();remind();updateNetwork()}
  catch(err){$("#view").innerHTML=`<div class="notice warn">No se pudo iniciar el guardado local: ${E(err.message)}. Abre desde Safari o Chrome normal, fuera del modo incógnito.</div>`;}
  document.addEventListener("click",ev=>{void handleClick(ev.target)});
- document.addEventListener("submit",ev=>{if(ev.target?.id==="editForm")void handleForm(ev)});
+ document.addEventListener("submit",ev=>{if(ev.target instanceof HTMLFormElement && ev.target.getAttribute("id")==="editForm")void handleForm(ev)});
  $("#openQuick").addEventListener("click",()=>{try{openForm("client")}catch(e){toast(e.message)}});
  $("#backupInput").addEventListener("change",async e=>{const file=e.target.files?.[0];if(!file)return;try{await restoreFile(file)}catch(err){toast("Error al restaurar: "+err.message)}finally{e.target.value=""}});
  window.addEventListener("online",updateNetwork);window.addEventListener("offline",updateNetwork);
