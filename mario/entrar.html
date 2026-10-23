@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es-MX">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f6f5f1"><meta name="robots" content="noindex">
+<title>Reabrir Sofía para Mario</title>
+<style>
+html,body{margin:0;min-height:100%;background:#f6f5f1;color:#1e2631;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:540px;margin:auto;padding:35px 22px 110px}
+.logo{display:inline-block;background:#17202b;color:#f1d297;padding:14px 17px;border-radius:18px;font-size:25px;font-weight:900}
+.tag{color:#80613a;letter-spacing:.15em;font-size:11px;font-weight:800;margin:24px 0 7px}
+h1{font-size:31px;line-height:1.13;margin:10px 0 16px}
+p{color:#485463}strong{color:#182432}
+a.button,button{display:block;text-align:center;width:100%;box-sizing:border-box;background:#1e2935;border:0;color:white;padding:16px 18px;border-radius:13px;font-size:16px;font-weight:750;margin:12px 0;text-decoration:none;cursor:pointer}
+a.button.alt,button.alt{background:#ede5d6;color:#273446}
+.instructions{margin-top:25px;padding:20px;border-radius:16px;background:white;border:1px solid #e0dfdc}
+li{padding:5px 0}code{display:block;background:#eef1f4;padding:13px;border-radius:9px;overflow-wrap:anywhere;font-size:13px}
+#result{min-height:22px;font-size:14px;color:#225f4b}
+</style>
+</head><body><main>
+<div class="logo">S</div><p class="tag">HONDA VALLE ORIENTE · MARIO ABARCA</p>
+<h1>Sofía móvil: acceso seguro</h1>
+<p>Si el enlace anterior se ve completamente negro, probablemente el visor de WhatsApp esté bloqueando la carga, o quedó una versión antigua de la aplicación guardada.</p>
+<a class="button" href="./index.html?version=5&abrir=externo">Abrir Sofía para Mario</a>
+<button type="button" class="alt" id="repair">Reparar archivos temporales y abrir Sofía</button>
+<div id="result" role="status"></div>
+<div class="instructions"><strong>En iPhone:</strong><ol>
+<li>Copia este enlace o usa «Abrir en Safari» desde el menú de WhatsApp.</li>
+<li>Abre Safari directamente, pega el enlace en la barra y entra.</li>
+<li>Si ya ves tus clientes, usa Compartir → Agregar a pantalla de inicio.</li>
+</ol>
+<strong>En Samsung:</strong><ol><li>En WhatsApp toca los tres puntos → Abrir en Chrome, o copia y pega el enlace en Chrome.</li><li>Al funcionar, menú → Instalar aplicación.</li></ol>
+<strong>Enlace que debes abrir:</strong><code>https://creoqisaac-cloud.github.io/Sofia/mario/index.html?version=5</code>
+<button type="button" class="alt" id="copy">Copiar enlace</button>
+</div>
+<p style="font-size:13px;margin-top:23px">Reparar solo elimina archivos temporales de esta aplicación, no los expedientes guardados en el almacenamiento local del navegador. No borres «datos del sitio», el historial o la app instalada si ya registraste clientes.</p>
+</main>
+<script>
+(function(){
+var url="https://creoqisaac-cloud.github.io/Sofia/mario/index.html?version=5";
+var result=document.getElementById("result");
+document.getElementById("copy").addEventListener("click",function(){
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(function(){result.textContent="Enlace copiado. Pégalo en Safari o Chrome."}).catch(function(){result.textContent="Mantén presionado el enlace visible y cópialo."})}
+  else{result.textContent="Mantén presionado el enlace visible y cópialo."}
+});
+document.getElementById("repair").addEventListener("click",async function(){
+  result.textContent="Reparando archivos temporales. No se borrarán tus clientes...";
+  try{
+    if('serviceWorker' in navigator){
+      var registrations=await navigator.serviceWorker.getRegistrations();
+      for(var r of registrations){if(r.scope.indexOf('/Sofia/mario/')!==-1)await r.unregister()}
+    }
+    if('caches' in window){
+      var names=await caches.keys();
+      for(var name of names){if(name.indexOf('sofia-mario-movil-')===0)await caches.delete(name)}
+    }
+    result.textContent="Archivos temporales reparados. Abriendo Sofía...";
+    location.replace("./index.html?version=5&repaired="+Date.now());
+  }catch(err){result.textContent="No se pudo reparar automáticamente. Abre el enlace en Safari o Chrome normal."}
+});
+})();
+</script>
+</body></html>
