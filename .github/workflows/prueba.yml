@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [claude/focused-gauss-q4hxvr, claude/laughing-sagan-hbxj3y]
-    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "tests/33-ine-mrz.test.ts", "tests/34-google-apps-script.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
+    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "tests/33-ine-mrz.test.ts", "tests/34-google-apps-script.test.ts", "tests/35-vendedor.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
 
 concurrency:
   group: prueba-${{ github.ref }}
@@ -36,10 +36,11 @@ jobs:
       - name: Prueba de punta a punta (navegador de celular)
         run: |
           npx playwright install --with-deps chromium
-          npx vitest run tests/31-conector.test.ts tests/32-prueba-credito-oficial.test.ts tests/33-ine-mrz.test.ts tests/34-google-apps-script.test.ts
+          npx vitest run tests/31-conector.test.ts tests/32-prueba-credito-oficial.test.ts tests/33-ine-mrz.test.ts tests/34-google-apps-script.test.ts tests/35-vendedor.test.ts
           # Conector apuntando a la Graph API de Meta SIMULADA que levanta la prueba (puerto 9099)
           SOFIA_TOKEN=clave-prueba META_APP_SECRET=secreto-app META_VERIFY_TOKEN=verifica WA_TOKEN=tok-wa \
           WA_PHONE_NUMBER_ID=111 WA_WABA_ID=222 FB_PAGE_ID=333 FB_PAGE_TOKEN=tok-fb META_GRAPH_URL=http://127.0.0.1:9099/v \
+          ANTHROPIC_API_KEY=sk-ant-prueba ANTHROPIC_BASE_URL=http://127.0.0.1:9099 \
           SOFIA_DATA_DIR=$RUNNER_TEMP/datos nohup node prueba/servidor/servidor.mjs > $RUNNER_TEMP/servidor.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:8080/api/salud && break; sleep 1; done
           BASE=http://localhost:8080/ SHOTS=capturas node scripts/prueba-e2e.mjs || (cat $RUNNER_TEMP/servidor.log; exit 1)

@@ -17,6 +17,7 @@ type Rec = { method: string; path: string; auth?: string; body: string; type?: s
 const calls: Rec[] = [];
 let enviados = 0; // cada envío simulado recibe un id distinto, como en Meta
 let fake: http.Server;
+const ia = { peticiones: [] as Record<string, unknown>[], salida: {} as Record<string, unknown>, stop: "end_turn" };
 let G = "";
 
 // Almacén en memoria SIN delete (como servidor.mjs); cuenta escrituras para vigilar el límite gratis de KV.
@@ -39,6 +40,13 @@ beforeAll(async () => {
       const path = req.url ?? "";
       calls.push({ method: req.method!, path, auth: req.headers.authorization, body, type: req.headers["content-type"] });
       const send = (o: unknown, s = 200) => { res.writeHead(s, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
+      // API de mensajes de Anthropic simulada (IA opcional de la vendedora)
+      if (path.startsWith("/v1/messages")) {
+        if (req.headers["x-api-key"] !== "sk-ant-prueba") return send({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, 401);
+        const b = JSON.parse(body);
+        ia.peticiones.push(b);
+        return send({ id: "msg_1", type: "message", role: "assistant", model: b.model, content: ia.stop === "refusal" ? [] : [{ type: "text", text: JSON.stringify(ia.salida) }], stop_reason: ia.stop, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
+      }
       if (req.headers.authorization !== "Bearer tok-wa" && req.headers.authorization !== "Bearer tok-fb") return send({ error: { message: "Invalid OAuth access token" } }, 401);
       if (path.startsWith("/v/111?fields")) return send({ display_phone_number: "+52 81 0000 0000", verified_name: "Agencia Prueba" });
       if (path === "/v/111/messages") {
@@ -179,7 +187,7 @@ describe("conector · envíos y estado", () => {
     expect(ok.facebook).toMatchObject({ configured: true, ok: true, name: "Página Prueba" });
     expect(ok.instagram).toMatchObject({ configured: true, ok: true, username: "agencia.prueba" });
     expect(ok.agente).toMatchObject({ activo: false, reglas: 0, ultimoError: null });
-    expect(ok.prospectos).toEqual({ nuevos: 0 });
+    expect(ok.prospectos).toEqual({ nuevos: 0, calientes: 0 });
     expect(ok.programadas).toEqual({ pendientes: 0, conError: 0 });
     const bad = await (await handle(req("/api/estado?token=clave"), { ...env(), WA_TOKEN: "vencido" }, memStore())).json();
     expect(bad.whatsapp).toMatchObject({ configured: true, ok: false, error: "Invalid OAuth access token" });
@@ -215,8 +223,9 @@ const waMsg = (id: string, text: string, iso: string, o: { from?: string; name?:
     } }] }],
   };
 };
+// Agente por reglas (la vendedora apagada): bienvenida, fuera de horario y palabras clave.
 const agente = (extra: Record<string, unknown> = {}) => ({
-  activo: true, asesor: "Pedro", agencia: "Honda Ejemplo", esperaHoras: 12,
+  activo: true, asesor: "Pedro", agencia: "Honda Ejemplo", esperaHoras: 12, ventas: { activo: false },
   bienvenida: "¡Hola {nombre}! Soy {asesor} de {agencia}.",
   fueraDeHorario: "Gracias {nombre}, te contesto mañana a partir de las 9.",
   reglas: [{ palabras: ["precio", "cuánto cuesta"], respuesta: "Los precios están en la lista de {agencia}." }, { palabras: ["ubicación"], respuesta: "Estamos en Av. Ejemplo 123." }],
@@ -429,7 +438,7 @@ describe("conector · prospectos", () => {
     await handle(signed(waMsg("wamid.L2", "", mas(LUNES_10, 5), { from: "5218166666666", name: "Persona Dos", type: "image", extra: { image: { id: "777", mime_type: "image/jpeg" } } })), env(), store, { ahora: mas(LUNES_10, 5) });
     const lista = (await (await handle(req("/api/prospectos?token=clave"), env(), store)).json()).prospectos;
     expect(lista.map((l: { clave: string; primerMensaje: string }) => [l.clave, l.primerMensaje])).toEqual([["wa:5218166666666", "[image]"], ["wa:5218155555555", "Hola"]]);
-    expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).prospectos).toEqual({ nuevos: 2 });
+    expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).prospectos).toEqual({ nuevos: 2, calientes: 0 });
     const r = await (await handle(post("/api/prospectos/marcar", { token: "clave", ids: ["wa:5218155555555", "wa:no-existe"] }), env(), store, { ahora: LUNES_21 })).json();
     expect(r).toEqual({ ok: true, marcados: 1 });
     expect((await (await handle(post("/api/prospectos/marcar", { token: "clave", ids: ["wa:5218155555555"] }), env(), store)).json()).marcados).toBe(0);
@@ -650,5 +659,167 @@ describe("conector · límites de KV, archivos ajenos y publicación única", ()
     calls.length = 0;
     await handle(signed(waMsg("wamid.U1", "¿Cuál es su ubicación?", mas(LUNES_10, 1))), env(), store, { ahora: mas(LUNES_10, 1) });
     expect(waEnvios().map((m) => m.text.body)).toEqual(["Estamos en la agencia. Te espero."]);
+  });
+});
+
+describe("conector · vendedora (asistente de ventas de autos)", () => {
+  const AUTOS = [
+    { id: "crv", marca: "Honda", modelo: "CR-V", version: "Touring", anio: 2026, precio: "689,900", tipo: "nuevo" },
+    { id: "versa", marca: "Nissan", modelo: "Versa", anio: 2022, precio: 269000, tipo: "seminuevo", km: 41000, palabras: "versita, versa gris" },
+  ];
+  const vendedora = (extra: Record<string, unknown> = {}) => ({ activo: true, asesor: "Pedro", agencia: "Honda Ejemplo", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, ...extra });
+  const subirFoto = async (store: ReturnType<typeof memStore>) => (await (await handle(post("/api/inventario/foto", { token: "clave", imagen: JPG }), env(), store)).json()).fotoId as string;
+  const leadDe = async (store: ReturnType<typeof memStore>, clave = `wa:${CLIENTA}`) => ((await (await handle(req("/api/prospectos?token=clave"), env(), store)).json()).prospectos as Record<string, unknown>[]).find((l) => l.clave === clave);
+
+  it("inventario: fotos públicas, datos limpios, y las fotos que ya nadie usa se borran", async () => {
+    const store = memStore();
+    const fotoId = await subirFoto(store);
+    expect(fotoId).toMatch(/^[a-f0-9]{32}$/);
+    const r = await (await handle(post("/api/inventario", { token: "clave", autos: [{ ...AUTOS[0], fotoId }, AUTOS[1]] }), env(), store)).json();
+    expect(r.autos[0]).toMatchObject({ id: "crv", precio: 689900, anio: 2026, foto: `https://conector.test/media/${fotoId}`, disponible: true });
+    expect(r.autos[1]).toMatchObject({ palabras: ["versita", "versa gris"], km: 41000, foto: null });
+    expect((await handle(req(`/media/${fotoId}`), env(), store)).status).toBe(200);
+    await handle(post("/api/inventario", { token: "clave", autos: [AUTOS[1]] }), env(), store);
+    expect((await handle(req(`/media/${fotoId}`), env(), store)).status).toBe(404);
+    expect((await handle(post("/api/inventario", { token: "clave", autos: [{ modelo: "Sin id" }] }), env(), store)).status).toBe(400);
+    expect((await handle(post("/api/inventario/foto", { token: "clave", imagen: "data:image/svg+xml;base64,PHN2Zz4=" }), env(), store)).status).toBe(400);
+    expect((await handle(req("/api/inventario?token=mala"), env(), store)).status).toBe(401);
+  });
+
+  it("WhatsApp: ficha con foto y precio, pase al asesor, prospecto caliente y silencio mientras atiende el asesor", async () => {
+    const store = memStore();
+    const fotoId = await subirFoto(store);
+    await handle(post("/api/inventario", { token: "clave", autos: [{ ...AUTOS[0], fotoId }, AUTOS[1]] }), env(), store);
+    await configurar(store, vendedora());
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.V1", "Hola, ¿cuánto cuesta la crv?", LUNES_10)), env(), store, { ahora: LUNES_10 });
+    const [ficha] = calls.filter((c) => c.path === "/v/111/messages").map((c) => JSON.parse(c.body));
+    expect(ficha).toMatchObject({ to: CLIENTA, type: "image", image: { link: `https://conector.test/media/${fotoId}` } });
+    expect(ficha.image.caption).toMatch(/^¡Hola Lucía! 👋 Soy Sofía, asistente de Pedro en Honda Ejemplo\./);
+    expect(ficha.image.caption).toContain("💵 *$689,900* de contado");
+    expect(await leadDe(store)).toMatchObject({ interes: "Honda CR-V Touring 2026", autoId: "crv", calor: "tibio", importado: false });
+    const msgs = await charla(store);
+    expect(msgs.at(-1)).toMatchObject({ dir: "out", type: "image", auto: true });
+
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.V2", "4", mas(LUNES_10, 1))), env(), store, { ahora: mas(LUNES_10, 1) });
+    expect(waEnvios()[0]!.text.body).toContain("Le aviso a Pedro para que te escriba en breve");
+    expect(await leadDe(store)).toMatchObject({ quiereAsesor: true, calor: "caliente" });
+    expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).prospectos).toEqual({ nuevos: 1, calientes: 1 });
+
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.V3", "¿sigues ahí?", mas(LUNES_10, 2))), env(), store, { ahora: mas(LUNES_10, 2) });
+    expect(waEnvios()).toHaveLength(0); // ya lo atiende Pedro
+  });
+
+  it("recuerda la conversación entre mensajes: lista por número, cotización y cita", async () => {
+    const store = memStore();
+    await handle(post("/api/inventario", { token: "clave", autos: AUTOS }), env(), store);
+    await configurar(store, vendedora());
+    const decir = async (id: string, texto: string, min: number) => {
+      calls.length = 0;
+      await handle(signed(waMsg(id, texto, mas(LUNES_10, min))), env(), store, { ahora: mas(LUNES_10, min) });
+      return waEnvios().map((m) => m.text.body).join("\n");
+    };
+    expect(await decir("wamid.L1", "Hola", 0)).toContain("1️⃣ Ver autos disponibles");
+    expect(await decir("wamid.L2", "1", 1)).toContain("2️⃣ *Nissan Versa 2022* — $269,000 · 41,000 km");
+    expect(await decir("wamid.L3", "2", 2)).toContain("🚗 *Nissan Versa 2022*"); // sin foto: va como texto
+    expect(await decir("wamid.L4", "1", 3)).toContain("¿cuánto te gustaría dar de enganche?");
+    expect(await decir("wamid.L5", "80 mil", 4)).toContain("Con $80,000 de enganche");
+    expect(await decir("wamid.L6", "1", 5)).toContain("¿Qué día y a qué hora te acomoda venir");
+    expect(await decir("wamid.L7", "el sábado a las 11", 6)).toContain("Anoté tu visita: *el sábado a las 11*");
+    expect(await leadDe(store)).toMatchObject({ autoId: "versa", formaPago: "credito", enganche: 80000, cita: "el sábado a las 11", quiereAsesor: true });
+  });
+
+  it("si el asesor acaba de contestar a mano, la vendedora no interrumpe", async () => {
+    const store = memStore();
+    await configurar(store, vendedora({ pausaMinutos: 30 }));
+    await handle(signed(waMsg("wamid.P1", "Hola", LUNES_10)), env(), store, { ahora: LUNES_10 });
+    await handle(post("/api/enviar", { token: "clave", channel: "wa", to: CLIENTA, text: "¡Hola Lucía! Soy Pedro, ¿en qué te ayudo?" }), env(), store, { ahora: mas(LUNES_10, 1) });
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.P2", "1", mas(LUNES_10, 2))), env(), store, { ahora: mas(LUNES_10, 2) });
+    expect(waEnvios()).toHaveLength(0);
+  });
+
+  it("Messenger: primero la foto y luego el texto (Messenger no lleva pie de foto)", async () => {
+    const store = memStore();
+    const fotoId = await subirFoto(store);
+    await handle(post("/api/inventario", { token: "clave", autos: [{ ...AUTOS[0], fotoId }] }), env(), store);
+    await configurar(store, vendedora());
+    calls.length = 0;
+    await handle(signed({ object: "page", entry: [{ messaging: [{ sender: { id: "PSID9" }, timestamp: Date.parse(LUNES_10), message: { mid: "m.V1", text: "precio de la CR-V" } }] }] }), env(), store, { ahora: LUNES_10 });
+    const envios = calls.filter((c) => c.path === "/v/333/messages").map((c) => JSON.parse(c.body).message);
+    expect(envios[0]).toEqual({ attachment: { type: "image", payload: { url: `https://conector.test/media/${fotoId}`, is_reusable: true } } });
+    expect(envios[1].text).toContain("¡Hola Luis!");
+    expect(envios[1].text).toContain("🚗 *Honda CR-V Touring 2026*");
+  });
+
+  it("configuración de la vendedora: valores por defecto y límites", async () => {
+    const store = memStore();
+    const def = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
+    expect(def.ventas).toEqual({ activo: true, tasaAnual: 15.9, engancheMinimo: 20, plazos: [24, 36, 48, 60], horasConAsesor: 12, presentacion: "", ia: false });
+    const r = await (await configurar(store, { ventas: { tasaAnual: 12.5, plazos: [12, 72, 500, "x", 12] } })).json();
+    expect(r.config.ventas).toMatchObject({ activo: true, tasaAnual: 12.5, plazos: [12, 72], engancheMinimo: 20 });
+    const off = await (await configurar(store, { ventas: { activo: false } })).json();
+    expect(off.config.ventas).toMatchObject({ activo: false, tasaAnual: 12.5 });
+  });
+
+  it("IA opcional: contesta lo que el menú no entiende con el inventario, y si Claude se niega va la respuesta del menú", async () => {
+    const store = memStore();
+    await handle(post("/api/inventario", { token: "clave", autos: AUTOS }), env(), store);
+    await configurar(store, vendedora({ ventas: { ia: true } }));
+    const e = { ...env(), ANTHROPIC_API_KEY: "sk-ant-prueba", ANTHROPIC_BASE_URL: G };
+    await handle(signed(waMsg("wamid.I1", "Hola", LUNES_10)), e, store, { ahora: LUNES_10 });
+    ia.peticiones.length = 0;
+    ia.salida = { respuesta: "¡Claro! La *Versa 2022* tiene cámara de reversa según su ficha; ¿quieres venir a verla el sábado?", pasar_a_asesor: false, auto_id: "versa" };
+    ia.stop = "end_turn";
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.I2", "oye y el versa trae camarita atrás o nel", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
+    // "versa" sí es un auto: el menú lo entiende y NO llama a la IA.
+    expect(ia.peticiones).toHaveLength(0);
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.I3", "y aceptan mi carro a cuenta?", mas(LUNES_10, 2))), e, store, { ahora: mas(LUNES_10, 2) });
+    expect(ia.peticiones).toHaveLength(1);
+    const p = ia.peticiones[0] as { model: string; system: string; messages: { role: string; content: string }[]; output_config: { effort: string; format: { type: string } }; fallbacks: string };
+    expect(p).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "low", format: { type: "json_schema" } }, fallbacks: "default" });
+    expect(p.system).toContain("Honda CR-V Touring 2026");
+    expect(p.system).toContain("$689,900");
+    expect(p.messages[0]).toEqual({ role: "user", content: "Hola" });
+    expect(p.messages.at(-1)).toEqual({ role: "user", content: "y aceptan mi carro a cuenta?" });
+    expect(waEnvios().map((m) => m.text.body)).toEqual(["¡Claro! La *Versa 2022* tiene cámara de reversa según su ficha; ¿quieres venir a verla el sábado?"]);
+    expect(await leadDe(store)).toMatchObject({ autoId: "versa" });
+
+    ia.stop = "refusal";
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.I4", "qwerty asdf", mas(LUNES_10, 3))), e, store, { ahora: mas(LUNES_10, 3) });
+    expect(waEnvios()[0]!.text.body).toContain("no te entendí"); // respaldo del menú
+    expect((await (await handle(req("/api/estado?token=clave"), e, store)).json()).agente).toMatchObject({ ultimoError: { error: expect.stringMatching(/^IA: /) }, ventas: { ia: { activa: true, llave: true, modelo: "claude-opus-5-5" } } });
+
+    // Sin llave en el servidor, aunque esté activada, no se llama a la IA.
+    ia.peticiones.length = 0;
+    await handle(signed(waMsg("wamid.I5", "zxcv", mas(LUNES_10, 4))), env(), store, { ahora: mas(LUNES_10, 4) });
+    expect(ia.peticiones).toHaveLength(0);
+  });
+
+  it("«Probar a Sofía»: contesta como el servidor (menú + IA) sin guardar nada ni mandar mensajes", async () => {
+    const store = memStore();
+    await handle(post("/api/inventario", { token: "clave", autos: AUTOS }), env(), store);
+    await configurar(store, vendedora({ ventas: { ia: true } }));
+    const e = { ...env(), ANTHROPIC_API_KEY: "sk-ant-prueba", ANTHROPIC_BASE_URL: G };
+    const antes = store.escrituras;
+    calls.length = 0;
+    const probar = async (b: Record<string, unknown>) => (await handle(post("/api/vendedora/probar", { token: "clave", ...b }), e, store, { ahora: LUNES_10 })).json();
+    const r1 = await probar({ texto: "Hola, ¿qué autos tienen?", primero: true });
+    expect(r1).toMatchObject({ ok: true, motivo: "lista" });
+    expect(r1.respuestas[0].texto).toContain("Nissan Versa 2022");
+    const r2 = await probar({ texto: "2", conv: r1.conv });
+    expect(r2).toMatchObject({ motivo: "auto", lead: { autoId: "versa" } });
+    ia.salida = { respuesta: "Con gusto, el asesor revisa tu auto a cuenta.", pasar_a_asesor: true, auto_id: "" };
+    ia.stop = "end_turn";
+    const r3 = await probar({ texto: "¿toman mi carro a cuenta?", conv: r2.conv, historial: [{ dir: "in", text: "Hola" }, { dir: "in", text: "¿toman mi carro a cuenta?" }] });
+    expect(r3).toMatchObject({ motivo: "ia", lead: { quiereAsesor: true }, respuestas: [{ texto: "Con gusto, el asesor revisa tu auto a cuenta." }] });
+    expect(store.escrituras).toBe(antes);
+    expect(calls.filter((c) => c.path.startsWith("/v/"))).toHaveLength(0);
+    expect((await handle(post("/api/vendedora/probar", { token: "mala", texto: "hola" }), e, store)).status).toBe(401);
   });
 });

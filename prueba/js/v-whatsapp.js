@@ -1,12 +1,13 @@
 // WhatsApp: bandeja REAL (WhatsApp Business + Messenger vía el conector) con borradores de IA en el
 // estilo del asesor, y el asistente sin IA (plantillas, respuestas por tema, pendientes) que abre wa.me.
-import { h, toast, inDays, fmtWhen, uid, waDigits, confirmBox, download } from "./util.js";
+import { h, toast, inDays, fmtWhen, uid, waDigits, confirmBox, download, money } from "./util.js";
 import { state, customer, save, lastContact, updateCustomer, setFollowUp, DEFAULT_TEMPLATES, addCustomer, stageLabel, log, learnFromAdvisor } from "./store.js";
 import { header, section, empty, btn, go, rerender, query, route, field, input, textarea, customerSelect, sendWhatsApp, followUpPicker, stageChip, chip, select } from "./ui.js";
 import { fillTemplate, suggestTemplateId, template, classifyMessage } from "./rules.js";
 import { aiReady, draftMessage, personalizeTemplates, extractLead } from "./ai.js";
 import { connectorReady, inbox, conversation, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus, refreshStatus, getAgentConfig, setAgentConfig, listLeads, markLeads } from "./connector.js";
 import { applyIneImage, ensureCredit } from "./v-credit.js";
+import { waFormat } from "./v-inventory.js";
 
 const TABS = [["bandeja", "Bandeja"], ["auto", "Automático"], ["escribir", "Escribir"], ["responder", "Responder"], ["pendientes", "Pendientes"], ["plantillas", "Plantillas"]];
 let poll = null;
@@ -91,7 +92,7 @@ export function renderChat(root, key) {
     list.replaceChildren(...msgs.map((m) => h("div", { class: `bubble ${m.dir}` },
       m.media ? mediaView(m) : null,
       m.auto ? h("div", { class: "muted small" }, "⚙ Respuesta automática de Sofía") : null,
-      m.text ? h("div", { class: "pre" }, m.text) : null,
+      m.text ? h("div", { class: "pre" }, ...waFormat(m.text)) : null,
       h("div", { class: "muted small" }, `${fmtWhen(m.at)}${m.dir === "out" && m.status ? ` · ${{ sent: "enviado", delivered: "entregado", read: "leído ✓✓", failed: "falló" }[m.status] ?? m.status}` : ""}`))));
     list.scrollTop = list.scrollHeight;
   }
@@ -242,36 +243,73 @@ const DIAS = [[1, "L"], [2, "M"], [3, "M"], [4, "J"], [5, "V"], [6, "S"], [0, "D
 const ZONAS = [["America/Monterrey", "Monterrey / Centro"], ["America/Mexico_City", "Ciudad de México"], ["America/Chihuahua", "Chihuahua"], ["America/Mazatlan", "Mazatlán / Pacífico"], ["America/Tijuana", "Tijuana"], ["America/Cancun", "Cancún"]];
 
 function autoTab(root) {
+  const disponibles = state.inventory.filter((a) => a.disponible !== false).length;
+  const vendedora = section("Sofía vendedora (gratis, sin IA)",
+    h("p", {}, "Contesta en segundos, a cualquier hora: muestra tus autos con foto y precio, cotiza a crédito, agenda pruebas de manejo y te pasa al cliente cuando pide hablar contigo. Todo queda anotado en Prospectos."),
+    h("div", { class: "row wrap gap-s" },
+      btn(`Inventario (${disponibles} auto${disponibles === 1 ? "" : "s"})`, () => go("/inventario"), disponibles ? "" : "primary"),
+      btn("Probar a Sofía", () => go("/probar"), disponibles ? "primary" : "")));
   if (!connectorReady()) {
-    root.append(section("Respuestas automáticas (gratis, sin IA)",
-      h("p", {}, "Sofía puede contestar sola a quien te escriba por WhatsApp o Messenger: bienvenida, aviso fuera de horario y respuestas por palabra clave (precio, crédito, ubicación…), y anotar a cada contacto nuevo como prospecto. Corre en tu servidor, aunque la app esté cerrada."),
-      btn("Conectar WhatsApp", () => go("/conexiones"), "primary")));
+    vendedora.append(h("p", { class: "muted small" }, "Para que conteste en tu WhatsApp de verdad (aunque la app esté cerrada), conecta tu servidor gratis."), btn("Conectar WhatsApp", () => go("/conexiones"), "ghost"));
+    root.append(vendedora);
     return;
   }
   const leadsBox = h("div", { class: "list" }, h("p", { class: "muted" }, "Cargando prospectos…"));
   const form = h("div", { class: "stack-s" }, h("p", { class: "muted" }, "Cargando configuración…"));
-  root.append(section("Prospectos nuevos", h("p", { class: "muted small" }, "Contactos que escribieron por primera vez. Agrégalos como clientes con un toque."), leadsBox),
-    section("Respuestas automáticas (gratis, sin IA)", form));
+  root.append(section("Prospectos nuevos", h("p", { class: "muted small" }, "Quien te escribió y lo que Sofía le anotó. 🔥 = pidió cita o hablar contigo."), leadsBox),
+    vendedora,
+    section("Configuración del asistente", form));
   drawLeads(leadsBox);
   getAgentConfig().then((cfg) => drawAgentForm(form, cfg)).catch((e) => form.replaceChildren(h("p", { class: "warn" }, e.message)));
 }
 
+const caliente = (l) => Boolean(l.cita || l.quiereAsesor);
+
+/** Lo que Sofía le anotó al prospecto, en renglones cortos. */
+function leadLines(l) {
+  return [
+    l.interes && `Interés: ${l.interes}${l.precio ? ` (${money(l.precio)})` : ""}`,
+    l.formaPago === "credito" ? `Crédito${l.enganche ? ` · enganche ${money(l.enganche)}` : ""}${l.mensualidad ? ` · ~${money(l.mensualidad)} a ${l.plazo} meses` : ""}` : l.formaPago === "contado" ? "De contado" : "",
+    l.cita && `Cita: ${l.cita}`,
+    l.quiereAsesor && "Pidió hablar contigo",
+  ].filter(Boolean);
+}
+
+/** Convierte (o actualiza) al cliente con lo que Sofía anotó y deja el siguiente paso en recordatorios. */
+function leadToCustomer(l) {
+  const existing = l.canal === "wa" ? state.customers.find((c) => c.phone && phoneKey(c.phone) === phoneKey(l.id)) : state.customers.find((c) => c.fbId === l.id);
+  const resumen = leadLines(l).join(" · ");
+  const etapa = l.formaPago === "credito" && l.enganche ? "cotizacion" : l.cita ? "seguimiento" : "nuevo";
+  const c = existing ?? addCustomer({
+    name: l.nombre || (l.canal === "wa" ? `Cliente ${l.id.slice(-10)}` : "Cliente de Messenger"), phone: l.canal === "wa" ? l.id.slice(-10) : "",
+    fbId: l.canal === "fb" ? l.id : undefined, source: l.canal === "wa" ? "whatsapp" : "redes", vehicle: l.interes ?? "", stage: etapa,
+    notes: [l.primerMensaje && `Primer mensaje: ${l.primerMensaje}`, resumen && `Sofía anotó: ${resumen}`].filter(Boolean).join("\n"),
+  });
+  if (existing) {
+    if (l.interes && !existing.vehicle) existing.vehicle = l.interes;
+    if (resumen) log(existing.id, "whatsapp", `Sofía anotó: ${resumen}`);
+  }
+  const pendiente = l.cita ? `Confirmar visita: ${l.cita}` : l.quiereAsesor ? "Escribirle: pidió hablar contigo" : existing ? null : "Contestar al prospecto";
+  if (pendiente) setFollowUp(c.id, inDays(0, new Date().getHours() + 1), pendiente);
+  else save();
+  return { c, existing };
+}
+
 async function drawLeads(box) {
   try {
-    const leads = (await listLeads()).filter((l) => !l.importado);
+    const leads = (await listLeads()).filter((l) => !l.importado).sort((a, b) => Number(caliente(b)) - Number(caliente(a)));
     if (!leads.length) { box.replaceChildren(empty("Sin prospectos nuevos.")); return; }
-    box.replaceChildren(...leads.slice(0, 50).map((l) => h("div", { class: "item col" },
-      h("div", { class: "row between" }, h("strong", {}, l.nombre || (l.canal === "wa" ? `+${l.id}` : "Contacto de Messenger")), chip(l.canal === "wa" ? "WhatsApp" : "Messenger")),
+    box.replaceChildren(...leads.slice(0, 50).map((l) => h("div", { class: `item col ${caliente(l) ? "late" : ""}` },
+      h("div", { class: "row between" }, h("strong", {}, `${caliente(l) ? "🔥 " : ""}${l.nombre || (l.canal === "wa" ? `+${l.id}` : "Contacto de Messenger")}`), chip(l.canal === "wa" ? "WhatsApp" : "Messenger")),
+      ...leadLines(l).map((t) => h("div", { class: "small" }, t)),
       l.primerMensaje ? h("p", { class: "preview" }, l.primerMensaje) : null,
-      h("p", { class: "muted small" }, fmtWhen(l.at)),
+      h("p", { class: "muted small" }, fmtWhen(l.actualizado ?? l.at)),
       h("div", { class: "row wrap gap-s" },
         btn("Agregar como cliente", async (e) => {
           e.currentTarget.disabled = true;
-          const existing = l.canal === "wa" ? state.customers.find((c) => c.phone && phoneKey(c.phone) === phoneKey(l.id)) : state.customers.find((c) => c.fbId === l.id);
-          const c = existing ?? addCustomer({ name: l.nombre || (l.canal === "wa" ? `Cliente ${l.id.slice(-10)}` : "Cliente de Messenger"), phone: l.canal === "wa" ? l.id.slice(-10) : "", fbId: l.canal === "fb" ? l.id : undefined, source: l.canal === "wa" ? "whatsapp" : "redes", notes: l.primerMensaje ? `Primer mensaje: ${l.primerMensaje}` : "" });
-          if (!existing) setFollowUp(c.id, inDays(0, new Date().getHours() + 1), "Contestar al prospecto");
+          const { c, existing } = leadToCustomer(l);
           await markLeads([l.clave]).catch(() => {});
-          toast(existing ? `${c.name} ya era cliente` : `${c.name} agregado a clientes`);
+          toast(existing ? `${c.name} actualizado con lo que anotó Sofía` : `${c.name} agregado a clientes`);
           refreshStatus().catch(() => {});
           drawLeads(box); // solo la lista: no tirar cambios sin guardar del formulario de abajo
         }, "small primary"),
@@ -301,6 +339,18 @@ function drawAgentForm(box, cfg) {
     { palabras: "precio, cuánto, cuanto cuesta, costo", respuesta: "Con gusto te paso el precio, {nombre}. ¿Qué versión te interesa y lo buscas de contado o a crédito?" },
     { palabras: "crédito, credito, financiamiento, mensualidad, enganche", respuesta: "¡Claro! Manejamos crédito. Para darte una mensualidad aproximada, ¿cuánto te gustaría dar de enganche y a cuántos meses?" },
     { palabras: "ubicación, ubicacion, dirección, direccion, dónde están, donde estan", respuesta: `${agencia.value.trim() ? "Estamos en {agencia}. " : ""}Te comparto la ubicación y con gusto te espero; ¿qué día te acomoda?` });
+  const v = cfg.ventas ?? {};
+  const ventas = h("input", { type: "checkbox", checked: v.activo !== false });
+  const presentacion = textarea({ rows: 2, placeholder: "¡Hola {nombre}! 👋 Soy Sofía, asistente de {asesor} en {agencia}." }, v.presentacion ?? "");
+  const tasa = input({ type: "number", min: "0", max: "80", step: "0.1", value: v.tasaAnual ?? 15.9 });
+  const enganche = input({ type: "number", min: "0", max: "90", value: v.engancheMinimo ?? 20 });
+  const plazos = input({ value: (v.plazos ?? [24, 36, 48, 60]).join(", "), inputmode: "numeric" });
+  const conAsesor = input({ type: "number", min: "0", max: "168", value: v.horasConAsesor ?? 12 });
+  const conIa = h("input", { type: "checkbox", checked: Boolean(v.ia) });
+  const iaSt = st?.ventas?.ia;
+  const soloReglas = h("div", { class: "stack-s" }); // bienvenida y fuera de horario: solo sin la vendedora
+  const verModo = () => { soloReglas.hidden = ventas.checked; };
+  ventas.onchange = verModo;
   const reglasBox = h("div", { class: "stack-s" });
   const drawReglas = () => reglasBox.replaceChildren(...reglas.map((r, i) => h("div", { class: "tpl" },
     field(`Regla ${i + 1}: si el mensaje dice…`, input({ value: r.palabras, placeholder: "palabras separadas por coma", oninput: (e) => { r.palabras = e.target.value; } })),
@@ -308,17 +358,27 @@ function drawAgentForm(box, cfg) {
     h("div", { class: "row end" }, btn("Quitar regla", () => { reglas.splice(i, 1); drawReglas(); }, "small ghost")))),
     btn("+ Agregar regla", () => { reglas.push({ palabras: "", respuesta: "" }); drawReglas(); }, "small"));
   drawReglas();
+  soloReglas.append(field("Bienvenida (primer mensaje de un contacto nuevo)", bienvenida), field("Fuera de horario", fuera));
+  verModo();
   box.replaceChildren(
     st ? h("p", { class: st.ultimoError ? "warn small" : "muted small" }, `${st.activo ? "Activo" : "Apagado"} · ahora ${st.enHorario ? "en horario" : "fuera de horario"}${st.ultimoError ? ` · último error: ${st.ultimoError.error}` : ""}`) : null,
     h("label", { class: "row gap-s" }, activo, h("span", {}, "Contestar automáticamente")),
-    h("p", { class: "muted small" }, "Variables: {nombre} (del perfil del cliente), {asesor}, {agencia}. Una sola respuesta automática por mensaje; nunca se contesta a sí mismo."),
+    h("p", { class: "muted small" }, "Variables: {nombre} (del perfil del cliente), {asesor}, {agencia}. Nunca se contesta a sí misma y se calla si tú acabas de escribir."),
     h("div", { class: "grid2" }, field("Asesor", asesor), field("Agencia", agencia)),
     // div y no <label>: un toque en el título o entre los chips activaría el botón "L" (lunes).
     h("div", { class: "field" }, h("span", {}, "Días de atención"), diasBox),
     h("div", { class: "grid2" }, field("Abre", inicio), field("Cierra", fin)),
     field("Zona horaria", zona),
-    field("Bienvenida (primer mensaje de un contacto nuevo)", bienvenida),
-    field("Fuera de horario", fuera),
+    h("h3", {}, "Vendedora"),
+    h("label", { class: "row gap-s" }, ventas, h("span", {}, "Vender autos: menú, inventario con foto, crédito, citas y pase contigo")),
+    field("Cómo se presenta (opcional)", presentacion, "Va al inicio del primer mensaje. Vacío: «Soy Sofía, asistente de…»."),
+    h("div", { class: "grid2" }, field("Tasa anual de referencia (%)", tasa, "Solo para estimar; Sofía aclara que está sujeta a aprobación."), field("Enganche mínimo (%)", enganche)),
+    h("div", { class: "grid2" }, field("Plazos (meses)", plazos), field("Al pedirte, Sofía se calla (horas)", conAsesor)),
+    h("label", { class: "row gap-s" }, conIa, h("span", {}, "Con IA: contesta lo que el menú no entiende (opcional, de pago)")),
+    h("p", { class: iaSt && !iaSt.llave && conIa.checked ? "warn small" : "muted small" }, iaSt?.llave
+      ? `Usa tu llave de Anthropic del servidor (modelo ${iaSt.modelo}). Nunca inventa precios: solo usa tu inventario y tus reglas; si no sabe, te pasa al cliente.`
+      : "Necesita ANTHROPIC_API_KEY en tu servidor (ver la guía de conexiones). Sin ella, Sofía funciona igual con el menú."),
+    soloReglas,
     h("h3", {}, "Respuestas por palabra clave"),
     reglasBox,
     h("div", { class: "grid2" },
@@ -332,12 +392,16 @@ function drawAgentForm(box, cfg) {
           activo: activo.checked, asesor: asesor.value, agencia: agencia.value, zonaHoraria: zona.value,
           horario: { dias: [...dias], inicio: inicio.value, fin: fin.value },
           bienvenida: bienvenida.value, fueraDeHorario: fuera.value,
+          ventas: {
+            activo: ventas.checked, ia: conIa.checked, presentacion: presentacion.value, tasaAnual: Number(tasa.value) || 0, engancheMinimo: Number(enganche.value) || 0,
+            plazos: plazos.value.split(/[^\d]+/).map(Number).filter(Boolean), ...(conAsesor.value === "" ? {} : { horasConAsesor: Number(conAsesor.value) }),
+          },
           reglas: reglas.filter((r) => r.palabras.trim() || r.respuesta.trim()),
           // Vacío = conservar lo guardado (Number("") sería 0).
           esperaHoras: espera.value === "" ? undefined : Number(espera.value), pausaMinutos: pausa.value === "" ? undefined : Number(pausa.value),
         });
         await refreshStatus().catch(() => {});
-        toast(activo.checked ? "Listo: Sofía contesta sola en WhatsApp y Messenger." : "Respuestas automáticas guardadas (apagadas).", 5000);
+        toast(activo.checked ? (ventas.checked ? "Listo: Sofía vende por ti en WhatsApp y Messenger." : "Listo: Sofía contesta sola en WhatsApp y Messenger.") : "Configuración guardada (respuestas automáticas apagadas).", 5000);
         rerender();
       } catch (err) { toast(err.message, 6000); b.disabled = false; }
     }, "primary")));

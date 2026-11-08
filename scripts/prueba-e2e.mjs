@@ -3,7 +3,7 @@
 // Requiere el servidor apuntando a la Graph API simulada de este script (puerto 9099):
 //   SOFIA_TOKEN=clave-prueba META_APP_SECRET=secreto-app META_VERIFY_TOKEN=verifica WA_TOKEN=tok-wa \
 //   WA_PHONE_NUMBER_ID=111 WA_WABA_ID=222 FB_PAGE_ID=333 FB_PAGE_TOKEN=tok-fb META_GRAPH_URL=http://127.0.0.1:9099/v \
-//   node prueba/servidor/servidor.mjs
+//   ANTHROPIC_API_KEY=sk-ant-prueba ANTHROPIC_BASE_URL=http://127.0.0.1:9099 node prueba/servidor/servidor.mjs
 //   BASE=http://localhost:8080/ node scripts/prueba-e2e.mjs      (SHOTS=carpeta para capturas)
 // Solo datos SINTÉTICOS (persona inexistente con CURP de estructura válida).
 import { chromium, devices } from "playwright";
@@ -13,6 +13,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { curpCheckDigit } from "../prueba/js/mxid.js";
 import { BBVA_ADAPTER } from "../prueba/js/bank-adapters.js";
 
@@ -41,6 +42,11 @@ const fakeMeta = http.createServer((req, res) => {
     if (p.startsWith("/v/222/message_templates")) return send({ data: [{ name: "hello_world", status: "APPROVED", language: "en_US", components: [{ type: "BODY", text: "Hello World" }] }] });
     if (p === "/v/555") return send({ url: "http://127.0.0.1:9099/archivo/555", mime_type: "image/png" });
     if (p === "/archivo/555") { res.writeHead(200, { "content-type": "image/png" }); return res.end(fs.readFileSync(path.join(TMP, "ine-sintetica.png"))); }
+    if (p.startsWith("/v1/messages")) { // IA de la vendedora en el servidor (ANTHROPIC_BASE_URL apunta aquí)
+      const b = JSON.parse(body);
+      const out = aiAnswer(b);
+      return send({ id: "msg_srv", type: "message", role: "assistant", model: b.model, content: [{ type: "text", text: typeof out === "string" ? out : JSON.stringify(out) }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
+    }
     if (p.startsWith("/v/333?fields")) return send({ name: "Página Prueba", link: "https://facebook.com/prueba" });
     if (p === "/v/333/photos") return send({ id: "ph1", post_id: "333_99" });
     if (p === "/v/333/feed") return send({ id: "333_100" });
@@ -65,6 +71,7 @@ function aiAnswer(body) {
   if (props.tono) return { resumen: "Cercano y directo, siempre con emoji.", tono: "cercano", trato: "tu", saludo_tipico: "¡Hola! 😃", despedida_tipica: "Quedo atento 👍", emojis: ["😃", "👍"], longitud: "corta", frases_tipicas: ["Con gusto"], como_abre_conversacion: "Saluda por nombre", como_pide_datos: "Pregunta contado o crédito", como_maneja_objeciones: "Ofrece prueba de manejo", como_cierra: "Agenda cita", evita: ["dar precio sin versión"] };
   if (props.auto_interes) return { nombre: "Ana Cliente", auto_interes: "CR-V", presupuesto: "", forma_pago: "credito", enganche: "120 mil", plazo_meses: "", cuando_compra: "este mes", etapa: "credito", resumen: "Quiere CR-V a crédito con 120 mil de enganche.", siguiente_paso: "Pedir documentos", dias_para_seguimiento: 2 };
   if (props.plantillas) return { plantillas: [{ id: "seguimiento", texto: "¡Hola Ana! 😃 ¿Cómo vas con la decisión de la CR-V?" }, { id: "cotizacion", texto: "¡Hola Ana! Te mando la cotización de la CR-V 👍" }] };
+  if (props.pasar_a_asesor) return { respuesta: "¡Claro! Recibimos tu auto a cuenta; el asesor te hace el avalúo en la agencia. ¿Cuándo lo puedes traer?", pasar_a_asesor: true, auto_id: "" };
   if (props.titulo) return { texto: "¡Estrena tu CR-V este mes! Escríbeme por WhatsApp 😃", titulo: "CR-V 2026", descripcion: "Agenda tu prueba de manejo", llamado_accion: "Enviar mensaje", hashtags: ["#Honda", "#CRV"] };
   return "¡Hola Lupita! 😃 Con gusto te ayudo. ¿Lo buscas de contado o a crédito?";
 }
@@ -364,23 +371,74 @@ await p.getByText("Teléfono + Google").waitFor({ timeout: 60000 });
 if (!googleCalls.some((c) => c.action === "ocr" && c.images?.[0]?.base64)) throw new Error("No se pidió la lectura a Google");
 step("INE: lector del teléfono + lector de Google comparados campo por campo");
 
-// ───── L. Agente de WhatsApp sin IA: contesta solo y anota prospectos ─────
+// ───── L. Sofía vendedora: inventario con foto, simulador, WhatsApp real y prospecto con lo que anotó ─────
+await p.goto(BASE + "#/inventario/nuevo");
+await p.locator('input[type=file][accept="image/*"]').setInputFiles(fileURLToPath(ICON));
+await p.locator(".car-photo img").waitFor();
+await fieldIn("Marca").locator("input").fill("Honda");
+await fieldIn("Modelo").locator("input").fill("City");
+await fieldIn("Versión").locator("input").fill("Sport");
+await fieldIn("Año").locator("input").fill("2025");
+await fieldIn("Precio de contado").locator("input").fill("389900");
+await p.getByRole("button", { name: "Guardar" }).click();
+await p.getByText("Auto agregado").waitFor();
+await p.locator(".item strong", { hasText: "Honda City Sport 2025" }).waitFor();
+await p.getByText(/En WhatsApp: 1 auto/).waitFor({ timeout: 15000 }); // se mandó solo al conector (con su foto)
+const inv = await (await fetch(new URL("api/inventario?token=clave-prueba", BASE))).json();
+if (inv.autos?.[0]?.precio !== 389900 || !/\/media\/[a-f0-9]{32}$/.test(inv.autos[0].foto ?? "")) throw new Error(`Inventario en el conector: ${JSON.stringify(inv)}`);
+if ((await fetch(inv.autos[0].foto)).status !== 200) throw new Error("La foto del auto no se sirve en público");
+await shot("11-inventario");
+step("inventario: auto con foto y precio, mandado al conector");
+
+await p.goto(BASE + "#/probar");
+for (const t of ["Hola", "1", "1", "1", "20%"]) {
+  await p.getByPlaceholder("Escribe como cliente…").fill(t);
+  await p.getByRole("button", { name: "Enviar", exact: true }).click();
+}
+await p.getByText("• 60 meses:").waitFor();
+await p.locator(".sim .chat-img").first().waitFor(); // la ficha llevó la foto
+await p.getByText("Interés:").waitFor();
+await shot("12-probar-sofia");
+step("simulador: menú → auto con foto → cotización a crédito, y el prospecto se llena");
+
 await p.goto(BASE + "#/whatsapp?tab=auto");
 await p.getByText("Contestar automáticamente").click();
-await cardOf("Respuestas automáticas").getByRole("button", { name: "Guardar" }).click();
-await p.getByText(/Sofía contesta sola/).waitFor();
+await p.getByText("Con IA: contesta lo que el menú no entiende").click();
+await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
+await p.getByText(/Sofía vende por ti/).waitFor();
 const before = graphCalls.length;
 await webhook({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { contacts: [{ wa_id: "5218177776666", profile: { name: "Pedro Nuevo" } }], messages: [{ from: "5218177776666", id: "wamid.NUEVO1", timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "Hola, ¿cuánto cuesta el City?" } }] } }] }] });
 await new Promise((r) => setTimeout(r, 800));
 const auto = graphCalls.slice(before).find((c) => c.path === "/v/111/messages");
-if (!auto || !/Pedro/.test(auto.body)) throw new Error(`El agente no contestó solo: ${auto?.body}`);
-step(`agente WhatsApp: contestó solo sin IA → «${JSON.parse(auto.body).text.body.slice(0, 70)}…»`);
+const ficha = auto ? JSON.parse(auto.body) : null;
+const fichaTexto = ficha?.text?.body ?? ficha?.image?.caption ?? "";
+if (!/¡Hola Pedro!/.test(fichaTexto) || !fichaTexto.includes("$389,900")) throw new Error(`La vendedora no contestó con la ficha: ${auto?.body}`);
+if (await cardOf("Configuración del asistente").getByText("Bienvenida (primer mensaje").isVisible()) throw new Error("Con la vendedora encendida no debe verse la bienvenida del modo por reglas");
+step(`vendedora en WhatsApp: «${fichaTexto.split("\n").filter((l) => /🚗|💵/.test(l)).join(" ")}»`);
+const pedirCita = graphCalls.length;
+await webhook({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { contacts: [{ wa_id: "5218177776666", profile: { name: "Pedro Nuevo" } }], messages: [{ from: "5218177776666", id: "wamid.NUEVO2", timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "¿Puedo ir a manejarlo el sábado a las 11?" } }] } }] }] });
+await new Promise((r) => setTimeout(r, 800));
+if (!graphCalls.slice(pedirCita).some((c) => c.path === "/v/111/messages" && c.body.includes("Anoté tu visita"))) throw new Error("La vendedora no anotó la cita");
 await p.reload(); // misma dirección: recargar para traer los prospectos nuevos
-await p.locator(".item strong", { hasText: "Pedro Nuevo" }).waitFor();
+await p.locator(".item strong", { hasText: "🔥 Pedro Nuevo" }).waitFor();
+await p.locator(".item", { hasText: "Pedro Nuevo" }).getByText("Cita: ¿Puedo ir a manejarlo el sábado a las 11?").waitFor();
 await p.locator(".item", { hasText: "Pedro Nuevo" }).getByRole("button", { name: "Agregar como cliente" }).click();
 await p.getByText("Pedro Nuevo agregado a clientes").waitFor();
-await shot("11-agente-whatsapp");
-step("prospecto nuevo convertido en cliente");
+await shot("13-prospecto-caliente");
+await p.goto(BASE + "#/recordatorios");
+await p.getByText(/Confirmar visita: ¿Puedo ir a manejarlo el sábado a las 11\?/).first().waitFor();
+step("prospecto 🔥 con interés y cita → cliente con recordatorio «Confirmar visita»");
+
+await p.goto(BASE + "#/probar");
+await p.getByRole("button", { name: "Reiniciar" }).click();
+for (const t of ["Hola", "¿aceptan mi carro a cuenta?"]) {
+  await p.getByPlaceholder("Escribe como cliente…").fill(t);
+  await p.getByRole("button", { name: "Enviar", exact: true }).click();
+}
+await p.getByText("✨ Contestó con IA").waitFor();
+await p.getByText("Pidió hablar contigo").waitFor();
+if (!aiCalls.some((c) => c.keys.includes("pasar_a_asesor"))) throw new Error("El simulador no usó la IA");
+step("IA opcional: lo que el menú no entiende lo contesta Claude con tu inventario (y pasa contigo si hace falta)");
 
 // ───── M. Programar publicación (sale sola a la hora) y cancelar ─────
 await p.goto(BASE + "#/redes");
@@ -391,7 +449,7 @@ await cardOf("Dónde y cuándo").locator('input[type="datetime-local"]').fill(`$
 await cardOf("Dónde y cuándo").getByRole("button", { name: "Programar" }).click();
 await p.getByText(/Programada para/).waitFor();
 await cardOf("Programadas").getByText("Programada ·").first().waitFor();
-await shot("12-redes-programadas");
+await shot("14-redes-programadas");
 await cardOf("Programadas").getByRole("button", { name: "Cancelar" }).first().click();
 await p.getByText("Cancelada").waitFor();
 step("redes: publicación programada en el servidor y cancelada");

@@ -15,6 +15,7 @@ import { renderMore } from "./v-more.js";
 import { renderConnections } from "./v-connections.js";
 import { renderStyle } from "./v-style.js";
 import { renderSocial } from "./v-social.js";
+import { renderInventory, renderCarForm, renderSimulator } from "./v-inventory.js";
 import { connectorReady, inbox, refreshStatus } from "./connector.js";
 import { googleReady, googleStatus, saveEvent, deleteEvent, closeEmailCase } from "./google.js";
 import { isNative, nativeNotifications, syncNativeReminders, onNotificationTap, webNotify } from "./native.js";
@@ -41,6 +42,8 @@ const NAV = [
 ];
 // Pantallas que se abren desde "Más" (la pestaña Más queda marcada).
 const UNDER_MORE = ["/mas", "/recordatorios", "/ajustes", "/conexiones", "/estilo"];
+// Pantallas de la vendedora (la pestaña WhatsApp queda marcada).
+const UNDER_WA = ["/inventario", "/probar"];
 
 function screenName(path) {
   if (path === "/") return "Hoy";
@@ -52,6 +55,8 @@ function screenName(path) {
   if (path === "/conexiones") return "Conexiones";
   if (path === "/recordatorios") return "Recordatorios";
   if (path === "/ajustes") return "Ajustes";
+  if (path.startsWith("/inventario")) return "Inventario";
+  if (path === "/probar") return "Probar a Sofía";
   return NAV.find((n) => path.startsWith(n[0]) && n[0] !== "/")?.[1] ?? path;
 }
 
@@ -71,6 +76,9 @@ function render() {
     else if (seg[0] === "whatsapp" && seg[1] === "chat" && seg[2]) renderChat(view, decodeURIComponent(seg[2]));
     else if (seg[0] === "whatsapp") renderWhatsApp(view);
     else if (seg[0] === "redes") renderSocial(view);
+    else if (seg[0] === "inventario" && seg[1]) renderCarForm(view, decodeURIComponent(seg[1]));
+    else if (seg[0] === "inventario") renderInventory(view);
+    else if (seg[0] === "probar") renderSimulator(view);
     else if (seg[0] === "mas") renderMore(view);
     else if (seg[0] === "conexiones") renderConnections(view);
     else if (seg[0] === "estilo") renderStyle(view);
@@ -83,7 +91,8 @@ function render() {
   }
   for (const a of document.querySelectorAll("nav.bottom a")) {
     const p = a.getAttribute("href").slice(1);
-    a.classList.toggle("on", p === "/" ? path === "/" : p === "/mas" ? UNDER_MORE.includes(path) : path.startsWith(p) || (p === "/clientes" && path.startsWith("/cliente")));
+    a.classList.toggle("on", p === "/" ? path === "/" : p === "/mas" ? UNDER_MORE.includes(path)
+      : path.startsWith(p) || (p === "/clientes" && path.startsWith("/cliente")) || (p === "/whatsapp" && UNDER_WA.some((x) => path.startsWith(x))));
     if (p === "/whatsapp") {
       a.querySelector(".badge")?.remove();
       if (unread) a.querySelector(".ic").append(h("span", { class: "badge" }, String(unread)));

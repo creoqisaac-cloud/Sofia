@@ -5,10 +5,10 @@ Sofía funciona sin nada de esto. Cada conexión agrega una capacidad real y **n
 | Conexión | Qué hace | Costo |
 |---|---|---|
 | **Google (tu propia cuenta)** | Respaldo en tu Drive · **agente de correo**: envía desde tu Gmail con adjuntos, lee las respuestas de la gestoría, sugiere el estado y da seguimiento solo · recordatorios en Google Calendar (suenan en el iPhone) · segundo lector de INE (OCR de Drive) | Gratis |
-| **Servidor (conector) en Cloudflare** | Puente con Meta, que exige un servidor HTTPS para avisar de mensajes nuevos · **agente de WhatsApp/Messenger** que contesta solo por reglas · prospectos nuevos · bandeja · **publicaciones programadas** que salen aunque la app esté cerrada | Gratis, sin tarjeta |
+| **Servidor (conector) en Cloudflare** | Puente con Meta, que exige un servidor HTTPS para avisar de mensajes nuevos · **Sofía vendedora** en WhatsApp/Messenger: tu inventario con foto, cotización a crédito, prueba de manejo y pase contigo · prospectos con lo que dijo cada cliente · bandeja · **publicaciones programadas** que salen aunque la app esté cerrada | Gratis, sin tarjeta |
 | **WhatsApp Business (API oficial)** | Recibir y contestar desde Sofía, respuestas automáticas, ver las fotos (INE) que mandan los clientes | Contestar en las 24 h siguientes al mensaje del cliente: gratis. Plantillas que inicias tú: Meta cobra por mensaje |
 | **Facebook e Instagram** | Publicar ya o programado en tu página y en Instagram, contestar Messenger | Gratis (los anuncios se pagan en Meta) |
-| **IA (opcional)** | Redactar en tu estilo, plantillas por cliente, leer INE difíciles, crear clientes desde chats | De pago, por uso, con tu llave de Anthropic |
+| **IA (opcional)** | En la vendedora: contestar lo que el menú no entiende. En la app: redactar en tu estilo, plantillas por cliente, leer INE difíciles, crear clientes desde chats | De pago, por uso, con tu llave de Anthropic |
 
 Orden recomendado: **1. Google → 2. Servidor → 3. WhatsApp → 4. Facebook e Instagram → 5. IA (si la quieres).**
 
@@ -114,18 +114,36 @@ npx wrangler deploy
    - Pon la app en modo **En vivo**: pide una URL de política de privacidad.
    - Verifica el negocio en el portafolio para subir los límites de envío.
 
-### 3.4 Agente automático (gratis, sin IA)
-En Sofía: **WhatsApp → Automático**.
-- **Contestar automáticamente:** enciéndelo y elige tus días, tu horario y tu zona horaria.
-- **Bienvenida:** el primer mensaje a quien te escribe por primera vez.
-- **Fuera de horario:** lo que contesta cuando no estás.
-- **Respuestas por palabra clave:** por ejemplo *precio, cuánto cuesta* → tu respuesta. Ya trae tres de ejemplo: precio, crédito y ubicación.
-- Variables: `{nombre}` (del perfil del cliente), `{asesor}`, `{agencia}`.
-- **No repetir antes de N horas:** cada contacto recibe cada respuesta automática una sola vez en ese periodo, nunca más de una por mensaje.
-- **Pausa si contestaste a mano:** si tú le escribiste hace menos de N minutos, el agente no interrumpe.
-- **Prospectos nuevos:** cada contacto que escribe por primera vez aparece en esa pestaña y en **Hoy**. Con **Agregar como cliente** queda en tu lista con un recordatorio para contestarle.
+### 3.4 Sofía vendedora (gratis, sin IA)
+Sofía atiende a cada cliente que escribe, a cualquier hora, como lo haría un buen vendedor:
 
-Corre en tu servidor: contesta aunque el teléfono esté apagado.
+- **Menú por números:** ver autos disponibles, cotizar a crédito, agendar prueba de manejo o hablar contigo. El cliente también puede escribir el auto que busca («¿cuánto cuesta la crv?») y Sofía lo encuentra aunque no lleve guion ni acentos.
+- **Ficha del auto con foto:** precio de contado, versión, kilometraje y una mensualidad estimada.
+- **Cotización a crédito:** pregunta el enganche («20%», «150 mil») y calcula la mensualidad para tus plazos, con tu tasa de referencia. Siempre aclara que es un estimado sujeto a aprobación.
+- **Prueba de manejo:** anota el día y la hora que pide el cliente. Tú la confirmas.
+- **Te pasa al cliente:** cuando pide un asesor, cuando agenda o si Sofía no le entiende dos veces. A partir de ahí Sofía se calla en esa conversación (12 horas por defecto) para no interrumpirte.
+- **Prospectos:** todo lo que dijo el cliente (auto, contado o crédito, enganche, mensualidad, cita) queda en **WhatsApp → Automático → Prospectos nuevos**. Los que piden cita o asesor salen primero, marcados con 🔥, y también aparecen en **Hoy**. Con **Agregar como cliente** se crea su ficha con todo eso y un recordatorio, por ejemplo «Confirmar visita: sábado 11 am».
+
+Cómo encenderla:
+1. **Más → Inventario → + Agregar auto:** foto, marca, modelo, versión, año y precio. Al guardar se manda solo a tu servidor, con su foto.
+2. **WhatsApp → Automático → Configuración del asistente:** marca **Contestar automáticamente** y **Vender autos**. Ajusta tu horario, la tasa de referencia, el enganche mínimo y los plazos. Toca **Guardar**.
+3. **Más → Probar a Sofía:** escríbele como si fueras cliente. Con servidor conectado contesta tu servidor, exactamente igual que en WhatsApp, pero sin enviar ni guardar nada. Sin servidor funciona con el inventario del teléfono, y sirve para enseñarle Sofía a un cliente.
+
+También puedes agregar **respuestas por palabra clave** (ubicación, horario, garantía…). Sofía las usa cuando el cliente pregunta eso, con las variables `{nombre}`, `{asesor}` y `{agencia}`. Si apagas **Vender autos**, Sofía vuelve al modo sencillo: bienvenida, aviso fuera de horario y respuestas por palabra clave.
+
+Otros cuidados:
+- Si tú le escribiste al cliente hace menos de 30 minutos (ajustable), Sofía no interrumpe.
+- Contra otro contestador automático, Sofía no manda más de 15 respuestas por hora a un mismo contacto.
+- Corre en tu servidor: contesta aunque el teléfono esté apagado.
+
+### 3.5 IA opcional para la vendedora (de pago)
+Sin IA, Sofía contesta con el menú y tus reglas. Con IA, lo que el menú no entiende («¿aceptan mi auto a cuenta?», «¿trae cámara de reversa?») lo contesta Claude con los mismos datos: tu inventario, tus respuestas, tu horario y tu crédito de referencia. Nunca inventa precios, descuentos ni aprobaciones: si no sabe, te pasa al cliente.
+
+1. Crea tu llave en **https://console.anthropic.com** (sección 5) y agrégala a tu servidor como **Secret** `ANTHROPIC_API_KEY`. Vuelve a desplegar.
+2. Opcional: `ANTHROPIC_MODEL` para elegir el modelo. Por defecto es `claude-opus-5-5`, la máxima calidad. `claude-haiku-5-5` cuesta unas 40 veces menos.
+3. En **WhatsApp → Automático**, marca **Con IA** y guarda. En **Probar a Sofía** verás «✨ Contestó con IA» en esas respuestas.
+
+Costo aproximado: unos 2 centavos de dólar por respuesta con IA usando Opus 5.5, y mucho menos con Haiku 5.5. Solo se usa en los mensajes que el menú no entendió. Si la IA falla o tarda, se envía la respuesta del menú.
 
 **Reglas de WhatsApp que conviene saber:**
 - Puedes escribir libremente durante **24 horas** después del último mensaje del cliente. Las respuestas automáticas siempre caen dentro de esa ventana.
@@ -187,7 +205,7 @@ La llave se guarda solo en ese teléfono. No viaja a respaldos ni al servidor.
 - La app, el conector y el script de Google pasan pruebas automáticas contra **simulaciones** de las APIs de Meta y Google: `scripts/prueba-e2e.mjs`, `tests/31`, `tests/34`.
 - La confirmación real es en tus cuentas. Cada conexión tiene su botón:
   - **Google:** *Conectar y probar* y *Probar recordatorio*, más la lista de pruebas de [`servidor/google/LEEME.md`](servidor/google/LEEME.md).
-  - **WhatsApp:** *Enviar prueba*. Luego escríbele a tu número desde otro celular: debe contestar la bienvenida y aparecer en **Prospectos**.
+  - **WhatsApp:** *Enviar prueba*. Luego escríbele a tu número desde otro celular, por ejemplo «Hola, ¿cuánto cuesta la City?». Debe contestar con la ficha del auto, y tú debes verlo en **Prospectos nuevos**.
   - **Facebook e Instagram:** *Conectar y probar*, y después una publicación programada para dentro de 10 minutos.
 
 ---

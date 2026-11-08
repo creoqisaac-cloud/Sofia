@@ -12,6 +12,8 @@ export function renderMore(root) {
     header("Más"),
     h("div", { class: "page" },
       h("div", { class: "list" },
+        item("/inventario", "Inventario", `${state.inventory.filter((a) => a.disponible !== false).length} autos que Sofía ofrece por WhatsApp`),
+        item("/probar", "Probar a Sofía", "Escríbele como cliente y mira cómo vende"),
         item("/recordatorios", "Recordatorios", `${openReminders().length} abiertos`),
         item("/estilo", "Mi estilo de venta", state.settings.style.profile ? "Sofía ya escribe como tú" : `${state.settings.style.examples.length} mensajes aprendidos · enséñale tus chats`),
         item("/conexiones", "Conexiones", [aiReady() ? "IA ✓" : "IA —", connectorReady() ? "Servidor ✓" : "Servidor —", st?.whatsapp?.ok ? "WhatsApp ✓" : "WhatsApp —", st?.facebook?.ok ? "Facebook ✓" : "Facebook —"].join(" · ")),

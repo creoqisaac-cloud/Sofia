@@ -2,6 +2,7 @@
 // Sin IA la app funciona completa; con IA: lee INE con visión, aprende el estilo de venta,
 // redacta respuestas, personaliza plantillas, extrae datos de prospectos y escribe publicaciones.
 // La llave vive solo en este dispositivo (nunca va a respaldos ni al servidor).
+import { ESQUEMA_IA } from "./vendedor.js";
 import { state, save } from "./store.js";
 import { blobToBase64, shrinkImage } from "./util.js";
 
@@ -53,7 +54,7 @@ export async function testConnection(apiKey, model) {
 }
 
 /** Una llamada. Con `schema` devuelve el objeto JSON (salida estructurada); si no, texto. */
-async function ask({ system, content, schema, effort = "low" }) {
+async function ask({ system, content, messages, schema, effort = "low" }) {
   if (!aiReady()) throw new Error("Conecta la IA en Más → Conexiones.");
   const { c, Anthropic, jsonSchemaOutputFormat } = await client();
   const model = state.settings.ai.model || MODELS[0][0];
@@ -62,7 +63,7 @@ async function ask({ system, content, schema, effort = "low" }) {
     max_tokens: 16000,
     output_config: { effort, ...(schema ? { format: jsonSchemaOutputFormat(schema) } : {}) },
     system,
-    messages: [{ role: "user", content }],
+    messages: messages ?? [{ role: "user", content }],
   };
   if (FALLBACK_MODELS.has(model)) Object.assign(params, { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
   let res;
@@ -281,3 +282,9 @@ export async function socialCopy({ kind = "post", vehicle = "", offer = "", goal
     },
   });
 }
+
+/**
+ * Vendedora con IA (simulador): contesta lo que el menú no entendió, con el prompt que arma vendedor.js
+ * (el mismo que usa el servidor). Devuelve { respuesta, pasar_a_asesor, auto_id }.
+ */
+export const salesReply = ({ system, messages }) => ask({ system, messages, schema: ESQUEMA_IA, effort: "low" });

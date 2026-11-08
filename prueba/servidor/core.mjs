@@ -9,16 +9,21 @@
 //  - Facebook:   publicar en la página (texto o foto).
 //  - Instagram:  publicar fotos en la cuenta profesional ligada a la página.
 // Además trabaja SOLO, aunque la app esté cerrada, y SIN IA (reglas fijas, gratis):
-//  - Agente:       contesta en WhatsApp y Messenger con bienvenida, aviso de fuera de horario y reglas por palabra.
+//  - Vendedora:    asistente de ventas de autos (js/vendedor.js): inventario con foto y precio, cotización de
+//                  crédito, cita para prueba de manejo y pase al asesor, con un menú por números.
+//  - Agente:       o, si la vendedora está apagada, bienvenida, aviso de fuera de horario y reglas por palabra.
 //  - Prospectos:   guarda a cada contacto nuevo para que la app lo convierta en cliente.
 //  - Programador:  publica en Facebook/Instagram a la hora indicada (runScheduled, lo llama un temporizador).
 // Los tokens de Meta viven SOLO aquí (variables de entorno/secretos), nunca en el teléfono.
 //
 // Variables: SOFIA_TOKEN (clave de la app) · META_APP_SECRET · META_VERIFY_TOKEN · WA_TOKEN ·
 // WA_PHONE_NUMBER_ID · WA_WABA_ID · FB_PAGE_ID · FB_PAGE_TOKEN · IG_USER_ID (Instagram; usa FB_PAGE_TOKEN) ·
-// PUBLIC_URL (dirección pública del conector, para que Instagram descargue las fotos) · META_GRAPH_URL (opcional).
+// PUBLIC_URL (dirección pública del conector, para que Instagram descargue las fotos) · META_GRAPH_URL (opcional) ·
+// ANTHROPIC_API_KEY y ANTHROPIC_MODEL (opcionales: la IA de la vendedora, solo para lo que el menú no entiende).
 
-export const VERSION = "conector-1.1";
+import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA } from "../js/vendedor.js";
+
+export const VERSION = "conector-1.2";
 const MAX_MSGS = 500;
 
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type" };
@@ -83,8 +88,9 @@ const marcasRecientes = (marcas, hasta) => Object.fromEntries(Object.entries(mar
  * Guarda un mensaje en su conversación. Devuelve null si ya existía (Meta reintenta: no duplicar)
  * o { prev } con lo que había de esa conversación ANTES de este mensaje (null = primer contacto).
  * autoKey: huella de la respuesta automática enviada (para no repetirla antes de esperaHoras).
+ * extra: datos que se guardan junto a la conversación (p. ej. venta: lo que recuerda la vendedora).
  */
-async function addMessage(store, channel, peer, name, msg, autoKey) {
+async function addMessage(store, channel, peer, name, msg, autoKey, extra) {
   const key = `${channel}:${peer}`;
   const list = (await store.get(`inbox:c:${key}`)) ?? [];
   if (msg.id && list.some((m) => m.id === msg.id)) return null;
@@ -104,6 +110,7 @@ async function addMessage(store, channel, peer, name, msg, autoKey) {
     count: base.count + 1,
     ...(msg.dir === "out" && !msg.auto ? { lastManualAt: msg.at } : {}),
     ...(autoKey ? { autoAt: marcasRecientes({ ...base.autoAt, [autoKey]: msg.at }, msg.at) } : {}),
+    ...(extra ?? {}),
   };
   await store.put("inbox:index", index);
   return { prev };
@@ -153,6 +160,7 @@ const AGENTE_BASE = {
   pausaMinutos: 30, // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
   asesor: "",
   agencia: "",
+  ventas: { ...VENTAS_BASE }, // vendedora de autos (menú, inventario, crédito, citas); apagada = solo lo de arriba
 };
 const MAX_REGLAS = 50;
 const MAX_TEXTO_AUTO = 1000;
@@ -207,12 +215,28 @@ function normalizarConfig(c) {
     pausaMinutos: numeroEntre(c.pausaMinutos, AGENTE_BASE.pausaMinutos, 0, 1440),
     asesor: String(c.asesor ?? "").trim().slice(0, 80),
     agencia: String(c.agencia ?? "").trim().slice(0, 80),
+    ventas: normalizarVentas(c.ventas),
+  };
+}
+
+function normalizarVentas(v = {}) {
+  const b = AGENTE_BASE.ventas;
+  const entre = (x, porDefecto, min, max) => { const n = Number(x ?? porDefecto); return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : porDefecto; };
+  const plazos = Array.isArray(v.plazos) ? [...new Set(v.plazos.map(Number).filter((n) => Number.isInteger(n) && n >= 6 && n <= 96))].sort((x, y) => x - y).slice(0, 6) : b.plazos;
+  return {
+    activo: v.activo === undefined ? b.activo : Boolean(v.activo),
+    tasaAnual: Math.round(entre(v.tasaAnual, b.tasaAnual, 0, 80) * 100) / 100,
+    engancheMinimo: entre(v.engancheMinimo, b.engancheMinimo, 0, 90),
+    plazos: plazos.length ? plazos : b.plazos,
+    horasConAsesor: entre(v.horasConAsesor, b.horasConAsesor, 0, 168),
+    presentacion: textoAuto(v.presentacion, "Presentación"),
+    ia: Boolean(v.ia),
   };
 }
 
 async function leerConfig(store) {
   const c = await store.get("agente:config");
-  return { ...AGENTE_BASE, ...(c ?? {}), horario: { ...AGENTE_BASE.horario, ...(c?.horario ?? {}) } };
+  return { ...AGENTE_BASE, ...(c ?? {}), horario: { ...AGENTE_BASE.horario, ...(c?.horario ?? {}) }, ventas: { ...AGENTE_BASE.ventas, ...(c?.ventas ?? {}) } };
 }
 
 /** ¿La hora dada cae dentro del horario de atención, en la zona horaria de la agencia? */
@@ -227,38 +251,6 @@ function enHorario(cfg, ahora) {
   const hhmm = `${p.hour}:${p.minute}`;
   if (inicio === fin) return true; // todo el día
   return inicio < fin ? hhmm >= inicio && hhmm < fin : hhmm >= inicio || hhmm < fin; // turno que cruza la medianoche
-}
-
-const sinAcentos = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-const escaparRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/** La palabra (o frase) aparece completa en el texto: sin acentos, sin mayúsculas, con límite de palabra. */
-function contienePalabra(texto, palabra) {
-  const p = sinAcentos(palabra).trim();
-  if (!p) return false;
-  const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escaparRegex(p).replace(/\s+/g, "\\s+")}(?=$|[^\\p{L}\\p{N}])`, "u");
-  return re.test(sinAcentos(texto));
-}
-
-/**
- * "ANA maría 🌸" → "Ana". Los nombres de perfil vienen como cada quien los escribió y los controla el cliente:
- * si el primero no parece un nombre (una liga, "{agencia}", 200 letras…) se omite en vez de repetirlo.
- */
-function primerNombre(nombre) {
-  const t = String(nombre ?? "").normalize("NFC").split(/\s+/).map((x) => x.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "")).find(Boolean) ?? "";
-  if (t.length > 30 || !/^\p{L}[\p{L}\p{M}'’.-]*$/u.test(t)) return "";
-  return t === t.toUpperCase() || t === t.toLowerCase() ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : t;
-}
-
-/**
- * Sustituye {nombre}, {asesor} y {agencia} (también {Nombre}: el teclado del teléfono pone mayúscula sola);
- * si alguno viene vacío no deja espacios sueltos ("¡Hola !") ni una coma al inicio ("{nombre}, gracias…").
- */
-function rellenar(plantilla, vars) {
-  const t = plantilla.replace(/\{(nombre|asesor|agencia)\}/gi, (_, k) => vars[k.toLowerCase()] ?? "")
-    .replace(/[ \t]+([,.!?;:])/g, "$1").replace(/([¡¿])[ \t]+/g, "$1").replace(/[ \t]{2,}/g, " ").trim();
-  const sinInicio = t.replace(/^[,.;:]+\s*/, "");
-  return sinInicio === t ? t : sinInicio.charAt(0).toUpperCase() + sinInicio.slice(1);
 }
 
 /** Huella corta de una respuesta (FNV-1a): identifica "la misma respuesta" aunque cambie el orden de las reglas. */
@@ -302,6 +294,129 @@ async function responderSolo(env, store, cfg, e, ahora) {
   }
   return true;
 }
+
+// ───────── Vendedora: asistente de ventas de autos (sin IA) ─────────
+// ventas:inventario → [ { id, marca, modelo, version, anio, precio, tipo, km, color, transmision, descripcion,
+//                        palabras, disponible, fotoId? } ]  (lo manda la app; la foto vive en media:<fotoId>)
+// inbox:index[clave].venta → lo que Sofía recuerda de esa conversación (paso, auto elegido, opciones del menú…)
+
+const MAX_AUTOS = 200;
+const MAX_FOTO_AUTO = 5 * 1024 * 1024; // límite de WhatsApp para imágenes
+
+/**
+ * Contesta como vendedora (js/vendedor.js), si toca. Devuelve true si intentó mandar algo.
+ * Las fotos del inventario solo se mandan con una dirección pública HTTPS (Meta las descarga de ahí).
+ */
+async function responderVentas(env, store, cfg, e, ahora, base) {
+  if (!cfg.activo) return false;
+  if (ahora - new Date(e.at) > DIA_MS) return false; // mensaje viejo (Meta lo reenvió tarde): ya no se contesta
+  const pausa = cfg.pausaMinutos * 60 * 1000;
+  if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
+  const inventario = await inventarioVendedora(store, publicBase(env, base), true);
+  const historial = async () => ((await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
+  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero }, historial, ahora);
+  if (r.errorIA) await anotarError(store, e, `IA: ${r.errorIA}`, ahora);
+  if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
+  for (const [i, m] of r.respuestas.entries()) {
+    try {
+      await sendMessage(env, store, { channel: e.canal, to: e.id, text: m.texto, ...(m.foto ? { image: m.foto } : {}) },
+        { ahora, autoKey: `venta:${r.motivo}`, indice: i === r.respuestas.length - 1 ? { venta: r.conv } : undefined });
+    } catch (err) {
+      await anotarError(store, e, err.message ?? String(err), ahora);
+      break;
+    }
+  }
+  return r.respuestas.length > 0;
+}
+
+/** Inventario para la vendedora, con la foto como URL pública (WhatsApp solo descarga de HTTPS). */
+async function inventarioVendedora(store, pub, soloHttps) {
+  const ok = !soloHttps || pub.startsWith("https://");
+  return ((await store.get("ventas:inventario")) ?? []).map((a) => ({ ...a, foto: a.fotoId && ok ? `${pub}/media/${a.fotoId}` : null }));
+}
+
+/**
+ * El menú decide; con IA (opcional), lo que el menú no entendió lo contesta Claude con los mismos datos. Si la IA
+ * falla, va lo del menú y el error regresa en errorIA. historial: función que trae la conversación (solo si hace falta).
+ */
+async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora) {
+  const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora });
+  if (r.motivo !== "no-entendi" || !cfg.ventas.ia || !env.ANTHROPIC_API_KEY) return r;
+  try {
+    return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial() })), { inventario, antes, ahora });
+  } catch (err) {
+    return { ...r, errorIA: err.message ?? String(err) };
+  }
+}
+
+/** Lo que falló al contestar solo queda en agente:errores (la app muestra el último). */
+async function anotarError(store, e, error, ahora) {
+  const errores = (await store.get("agente:errores")) ?? [];
+  errores.unshift({ at: ahora.toISOString(), canal: e.canal, id: e.id, error });
+  await store.put("agente:errores", errores.slice(0, 20));
+}
+
+export const MODELO_IA = "claude-opus-5-5";
+const CON_RESPALDO = new Set(["claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1"]);
+
+/**
+ * Una respuesta de Claude con salida estructurada (ESQUEMA_IA) y el mismo SDK que usa la app (vendor/).
+ * Esfuerzo bajo: son mensajes cortos de WhatsApp. Sin reintentos y con tiempo límite, porque Meta espera
+ * respuesta del webhook. Si Claude rechaza, se usa otro modelo automáticamente (fallbacks) cuando aplica.
+ */
+async function preguntarIA(env, { system, messages }) {
+  if (!messages.length) throw new Error("sin mensajes del cliente");
+  const sdk = await import("../vendor/anthropic-sdk.mjs");
+  const cliente = new sdk.default({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 0, timeout: 15_000, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
+  const model = env.ANTHROPIC_MODEL || MODELO_IA;
+  const params = { model, max_tokens: 16000, system, messages, output_config: { effort: "low", format: sdk.jsonSchemaOutputFormat(ESQUEMA_IA) } };
+  if (CON_RESPALDO.has(model)) Object.assign(params, { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
+  const res = await cliente.beta.messages.create(params);
+  if (res.stop_reason === "refusal") throw new Error("Claude no quiso contestar ese mensaje");
+  if (res.stop_reason === "max_tokens") throw new Error("respuesta incompleta");
+  return JSON.parse(res.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+}
+
+/** Lo que el cliente fue diciendo (auto, crédito, enganche, cita…) se guarda en su prospecto para la app. */
+async function actualizarLead(store, e, cambios, ahora) {
+  const leads = (await store.get("leads:index")) ?? {};
+  const clave = `${e.canal}:${e.id}`;
+  const l = Object.hasOwn(leads, clave) ? leads[clave] : { canal: e.canal, id: e.id, nombre: e.nombre || "", primerMensaje: String(e.texto ?? "").slice(0, 300), at: ahora.toISOString(), importado: false };
+  Object.assign(l, cambios, { actualizado: ahora.toISOString() });
+  // Pide cita o asesor: vuelve a "nuevos" aunque ya se hubiera agregado como cliente (la app lo avisa).
+  if (cambios.cita || cambios.quiereAsesor) { l.importado = false; delete l.importadoAt; }
+  leads[clave] = l;
+  await store.put("leads:index", leads);
+}
+
+/** La app manda su inventario completo; las fotos que ya nadie usa se borran. */
+async function guardarInventario(store, autos) {
+  if (!Array.isArray(autos)) throw invalido("Falta el inventario (autos)");
+  if (autos.length > MAX_AUTOS) throw invalido(`Máximo ${MAX_AUTOS} autos`);
+  const txt = (x, max = 80) => String(x ?? "").trim().slice(0, max);
+  const num = (x) => { const n = Number(String(x ?? "").replace(/[^\d.]/g, "")); return Number.isFinite(n) && n > 0 ? n : 0; };
+  const limpio = autos.map((a) => {
+    if (!a || typeof a !== "object") throw invalido("Auto inválido");
+    const id = txt(a.id, 40);
+    if (!/^[\w-]+$/.test(id)) throw invalido("Cada auto necesita un id");
+    if (!txt(a.modelo) && !txt(a.marca)) throw invalido("Cada auto necesita marca o modelo");
+    return {
+      id, marca: txt(a.marca), modelo: txt(a.modelo), version: txt(a.version), anio: num(a.anio) || "",
+      precio: num(a.precio), tipo: a.tipo === "seminuevo" ? "seminuevo" : "nuevo", km: num(a.km),
+      color: txt(a.color), transmision: txt(a.transmision), descripcion: txt(a.descripcion, 400),
+      palabras: (Array.isArray(a.palabras) ? a.palabras : String(a.palabras ?? "").split(",")).map((x) => txt(x, 40)).filter(Boolean).slice(0, 10),
+      disponible: a.disponible !== false,
+      ...(MEDIA_ID.test(a.fotoId ?? "") ? { fotoId: a.fotoId } : {}),
+    };
+  });
+  const antes = (await store.get("ventas:inventario")) ?? [];
+  const usadas = new Set(limpio.map((a) => a.fotoId).filter(Boolean));
+  for (const a of antes) if (a.fotoId && !usadas.has(a.fotoId)) await borrar(store, `media:${a.fotoId}`);
+  await store.put("ventas:inventario", limpio);
+  return limpio;
+}
+
+const vistaAuto = (a, base) => ({ ...a, foto: a.fotoId ? `${base}/media/${a.fotoId}` : null });
 
 // ───────── Prospectos ─────────
 // leads:index → { "<canal>:<id>": { canal, id, nombre, primerMensaje, at, importado, importadoAt? } }
@@ -365,7 +480,8 @@ async function handleWebhook(req, env, store, ahora) {
     const clave = `${canal}:${peer}`;
     if (!contestable || contestados.has(clave)) return;
     try {
-      if (await responderSolo(env, store, cfg, { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev }, ahora)) contestados.add(clave);
+      const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev };
+      if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, baseDe(req)) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
     } catch (e) {
       console.error("Agente de Sofía:", e); // nunca romper el webhook: Meta reintentaría y se duplicaría el trabajo
     }
@@ -402,14 +518,22 @@ async function handleWebhook(req, env, store, ahora) {
 
 // ───────── Envíos ─────────
 
-/** b: { channel, to, text | template }. autoKey: lo manda el agente (se guarda con auto: true). */
-async function sendMessage(env, store, b, { ahora = new Date(), autoKey } = {}) {
+/**
+ * b: { channel, to, text | template, image? (URL pública HTTPS: va con el texto como pie de foto) }.
+ * autoKey: lo manda el agente (se guarda con auto: true). indice: datos para guardar junto a la conversación.
+ */
+async function sendMessage(env, store, b, { ahora = new Date(), autoKey, indice } = {}) {
   const at = ahora.toISOString();
   const auto = autoKey ? { auto: true } : {};
   if (b.channel === "fb") {
     if (!fbReady(env)) throw new Error("Facebook no está configurado en el servidor");
-    const r = await graph(env, `${env.FB_PAGE_ID}/messages`, { method: "POST", token: env.FB_PAGE_TOKEN, body: { recipient: { id: b.to }, messaging_type: "RESPONSE", message: { text: b.text } } });
-    await addMessage(store, "fb", b.to, "", { id: r.message_id, dir: "out", type: "text", text: b.text, at, status: "sent", ...auto }, autoKey);
+    const enviar = (message) => graph(env, `${env.FB_PAGE_ID}/messages`, { method: "POST", token: env.FB_PAGE_TOKEN, body: { recipient: { id: b.to }, messaging_type: "RESPONSE", message } });
+    if (b.image) { // Messenger no lleva pie de foto: primero la foto y luego el texto
+      const ri = await enviar({ attachment: { type: "image", payload: { url: b.image, is_reusable: true } } });
+      await addMessage(store, "fb", b.to, "", { id: ri.message_id, dir: "out", type: "image", text: "", at, status: "sent", media: { url: b.image }, ...auto }, autoKey);
+    }
+    const r = await enviar({ text: b.text });
+    await addMessage(store, "fb", b.to, "", { id: r.message_id, dir: "out", type: "text", text: b.text, at, status: "sent", ...auto }, autoKey, indice);
     return { id: r.message_id };
   }
   if (!waReady(env)) throw new Error("WhatsApp no está configurado en el servidor");
@@ -421,6 +545,8 @@ async function sendMessage(env, store, b, { ahora = new Date(), autoKey } = {}) 
     const params = (b.template.params ?? []).map((t) => ({ type: "text", text: String(t) }));
     payload = { type: "template", template: { name: b.template.name, language: { code: b.template.lang || "es_MX" }, ...(params.length ? { components: [{ type: "body", parameters: params }] } : {}) } };
     text = b.template.preview || `[Plantilla ${b.template.name}]`;
+  } else if (b.image && text.length <= MAX_PIE_WA) {
+    payload = { type: "image", image: { link: b.image, ...(text ? { caption: text } : {}) } };
   } else {
     if (!text.trim()) throw new Error("Mensaje vacío");
     payload = { type: "text", text: { body: text, preview_url: true } };
@@ -431,9 +557,10 @@ async function sendMessage(env, store, b, { ahora = new Date(), autoKey } = {}) 
   // contesta (y llegan los estados) desde 521 + 10 dígitos. Así es una sola conversación y el agente
   // sabe que el asesor ya escribió (no hay bienvenida ni prospecto, y respeta pausaMinutos).
   const peer = String(r.contacts?.[0]?.wa_id ?? "").replace(/\D/g, "") || to;
-  await addMessage(store, "wa", peer, "", { id, dir: "out", type: b.template ? "template" : "text", text, at, status: "sent", ...auto }, autoKey);
+  await addMessage(store, "wa", peer, "", { id, dir: "out", type: payload.type, text, at, status: "sent", ...(payload.image ? { media: { url: b.image } } : {}), ...auto }, autoKey, indice);
   return { id };
 }
+const MAX_PIE_WA = 1024; // WhatsApp: largo máximo del pie de foto
 
 function deBase64(b64) {
   const bin = atob(b64);
@@ -630,8 +757,10 @@ async function status(env, store, ahora) {
   const out = { ok: true, version: VERSION, whatsapp: { configured: waReady(env) }, facebook: { configured: fbReady(env) }, instagram: { configured: igReady(env) }, webhook: { secret: Boolean(env.META_APP_SECRET), verifyToken: Boolean(env.META_VERIFY_TOKEN), last: await store.get("webhook:last") }, publicUrl: env.PUBLIC_URL || null };
   const cfg = await leerConfig(store);
   const errores = (await store.get("agente:errores")) ?? [];
-  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null };
-  out.prospectos = { nuevos: Object.values((await store.get("leads:index")) ?? {}).filter((l) => !l.importado).length };
+  const inventario = (await store.get("ventas:inventario")) ?? [];
+  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null, ventas: { activo: cfg.ventas.activo, autos: inventario.filter((a) => a.disponible !== false).length, ia: { activa: Boolean(cfg.ventas.ia), llave: Boolean(env.ANTHROPIC_API_KEY), modelo: env.ANTHROPIC_MODEL || MODELO_IA } } };
+  const nuevos = Object.values((await store.get("leads:index")) ?? {}).filter((l) => !l.importado);
+  out.prospectos = { nuevos: nuevos.length, calientes: nuevos.filter((l) => l.cita || l.quiereAsesor).length };
   const cola = (await store.get("social:cola")) ?? [];
   out.programadas = { pendientes: cola.filter((x) => x.estado === "pendiente" || x.estado === "publicando").length, conError: cola.filter((x) => x.estado === "error").length };
   if (waReady(env)) {
@@ -743,9 +872,39 @@ export async function handle(req, env, store, opciones = {}) {
       case "POST /api/agente/config": {
         if (!body.config || typeof body.config !== "object") return fail("Falta la configuración");
         const prev = await leerConfig(store);
-        const config = normalizarConfig({ ...prev, ...body.config, horario: { ...prev.horario, ...(body.config.horario ?? {}) } });
+        const config = normalizarConfig({ ...prev, ...body.config, horario: { ...prev.horario, ...(body.config.horario ?? {}) }, ventas: { ...prev.ventas, ...(body.config.ventas ?? {}) } });
         await store.put("agente:config", config);
         return json({ ok: true, config });
+      }
+
+      // Inventario de la vendedora (lo administra la app)
+      case "GET /api/inventario": {
+        const base = publicBase(env, baseDe(req));
+        return json({ ok: true, autos: ((await store.get("ventas:inventario")) ?? []).map((a) => vistaAuto(a, base)) });
+      }
+      case "POST /api/inventario": {
+        const base = publicBase(env, baseDe(req));
+        return json({ ok: true, autos: (await guardarInventario(store, body.autos)).map((a) => vistaAuto(a, base)) });
+      }
+      case "POST /api/inventario/foto": {
+        // Se sirve en público (/media/<id>) para que WhatsApp la descargue; el id es aleatorio de 128 bits.
+        const m = /^data:([\w/+.-]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(String(body.imagen ?? ""));
+        if (!m || !["image/jpeg", "image/png"].includes(m[1])) return fail("La foto debe ser JPG o PNG");
+        const datos = m[2].replace(/\s+/g, "");
+        if (datos.length * 0.75 > MAX_FOTO_AUTO) return fail("La foto pesa más de 5 MB (WhatsApp no la acepta)");
+        const fotoId = nuevoId();
+        await store.put(`media:${fotoId}`, { mime: m[1], datos });
+        return json({ ok: true, fotoId, foto: `${publicBase(env, baseDe(req))}/media/${fotoId}` });
+      }
+
+      // "Probar a Sofía" desde la app: el mismo camino que un mensaje real (menú + IA del servidor), sin guardar ni enviar nada.
+      case "POST /api/vendedora/probar": {
+        const cfg = await leerConfig(store);
+        const inventario = await inventarioVendedora(store, publicBase(env, baseDe(req)), false);
+        const historial = (Array.isArray(body.historial) ? body.historial : []).slice(-30).map((m) => ({ dir: m?.dir === "out" ? "out" : "in", text: String(m?.text ?? "").slice(0, 1500) }));
+        const conv = body.conv && typeof body.conv === "object" && !Array.isArray(body.conv) ? body.conv : {};
+        const r = await pensarVenta(env, cfg, inventario, conv, { texto: String(body.texto ?? "").slice(0, 1500), nombre: String(body.nombre ?? "Cliente").slice(0, 60), primero: Boolean(body.primero) }, async () => historial, ahora);
+        return json({ ok: true, ...r });
       }
 
       // Prospectos (contactos nuevos que escribieron por WhatsApp o Messenger)

@@ -30,8 +30,9 @@ export function renderHome(root) {
         btn("Solicitud de crédito con INE", () => go("/cliente/nuevo?siguiente=credito")),
         btn(connectorReady() ? "Bandeja de WhatsApp" : "Responder WhatsApp", () => go(connectorReady() ? "/whatsapp?tab=bandeja" : "/whatsapp?tab=responder")),
         btn("Recordatorios", () => go("/recordatorios"), "ghost")),
-      connectorReady() && lastStatus()?.prospectos?.nuevos ? h("button", { class: "item late", onclick: () => go("/whatsapp?tab=auto") },
-        h("div", { class: "grow" }, h("strong", {}, `${lastStatus().prospectos.nuevos} prospecto${lastStatus().prospectos.nuevos === 1 ? "" : "s"} nuevo${lastStatus().prospectos.nuevos === 1 ? "" : "s"} por WhatsApp/Messenger`), h("div", { class: "muted small" }, "Agrégalos como clientes")),
+      connectorReady() && lastStatus()?.prospectos?.nuevos ? prospectsBanner(lastStatus().prospectos) : null,
+      !state.inventory.length ? h("button", { class: "item", onclick: () => go("/inventario") },
+        h("div", { class: "grow" }, h("strong", {}, "Carga tus autos para que Sofía los venda"), h("div", { class: "muted small" }, "Con foto y precio, Sofía los ofrece por WhatsApp y cotiza a crédito")),
         h("span", { class: "muted" }, "›")) : null,
       !googleReady() || !connectorReady() ? h("button", { class: "item", onclick: () => go("/conexiones") },
         h("div", { class: "grow" }, h("strong", {}, "Activa los agentes gratis"), h("div", { class: "muted small" }, [!googleReady() && "Google: correo de placas, recordatorios en tu iPhone, respaldo", !connectorReady() && "WhatsApp, Facebook e Instagram automáticos"].filter(Boolean).join(" · "))),
@@ -75,4 +76,15 @@ function done(r, c) {
   updateReminder(r.id, { done: true, doneAt: new Date().toISOString() });
   toast(c ? `Listo. ¿Cuándo vuelves a contactar a ${c.name.split(" ")[0]}? Prográmalo en su ficha.` : "Listo");
   rerender();
+}
+
+/** Prospectos de WhatsApp/Messenger; los que pidieron cita o asesor van primero. */
+function prospectsBanner(p) {
+  const n = p.nuevos;
+  const hot = p.calientes ?? 0;
+  return h("button", { class: "item late", onclick: () => go("/whatsapp?tab=auto") },
+    h("div", { class: "grow" },
+      h("strong", {}, hot ? `🔥 ${hot} prospecto${hot === 1 ? "" : "s"} pide${hot === 1 ? "" : "n"} cita o hablar contigo` : `${n} prospecto${n === 1 ? "" : "s"} nuevo${n === 1 ? "" : "s"} por WhatsApp/Messenger`),
+      h("div", { class: "muted small" }, hot && n > hot ? `y ${n - hot} más nuevo${n - hot === 1 ? "" : "s"} · agrégalos como clientes` : "Agrégalos como clientes")),
+    h("span", { class: "muted" }, "›"));
 }

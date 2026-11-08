@@ -56,8 +56,20 @@ export const getAgentConfig = async () => (await call("/api/agente/config")).con
 /** Guarda solo lo que cambies (lo demás se conserva). Devuelve la configuración completa ya validada. */
 export const setAgentConfig = async (config) => (await call("/api/agente/config", { method: "POST", body: { config } })).config;
 
+// ── Inventario de la vendedora: lo que Sofía ofrece por WhatsApp ──
+/** autos: [{ id, marca, modelo, version, anio, precio, tipo, km, color, transmision, descripcion, palabras, disponible, fotoId? }] */
+export const saveInventory = async (autos) => (await call("/api/inventario", { method: "POST", body: { autos } })).autos;
+/** imagen: data URL JPG/PNG (máx. 5 MB). Devuelve { fotoId, foto (URL pública) }. */
+export const uploadCarPhoto = (imagen) => call("/api/inventario/foto", { method: "POST", body: { imagen } });
+
+/** "Probar a Sofía": lo que contestaría tu servidor (menú + su IA), sin guardar ni enviar nada. */
+export const trySales = (body) => call("/api/vendedora/probar", { method: "POST", body });
+
 // ── Prospectos: contactos nuevos que escribieron por WhatsApp o Messenger ──
-/** [{ clave: "wa:521…", canal, id, nombre, primerMensaje, at, importado }] del más nuevo al más viejo. */
+/**
+ * [{ clave: "wa:521…", canal, id, nombre, primerMensaje, at, importado, y lo que Sofía anotó: autoId, interes, precio,
+ *    formaPago, enganche, plazo, mensualidad, cita, quiereAsesor, calor, actualizado }] del más nuevo al más viejo.
+ */
 export const listLeads = async () => (await call("/api/prospectos")).prospectos;
 /** Marca prospectos (por su clave) como ya convertidos en clientes. */
 export const markLeads = (ids, importado = true) => call("/api/prospectos/marcar", { method: "POST", body: { ids, importado } });

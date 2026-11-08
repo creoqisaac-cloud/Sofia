@@ -72,6 +72,7 @@ const emptyState = () => ({
   posts: [],
   waSeen: {},
   calTrash: [], // eventos de Google Calendar por borrar (recordatorios hechos o borrados)
+  inventory: [], // autos que Sofía ofrece por WhatsApp (v-inventory.js)
 });
 
 export let state = emptyState();
@@ -82,7 +83,7 @@ export const onChange = (fn) => { listeners.add(fn); return () => listeners.dele
 function withDefaults(saved) {
   const base = emptyState();
   const ss = saved.settings ?? {};
-  return { ...base, ...saved, calTrash: saved.calTrash ?? [], settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, google: { ...base.settings.google, ...ss.google }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
+  return { ...base, ...saved, calTrash: saved.calTrash ?? [], inventory: saved.inventory ?? [], settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, google: { ...base.settings.google, ...ss.google }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
 }
 
 export async function load() {

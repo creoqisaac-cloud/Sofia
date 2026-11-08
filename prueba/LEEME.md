@@ -7,7 +7,7 @@ Los agentes también son **gratis y sin IA**: corren en tu propia cuenta de Goog
 | Agente (gratis, sin IA) | Dónde corre | Qué hace solo |
 |---|---|---|
 | **Correo de placas** | Tu cuenta de Google | Envía desde tu Gmail con los documentos adjuntos, lee las respuestas de la gestoría, propone el estado y manda el seguimiento si no contestan |
-| **WhatsApp y Messenger** | Conector (Cloudflare) | Contesta con bienvenida, aviso fuera de horario y respuestas por palabra clave, aunque el teléfono esté apagado. Anota a cada contacto nuevo como prospecto |
+| **Sofía vendedora (WhatsApp y Messenger)** | Conector (Cloudflare) | Atiende a cada cliente a cualquier hora: le muestra tus autos con foto y precio, cotiza a crédito, anota la prueba de manejo y te lo pasa cuando pide hablar contigo. Todo queda en Prospectos (🔥 los que quieren cita). Con IA opcional, también contesta lo que el menú no entiende |
 | **Redes** | Conector (Cloudflare) | Publica en tu página de Facebook y en Instagram a la hora que programaste |
 | **Recordatorios** | Tu cuenta de Google | Copia cada recordatorio al calendario **Sofía** para que suene en el iPhone |
 | **Lector de INE** | El teléfono, y Google como segunda opinión | Lee frente y reverso, valida CURP, clave de elector y la zona de lectura mecánica del reverso, y compara los lectores campo por campo |
@@ -17,7 +17,7 @@ Los agentes también son **gratis y sin IA**: corren en tu propia cuenta de Goog
 | **Clientes y seguimiento** | Ficha, etapas, bitácora, próximo contacto, pantalla **Hoy**, recordatorios (Android: suenan con la app cerrada) | Recordatorios en Google Calendar (iPhone) · prospectos de WhatsApp a clientes con un toque | Clientes creados desde chats exportados, con interés y etapa |
 | **Crédito con INE** | Lector del teléfono: valida CURP (dígito verificador), clave de elector, zona de lectura mecánica del reverso, fecha/sexo/nombre contra la CURP, CP ↔ estado y vigencia. Llena el **PDF oficial de BBVA o Banorte** con su mapeo real de campos | Segundo lector (Google) comparado campo por campo | Tercer lector para fotos difíciles |
 | **Placas** | Checklist de documentos con fotos, correo con adjuntos desde el teléfono | **Agente de correo** en tu Gmail: respuestas, estado sugerido y seguimiento automático | — |
-| **WhatsApp** | Plantillas, mensaje sugerido por etapa, pendientes del día; abre WhatsApp con el texto listo | **Bandeja real** (WhatsApp Business y Messenger), **respuestas automáticas**, prospectos, fotos del cliente → INE | Borradores **en tu estilo** y plantillas personalizadas por cliente |
+| **WhatsApp** | Plantillas, mensaje sugerido por etapa, pendientes del día; abre WhatsApp con el texto listo. **Inventario** y **Probar a Sofía** (el simulador de la vendedora) | **Bandeja real** (WhatsApp Business y Messenger), **Sofía vendedora** que contesta sola, prospectos con lo que dijo cada cliente, fotos del cliente → INE | Borradores **en tu estilo**, plantillas personalizadas por cliente y respuestas de la vendedora a lo que el menú no entiende |
 | **Tu estilo de venta** | Importa tus chats exportados y muestra tus estadísticas: saludo, emojis, largo, trato | — | La IA aprende cómo vendes y lo imita |
 | **Redes** | Texto y foto para compartir a mano | **Publicar ya o programar** en Facebook e Instagram | Publicaciones y anuncios escritos por IA |
 
@@ -58,8 +58,9 @@ Todo lo de las columnas "Sin conexiones" y "Con conexiones gratis" funciona sin 
 - **Sin compilación:** HTML + módulos de JavaScript.
 - **Código generado:** `js/ine-parser.js`, `js/mxid.js`, `js/bank-adapters.js`, `vendor/anthropic-sdk.mjs` y el Worker de un archivo se generan con `node scripts/prueba-generar.mjs`. Salen de la app completa (`src/`), así que la lógica es la misma.
 - **Conector:** `servidor/core.mjs` es independiente del hosting. Lo envuelven `servidor.mjs` (Node) y `cloudflare/worker.mjs`.
+- **Vendedora:** `js/vendedor.js` es un módulo puro: lo usan el conector, el simulador de la app y la demo de la página de ventas, así los tres contestan igual.
 - **Google:** `servidor/google/sofia-google.gs` (Apps Script) y su cliente `js/google.js`.
 - **Pruebas:**
-  - `npx vitest run tests/31-conector.test.ts tests/32-prueba-credito-oficial.test.ts tests/33-ine-mrz.test.ts tests/34-google-apps-script.test.ts`
-  - Prueba de punta a punta: ver el encabezado de `scripts/prueba-e2e.mjs`. Simula la IA, la API de Meta y el script de Google.
+  - `npx vitest run tests/31-conector.test.ts tests/32-prueba-credito-oficial.test.ts tests/33-ine-mrz.test.ts tests/34-google-apps-script.test.ts tests/35-vendedor.test.ts`
+  - Prueba de punta a punta: ver el encabezado de `scripts/prueba-e2e.mjs`. Simula la IA (también la del servidor), la API de Meta y el script de Google.
 - **APK local:** `SOFIA_PRUEBA=1 npx cap sync android && cd android && ./gradlew -PsofiaPrueba assembleDebug`.
