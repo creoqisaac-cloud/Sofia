@@ -110,7 +110,8 @@ async function syntheticBbvaForm() {
   return file;
 }
 
-const b = await chromium.launch();
+// PW_CHROMIUM: un Chromium ya instalado, cuando no coincide con la versión que espera Playwright.
+const b = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
 // Foto sintética de una INE (persona inexistente)
 const card = await b.newPage({ viewport: { width: 1000, height: 630 } });
 await card.setContent(`<body style="margin:0;font-family:Arial;background:#e8efe9">
@@ -414,7 +415,6 @@ step("simulador: menú → auto con foto → cotización a crédito, y el prospe
 
 await p.goto(BASE + "#/whatsapp?tab=auto");
 await p.getByText("Contestar automáticamente").click();
-await p.getByText("Con IA: contesta lo que el menú no entiende").click();
 await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
 await p.getByText(/Sofía vende por ti/).waitFor();
 const before = graphCalls.length;
@@ -440,6 +440,10 @@ await p.goto(BASE + "#/recordatorios");
 await p.getByText(/Confirmar visita: ¿Puedo ir a manejarlo el sábado a las 11\?/).first().waitFor();
 step("prospecto 🔥 con interés y cita → cliente con recordatorio «Confirmar visita»");
 
+await p.goto(BASE + "#/whatsapp?tab=auto");
+await p.getByText("Con IA: contesta lo que el menú no entiende").click(); // con IA, Sofía lleva toda la plática
+await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
+await p.getByText(/Sofía vende por ti/).waitFor();
 await p.goto(BASE + "#/probar");
 await p.getByRole("button", { name: "Reiniciar" }).click();
 for (const t of ["Hola", "¿aceptan mi carro a cuenta?"]) {
@@ -449,7 +453,7 @@ for (const t of ["Hola", "¿aceptan mi carro a cuenta?"]) {
 await p.getByText("✨ Contestó con IA").waitFor();
 await p.getByText("Pidió hablar contigo").waitFor();
 if (!aiCalls.some((c) => c.keys.includes("pasar_a_asesor"))) throw new Error("El simulador no usó la IA");
-step("IA opcional: lo que el menú no entiende lo contesta Claude con tu inventario (y pasa contigo si hace falta)");
+step("con IA: Sofía platica como vendedora con tu inventario y te pasa al cliente con su resumen");
 
 // ───── M. Programar publicación (sale sola a la hora) y cancelar ─────
 await p.goto(BASE + "#/redes");

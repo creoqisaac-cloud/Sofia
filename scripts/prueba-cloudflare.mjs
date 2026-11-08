@@ -94,7 +94,8 @@ try {
   ok((await fetch(`${W}/webhook/meta`, { method: "POST", headers: { "x-hub-signature-256": "sha256=00" }, body: "{}" })).status === 401, "avisos sin la firma de Meta se rechazan");
 
   // 2. Vendedora con inventario y foto
-  await post("/api/agente/config", { config: { activo: true, asesor: "Pedro", agencia: "Autos Ejemplo", horario: { dias: [0, 1, 2, 3, 4, 5, 6], inicio: "00:00", fin: "00:00" }, ventas: { activo: true, ia: true } } });
+  // Primero sin IA (el menú); luego con IA, que lleva toda la plática.
+  await post("/api/agente/config", { config: { activo: true, asesor: "Pedro", agencia: "Autos Ejemplo", horario: { dias: [0, 1, 2, 3, 4, 5, 6], inicio: "00:00", fin: "00:00" }, ventas: { activo: true, ia: false } } });
   const jpg = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1, 0xff, 0xd9]).toString("base64")}`;
   const { fotoId } = await post("/api/inventario/foto", { imagen: jpg });
   await post("/api/inventario", { autos: [{ id: "crv", marca: "Honda", modelo: "CR-V", version: "Touring", anio: 2026, precio: 689900, tipo: "nuevo", fotoId }, { id: "versa", marca: "Nissan", modelo: "Versa", anio: 2022, precio: 269000, tipo: "seminuevo", km: 41000 }] });
@@ -113,7 +114,8 @@ try {
   const leads = (await (await fetch(`${W}/api/prospectos?token=clave-prueba`)).json()).prospectos;
   ok(leads[0]?.cita === "el sábado a las 11" && leads[0].formaPago === "credito" && leads[0].enganche === 137980, "prospecto con auto, crédito, enganche y cita");
 
-  // 4. IA del servidor para lo que el menú no entiende (SDK dentro del Worker)
+  // 4. Con IA (SDK de Anthropic dentro del Worker): Sofía platica como vendedora
+  await post("/api/agente/config", { config: { ventas: { ia: true } } });
   k = llamadas.length;
   await mensaje("5218133333333", "wamid.6", "Hola", "Luis");
   await mensaje("5218133333333", "wamid.7", "¿aceptan mi carro a cuenta?", "Luis");

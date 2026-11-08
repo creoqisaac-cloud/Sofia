@@ -775,8 +775,10 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     ia.stop = "end_turn";
     calls.length = 0;
     await handle(signed(waMsg("wamid.I2", "oye y el versa trae camarita atrás o nel", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
-    // "versa" sí es un auto: el menú lo entiende y NO llama a la IA.
-    expect(ia.peticiones).toHaveLength(0);
+    // Con IA, Sofía lleva toda la plática: también lo que el menú sí entiende.
+    expect(ia.peticiones).toHaveLength(1);
+    expect(waEnvios()[0]!.text.body).toBe(ia.salida.respuesta);
+    ia.peticiones.length = 0;
     calls.length = 0;
     await handle(signed(waMsg("wamid.I3", "y aceptan mi carro a cuenta?", mas(LUNES_10, 2))), e, store, { ahora: mas(LUNES_10, 2) });
     expect(ia.peticiones).toHaveLength(1);
@@ -786,7 +788,8 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect(p.system).toContain("$689,900");
     expect(p.messages[0]).toEqual({ role: "user", content: "Hola" });
     expect(p.messages.at(-1)).toEqual({ role: "user", content: "y aceptan mi carro a cuenta?" });
-    expect(waEnvios().map((m) => m.text.body)).toEqual(["¡Claro! La *Versa 2022* tiene cámara de reversa según su ficha; ¿quieres venir a verla el sábado?"]);
+    expect(p.system).toContain("Nunca digas que eres una persona");
+    expect(waEnvios().map((m) => m.text.body)).toEqual([ia.salida.respuesta]);
     expect(await leadDe(store)).toMatchObject({ autoId: "versa" });
 
     ia.stop = "refusal";

@@ -271,6 +271,7 @@ function leadLines(l) {
     l.interes && `Interés: ${l.interes}${l.precio ? ` (${money(l.precio)})` : ""}`,
     l.formaPago === "credito" ? `Crédito${l.enganche ? ` · enganche ${money(l.enganche)}` : ""}${l.mensualidad ? ` · ~${money(l.mensualidad)} a ${l.plazo} meses` : ""}` : l.formaPago === "contado" ? "De contado" : "",
     l.cita && `Cita: ${l.cita}`,
+    l.resumen && `Resumen de Sofía: ${l.resumen}`,
     l.pideBorrar ? "⚠️ Pidió BORRAR SUS DATOS (aviso de privacidad: confírmalo y bórralo en máximo 15 días hábiles)" : l.quiereAsesor && "Pidió hablar contigo",
     l.noPromociones && "No quiere promociones",
   ].filter(Boolean);
@@ -375,7 +376,7 @@ function drawAgentForm(box, cfg) {
     field("Cómo se presenta (opcional)", presentacion, "Va al inicio del primer mensaje. Vacío: «Soy Sofía, asistente de…»."),
     h("div", { class: "grid2" }, field("Tasa anual de referencia (%)", tasa, "Solo para estimar; Sofía aclara que está sujeta a aprobación."), field("Enganche mínimo (%)", enganche)),
     h("div", { class: "grid2" }, field("Plazos (meses)", plazos), field("Al pedirte, Sofía se calla (horas)", conAsesor)),
-    h("label", { class: "row gap-s" }, conIa, h("span", {}, "Con IA: contesta lo que el menú no entiende (opcional, de pago)")),
+    h("label", { class: "row gap-s" }, conIa, h("span", {}, "Con IA: contesta lo que el menú no entiende y platica como vendedora (opcional, de pago)")),
     h("p", { class: iaSt && !iaSt.llave && conIa.checked ? "warn small" : "muted small" }, iaSt?.llave
       ? `Usa tu llave de Anthropic del servidor (modelo ${iaSt.modelo}). Nunca inventa precios: solo usa tu inventario y tus reglas; si no sabe, te pasa al cliente.`
       : "Necesita ANTHROPIC_API_KEY en tu servidor (ver la guía de conexiones). Sin ella, Sofía funciona igual con el menú."),

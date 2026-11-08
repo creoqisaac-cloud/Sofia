@@ -246,7 +246,7 @@ export function renderSimulator(root) {
       if (r.errorIA) toast(`IA: ${r.errorIA} (va la respuesta del menú)`, 5000);
     } else {
       r = decidir({ cfg, inventario, conv: antes, msg: { texto: t, nombre: "Cliente", primero, enHorario: true }, ahora: new Date() });
-      if (r.motivo === "no-entendi" && aiReady()) { // lo que el menú no entiende, con la IA de este teléfono
+      if (aiReady() && !["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"].includes(r.motivo)) { // con IA, ella lleva la plática
         try { r = aplicarIA(r, await salesReply(promptIA({ cfg, inventario, historial })), { inventario, antes, ahora: new Date() }); } catch (err) { toast(`IA: ${err.message} (va la respuesta del menú)`, 5000); }
       }
     }

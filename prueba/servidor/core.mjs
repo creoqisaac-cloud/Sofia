@@ -375,13 +375,17 @@ async function inventarioVendedora(store, pub, soloHttps) {
   return ((await store.get("ventas:inventario")) ?? []).map((a) => ({ ...a, foto: a.fotoId && ok ? `${pub}/media/${a.fotoId}` : null }));
 }
 
+// Lo que el menú resuelve siempre él mismo, aun con IA: el freno contra bucles, el silencio mientras atiende el
+// asesor, mensajes sin texto y los derechos del aviso de privacidad.
+const SIN_IA = new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"]);
+
 /**
- * El menú decide; con IA (opcional), lo que el menú no entendió lo contesta Claude con los mismos datos. Si la IA
- * falla, va lo del menú y el error regresa en errorIA. historial: función que trae la conversación (solo si hace falta).
+ * Sin IA, contesta el menú. Con IA, Sofía lleva toda la plática como vendedora (el menú queda de respaldo: si la IA
+ * falla, va lo del menú y el error regresa en errorIA). historial: función que trae la conversación.
  */
 async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora) {
   const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora });
-  if (r.motivo !== "no-entendi" || !cfg.ventas.ia || !env.ANTHROPIC_API_KEY) return r;
+  if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !env.ANTHROPIC_API_KEY) return r;
   try {
     return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial() })), { inventario, antes, ahora });
   } catch (err) {
