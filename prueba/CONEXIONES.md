@@ -44,10 +44,9 @@ Límites de una cuenta gratuita: 100 destinatarios de correo al día y unas 250 
    - **Storage & Databases → KV → Create**, con el nombre `SOFIA_KV`.
    - En tu Worker: **Settings → Bindings → Add → KV namespace**. Usa el nombre de variable `SOFIA_KV` y elige el KV que creaste.
 5. **Programador de publicaciones:** en tu Worker, **Settings → Triggers → Cron Triggers → Add**, con `*/5 * * * *` (cada 5 minutos). Sin esto, lo programado no se publica solo: solo sale cuando usas **Publicar ahora**, que también envía lo que ya venció.
-6. En **Settings → Variables and Secrets**, agrega como **Secret**:
-   - `SOFIA_TOKEN`: una clave larga que inventes. Es la misma que pondrás en Sofía.
-   - `PUBLIC_URL`: la dirección de tu Worker (paso 7). Instagram descarga de ahí las fotos programadas.
-   - Los datos de Meta (`META_APP_SECRET`, `WA_TOKEN`, etc.) se agregan en los pasos 3 y 4.
+6. En **Settings → Variables and Secrets**, agrega como **Secret** solo `SOFIA_TOKEN`: una clave larga que inventes. Es la misma que pondrás en Sofía.
+   - Todo lo demás (los datos de Meta, la dirección pública y la llave de IA) se captura después **desde la app**, en Más → Conexiones. Se guarda en tu servidor y no hace falta volver a desplegar.
+   - Si prefieres, también puedes ponerlos aquí como secretos (`WA_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_WABA_ID`, `META_APP_SECRET`, `FB_PAGE_ID`, `FB_PAGE_TOKEN`, `IG_USER_ID`, `PUBLIC_URL`, `ANTHROPIC_API_KEY`). Lo que captures en la app manda sobre estos.
 7. Tu dirección queda así: `https://sofia-conector.<tu-subdominio>.workers.dev`.
 8. En Sofía: **Más → Conexiones → Servidor**. Pega la dirección y la clave y toca **Conectar y probar**.
 
@@ -99,19 +98,24 @@ npx wrangler deploy
    - Para Instagram también: `instagram_basic`, `instagram_content_publish`
 5. Copia el token → `WA_TOKEN`.
 
-### 3.3 Clave de la app y webhook
-1. En **developers.facebook.com → tu app → Configuración de la app → Básica**, copia la **Clave secreta de la app** → `META_APP_SECRET`.
-2. Inventa una palabra de verificación, por ejemplo `sofia-verifica-2026` → `META_VERIFY_TOKEN`.
-3. Agrega en Cloudflare (o en tu `.env`) los secretos `WA_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_WABA_ID`, `META_APP_SECRET` y `META_VERIFY_TOKEN`. Vuelve a desplegar.
-4. En **WhatsApp → Configuración → Webhook**:
-   - URL de devolución: `https://<tu-conector>/webhook/meta`
-   - Token de verificación: el mismo `META_VERIFY_TOKEN`
-   - Toca **Verificar y guardar** y luego suscríbete al campo **messages**.
-5. En Sofía: **Conexiones → Conectar y probar**. Debe aparecer tu número.
-6. Prueba con **Enviar prueba** (manda la plantilla `hello_world`).
+### 3.3 Pegar los datos en Sofía y conectar el webhook
+1. En **developers.facebook.com → tu app → Configuración de la app → Básica**, copia la **Clave secreta de la app**.
+2. En Sofía: **Más → Conexiones → WhatsApp Business → Datos de Meta**. Pega:
+   - el token permanente,
+   - el identificador del número de teléfono,
+   - el identificador de la cuenta de WhatsApp Business,
+   - la clave secreta de la app.
+3. Toca **Guardar en mi servidor y probar**. Sofía prueba el token con Meta: debe aparecer tu número. Si algo está mal, Meta te dice qué.
+4. Ahí mismo aparecen la **URL de devolución** y el **token de verificación**, con botón para copiar. En Meta → **WhatsApp → Configuración → Webhook**:
+   - pégalos y toca **Verificar y guardar**,
+   - luego suscríbete al campo **messages**.
+5. Prueba con **Enviar prueba** (manda la plantilla `hello_world`).
    - Con el número de prueba de Meta, primero agrega tu celular como destinatario permitido en *Configuración de la API*.
-7. Para usarlo con clientes reales:
-   - Pon la app en modo **En vivo**: pide una URL de política de privacidad.
+6. Para usarlo con clientes reales:
+   - Pon la app en modo **En vivo**. Meta pide la URL de una **política de privacidad** y de **instrucciones para eliminar datos**. Puedes usar la de Sofía con los datos de tu agencia:
+     `https://creoqisaac-cloud.github.io/Sofia/privacidad.html?empresa=Tu%20Agencia&correo=tu@correo.mx&domicilio=Tu%20domicilio&telefono=81%201234%205678`
+     y, para eliminar datos, la misma con `#eliminar-datos` al final. Es un modelo: conviene que lo revise un abogado.
+   - Si un cliente escribe «BORRAR MIS DATOS» o «NO PROMOCIONES», Sofía le contesta y lo verás anotado en Prospectos.
    - Verifica el negocio en el portafolio para subir los límites de envío.
 
 ### 3.4 Sofía vendedora (gratis, sin IA)
@@ -139,8 +143,8 @@ Otros cuidados:
 ### 3.5 IA opcional para la vendedora (de pago)
 Sin IA, Sofía contesta con el menú y tus reglas. Con IA, lo que el menú no entiende («¿aceptan mi auto a cuenta?», «¿trae cámara de reversa?») lo contesta Claude con los mismos datos: tu inventario, tus respuestas, tu horario y tu crédito de referencia. Nunca inventa precios, descuentos ni aprobaciones: si no sabe, te pasa al cliente.
 
-1. Crea tu llave en **https://console.anthropic.com** (sección 5) y agrégala a tu servidor como **Secret** `ANTHROPIC_API_KEY`. Vuelve a desplegar.
-2. Opcional: `ANTHROPIC_MODEL` para elegir el modelo. Por defecto es `claude-opus-5-5`, la máxima calidad. `claude-haiku-5-5` cuesta unas 40 veces menos.
+1. Conecta tu llave en **Más → Conexiones → Inteligencia artificial** (sección 5) y toca **Usar esta llave también en mi servidor**. Se usa el modelo que elegiste ahí: con Opus 5.5 la máxima calidad, y con Haiku 5.5 cuesta unas 40 veces menos.
+2. También puedes ponerla en Cloudflare como **Secret** `ANTHROPIC_API_KEY` (y `ANTHROPIC_MODEL`, por defecto `claude-opus-5-5`).
 3. En **WhatsApp → Automático**, marca **Con IA** y guarda. En **Probar a Sofía** verás «✨ Contestó con IA» en esas respuestas.
 
 Costo aproximado: unos 2 centavos de dólar por respuesta con IA usando Opus 5.5, y mucho menos con Haiku 5.5. Solo se usa en los mensajes que el menú no entendió. Si la IA falla o tarda, se envía la respuesta del menú.
@@ -158,7 +162,7 @@ Costo aproximado: unos 2 centavos de dólar por respuesta con IA usando Opus 5.5
 2. **Token de la página.**
    - En **Graph API Explorer**, usa el token del usuario del sistema (paso 3.2) y consulta `GET /{FB_PAGE_ID}?fields=access_token`.
    - Ese `access_token` es `FB_PAGE_TOKEN`.
-3. Agrega `FB_PAGE_ID` y `FB_PAGE_TOKEN` al conector y vuelve a desplegar. En Sofía → Conexiones debe aparecer el nombre de tu página.
+3. En Sofía: **Más → Conexiones → Facebook e Instagram → Datos de la página**, pega el ID y el token de la página y toca **Guardar en mi servidor y probar**. Debe aparecer el nombre de tu página.
 4. **Messenger en la bandeja:**
    - En tu app de Meta, agrega el producto **Messenger** y configura su webhook con la **misma URL y token**.
    - Suscribe tu página al campo **messages**.
@@ -167,7 +171,7 @@ Costo aproximado: unos 2 centavos de dólar por respuesta con IA usando Opus 5.5
 1. Tu cuenta de Instagram debe ser **profesional** (Empresa o Creador) y estar **vinculada a tu página** de Facebook (Instagram → Configuración → Cuenta → Compartir en otras apps, o desde la página: Configuración → Cuentas vinculadas).
 2. El token del usuario del sistema necesita `instagram_basic` e `instagram_content_publish` (paso 3.2). Si lo creaste sin ellos, genera uno nuevo y vuelve a sacar `FB_PAGE_TOKEN`.
 3. **ID de Instagram:** en Graph API Explorer, `GET /{FB_PAGE_ID}?fields=instagram_business_account` → el `id` es `IG_USER_ID`.
-4. Agrega `IG_USER_ID` (y `PUBLIC_URL`, paso 2.6) al conector y vuelve a desplegar. En Sofía → Conexiones debe aparecer tu `@usuario`.
+4. En el mismo lugar pega el ID de Instagram y la **dirección pública del servidor** (la de tu Worker, `https://…workers.dev`), y guarda. Debe aparecer tu `@usuario`.
 
 ### 4.3 Publicar y programar
 En Sofía: **Redes**.
@@ -202,7 +206,8 @@ La llave se guarda solo en ese teléfono. No viaja a respaldos ni al servidor.
 
 ## Qué está probado y cómo confirmarlo en tus cuentas
 
-- La app, el conector y el script de Google pasan pruebas automáticas contra **simulaciones** de las APIs de Meta y Google: `scripts/prueba-e2e.mjs`, `tests/31`, `tests/34`.
+- La app, el conector y el script de Google pasan pruebas automáticas contra **simulaciones** de las APIs de Meta, Google y Anthropic: `scripts/prueba-e2e.mjs`, `tests/31`, `tests/34`, `tests/35`.
+- El archivo que se pega en Cloudflare se prueba en el **motor real de Cloudflare Workers** (workerd), con KV y cron: `scripts/prueba-cloudflare.mjs`. Arranca solo con `SOFIA_TOKEN` y configura todo como lo hace la app.
 - La confirmación real es en tus cuentas. Cada conexión tiene su botón:
   - **Google:** *Conectar y probar* y *Probar recordatorio*, más la lista de pruebas de [`servidor/google/LEEME.md`](servidor/google/LEEME.md).
   - **WhatsApp:** *Enviar prueba*. Luego escríbele a tu número desde otro celular, por ejemplo «Hola, ¿cuánto cuesta la City?». Debe contestar con la ficha del auto, y tú debes verlo en **Prospectos nuevos**.
@@ -212,7 +217,7 @@ La llave se guarda solo en ese teléfono. No viaja a respaldos ni al servidor.
 
 ## Seguridad
 
-- Los tokens de Meta viven **solo en el conector** (secretos de Cloudflare o tu `.env`), nunca en los teléfonos.
+- Los tokens de Meta viven **solo en el conector** (en su almacén o en los secretos de Cloudflare), nunca en los teléfonos. Al capturarlos en la app se mandan una vez al servidor, y la app nunca los vuelve a leer: solo ve si están.
 - El conector **verifica la firma** de cada aviso de Meta (`META_APP_SECRET`). Rechaza mensajes falsificados.
 - La app habla con el conector usando la clave `SOFIA_TOKEN`, y con Google usando la clave `TOKEN` de tu script. Quien tenga la dirección **y** la clave de Google puede enviar correos desde tu Gmail: no la compartas.
 - Las fotos de INE se guardan en el teléfono y van dentro de los respaldos: el archivo que descargas, tu Drive o tu conector, según lo que tengas conectado. Además salen para leerlas: a tu Google (el script borra el archivo temporal) o a la IA, si la conectas. La lectura con IA se puede apagar en Conexiones.

@@ -55,6 +55,46 @@ async function hmacHex(secret, body) {
   return [...sig].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// ───────── Datos de Meta (y la IA del servidor) guardados desde la app ─────────
+// conexion:meta → { WA_TOKEN, WA_PHONE_NUMBER_ID, … } Lo que se guarda aquí manda sobre las variables del servidor,
+// así se configura todo desde Más → Conexiones sin volver a desplegar. La app nunca lo vuelve a leer: solo ve si está.
+const DESDE_APP = {
+  WA_TOKEN: /^\S{20,600}$/, WA_PHONE_NUMBER_ID: /^\d{1,25}$/, WA_WABA_ID: /^\d{1,25}$/, META_APP_SECRET: /^[a-f0-9]{16,64}$/i,
+  META_VERIFY_TOKEN: /^[\w.-]{6,100}$/, FB_PAGE_ID: /^\d{1,25}$/, FB_PAGE_TOKEN: /^\S{20,600}$/, IG_USER_ID: /^\d{1,25}$/,
+  ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/, ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/, PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/,
+};
+const SECRETOS = new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY"]);
+
+async function conConexion(env, store) {
+  const d = (await store.get("conexion:meta")) ?? {};
+  const extra = Object.fromEntries(Object.keys(DESDE_APP).filter((k) => typeof d[k] === "string" && d[k]).map((k) => [k, d[k]]));
+  return Object.keys(extra).length ? { ...env, ...extra } : env;
+}
+
+/** Guarda lo que mande la app (vacío = borrar ese dato). Si nadie definió el token de verificación, se inventa uno. */
+async function guardarConexion(env, store, datos) {
+  if (!datos || typeof datos !== "object" || Array.isArray(datos)) throw invalido("Faltan los datos");
+  const actual = (await store.get("conexion:meta")) ?? {};
+  for (const [k, v] of Object.entries(datos)) {
+    if (!Object.hasOwn(DESDE_APP, k)) throw invalido(`Dato desconocido: ${k}`);
+    const t = String(v ?? "").trim().replace(/\/+$/, "");
+    if (!t) { delete actual[k]; continue; }
+    if (!DESDE_APP[k].test(t)) throw invalido(`${k} no tiene el formato esperado`);
+    actual[k] = t;
+  }
+  if (!actual.META_VERIFY_TOKEN && !env.META_VERIFY_TOKEN) actual.META_VERIFY_TOKEN = `sofia-${nuevoId().slice(0, 16)}`;
+  await store.put("conexion:meta", actual);
+}
+
+/** Qué datos hay (y de dónde), sin devolver nunca un secreto; más lo que hay que pegar en Meta. */
+async function vistaConexion(env, store, base) {
+  const d = (await store.get("conexion:meta")) ?? {};
+  const efectivo = await conConexion(env, store);
+  const configurado = Object.fromEntries(Object.keys(DESDE_APP).map((k) => [k, d[k] ? "app" : env[k] ? "servidor" : null]));
+  const visibles = Object.fromEntries(Object.keys(DESDE_APP).filter((k) => !SECRETOS.has(k) && efectivo[k]).map((k) => [k, efectivo[k]]));
+  return { configurado, valores: visibles, webhook: { url: `${publicBase(efectivo, base)}/webhook/meta`, verifyToken: efectivo.META_VERIFY_TOKEN ?? null } };
+}
+
 const graphUrl = (env) => (env.META_GRAPH_URL || "https://graph.facebook.com/v23.0").replace(/\/+$/, "");
 const waReady = (env) => Boolean(env.WA_TOKEN && env.WA_PHONE_NUMBER_ID);
 const fbReady = (env) => Boolean(env.FB_PAGE_ID && env.FB_PAGE_TOKEN);
@@ -728,7 +768,8 @@ async function publicarProgramada(env, store, x, base, ahora) {
  * baseUrl: dirección pública del conector si no hay PUBLIC_URL (si falta, la que se guardó al programar).
  * soloId: publicar solo esa ("Publicar ahora"); lo demás vencido queda para el programador.
  */
-export async function runScheduled(env, store, ahoraISO = new Date().toISOString(), baseUrl = "", soloId = null) {
+export async function runScheduled(envBase, store, ahoraISO = new Date().toISOString(), baseUrl = "", soloId = null) {
+  const env = await conConexion(envBase, store);
   const ahora = new Date(ahoraISO);
   const cola = (await store.get("social:cola")) ?? [];
   const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && ((x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora)
@@ -791,9 +832,11 @@ async function status(env, store, ahora) {
  * opciones: { ahora } fecha fija (ISO, Date o función) para probar horarios; si falta, la hora real.
  * Rutas de la app: token en ?token= (GET) o en el cuerpo JSON (POST, enviado como text/plain para evitar CORS preflight).
  */
-export async function handle(req, env, store, opciones = {}) {
+export async function handle(req, envBase, store, opciones = {}) {
   const url = new URL(req.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
+  // Los datos de Meta guardados desde la app solo hacen falta para el webhook y la API (no para fotos públicas ni archivos).
+  const env = path === "/webhook/meta" || (path.startsWith("/api/") && path !== "/api/salud") ? await conConexion(envBase, store) : envBase;
   const ahora = ahoraDe(opciones);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
@@ -875,6 +918,13 @@ export async function handle(req, env, store, opciones = {}) {
         const config = normalizarConfig({ ...prev, ...body.config, horario: { ...prev.horario, ...(body.config.horario ?? {}) }, ventas: { ...prev.ventas, ...(body.config.ventas ?? {}) } });
         await store.put("agente:config", config);
         return json({ ok: true, config });
+      }
+
+      // Datos de Meta y de la IA desde la app (Más → Conexiones)
+      case "GET /api/conexion": return json({ ok: true, ...(await vistaConexion(envBase, store, baseDe(req))) });
+      case "POST /api/conexion": {
+        await guardarConexion(envBase, store, body.datos);
+        return json({ ok: true, ...(await vistaConexion(envBase, store, baseDe(req))) });
       }
 
       // Inventario de la vendedora (lo administra la app)

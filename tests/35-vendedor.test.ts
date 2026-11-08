@@ -212,3 +212,16 @@ describe("vendedora · IA opcional", () => {
     expect(aplicarIA(menu, { respuesta: "  " }, { antes })).toBe(menu); // vacía: se queda la del menú
   });
 });
+
+describe("vendedora · aviso de privacidad", () => {
+  it("«BORRAR MIS DATOS» y «NO PROMOCIONES» se contestan siempre y quedan anotados para el asesor", () => {
+    const borrar = charla(["Hola", "4", "Quiero que BORREN MIS DATOS por favor"]);
+    expect(borrar.ultimo.motivo).toBe("borrar-datos"); // aunque ya lo atendía el asesor
+    expect(borrar.texto).toContain("Recibimos tu solicitud para borrar tus datos. Pedro la confirma");
+    expect(borrar.lead).toMatchObject({ pideBorrar: true, quiereAsesor: true });
+    const promo = charla(["Hola", "no promociones gracias"]);
+    expect(promo.ultimo.motivo).toBe("sin-promociones");
+    expect(promo.lead).toMatchObject({ noPromociones: true });
+    expect(charla(["Hola", "¿tienen promociones?"]).ultimo.motivo).not.toBe("sin-promociones");
+  });
+});

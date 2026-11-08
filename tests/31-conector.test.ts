@@ -823,3 +823,46 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect((await handle(post("/api/vendedora/probar", { token: "mala", texto: "hola" }), e, store)).status).toBe(401);
   });
 });
+
+describe("conector · datos de Meta desde la app (sin tocar las variables del servidor)", () => {
+  const soloClave = () => ({ SOFIA_TOKEN: "clave", META_GRAPH_URL: `${G}/v` });
+  const SECRETO = "0123456789abcdef0123456789abcdef";
+  const guardar = (store: ReturnType<typeof memStore>, datos: Record<string, string>) => handle(post("/api/conexion", { token: "clave", datos }), soloClave(), store);
+
+  it("con solo SOFIA_TOKEN en el servidor, la app configura WhatsApp y el webhook funciona de punta a punta", async () => {
+    const store = memStore();
+    const r = await (await guardar(store, { WA_TOKEN: "EAAG0000000000000000000000", WA_PHONE_NUMBER_ID: "EAAG0000000000000000000000", WA_WABA_ID: "22222" })).json();
+    // Formato inválido (pegó el token donde va el número): se avisa sin guardar nada
+    expect(r.ok).toBe(false);
+    const bien = await (await guardar(store, { WA_TOKEN: "tok-wa", WA_PHONE_NUMBER_ID: "11111", WA_WABA_ID: "22222", META_APP_SECRET: SECRETO })).json();
+    expect(bien.ok).toBe(false); // "tok-wa" es muy corto para un token de Meta
+    const ok = await (await guardar(store, { WA_TOKEN: "EAAG0000000000000000000000", WA_PHONE_NUMBER_ID: "11111", WA_WABA_ID: "22222", META_APP_SECRET: SECRETO })).json();
+    expect(ok).toMatchObject({ ok: true, configurado: { WA_TOKEN: "app", WA_PHONE_NUMBER_ID: "app", META_APP_SECRET: "app", META_VERIFY_TOKEN: "app", FB_PAGE_TOKEN: null }, valores: { WA_PHONE_NUMBER_ID: "11111", WA_WABA_ID: "22222" } });
+    expect(JSON.stringify(ok)).not.toContain("EAAG000"); // los secretos nunca regresan
+    expect(JSON.stringify(ok)).not.toContain(SECRETO);
+    expect(ok.webhook.url).toBe("https://conector.test/webhook/meta");
+    const verifica = ok.webhook.verifyToken as string;
+    expect(verifica).toMatch(/^sofia-[a-f0-9]{16}$/);
+    // Meta verifica el webhook con el token inventado, y los avisos se aceptan con la clave secreta guardada desde la app
+    expect(await (await handle(req(`/webhook/meta?hub.mode=subscribe&hub.verify_token=${verifica}&hub.challenge=7`), soloClave(), store)).text()).toBe("7");
+    const raw = JSON.stringify(waInbound("wamid.APP1", "Hola"));
+    const firma = crypto.createHmac("sha256", SECRETO).update(raw).digest("hex");
+    const aviso = await handle(req("/webhook/meta", { method: "POST", headers: { "x-hub-signature-256": `sha256=${firma}` }, body: raw }), soloClave(), store);
+    expect(aviso.status).toBe(200);
+    expect((await (await handle(req("/api/buzon?token=clave"), soloClave(), store)).json()).conversations["wa:5218111111111"]).toBeTruthy();
+    // Vacío borra ese dato
+    const sin = await (await guardar(store, { WA_WABA_ID: "" })).json();
+    expect(sin.configurado.WA_WABA_ID).toBeNull();
+  });
+
+  it("lo guardado desde la app manda sobre las variables del servidor; SOFIA_TOKEN no se puede cambiar así", async () => {
+    const store = memStore();
+    await handle(post("/api/conexion", { token: "clave", datos: { WA_PHONE_NUMBER_ID: "99999" } }), env(), store);
+    const vista = await (await handle(req("/api/conexion?token=clave"), env(), store)).json();
+    expect(vista.configurado).toMatchObject({ WA_PHONE_NUMBER_ID: "app", WA_TOKEN: "servidor" });
+    expect(vista.valores.WA_PHONE_NUMBER_ID).toBe("99999");
+    expect((await handle(post("/api/conexion", { token: "clave", datos: { SOFIA_TOKEN: "otra" } }), env(), store)).status).toBe(400);
+    expect((await handle(post("/api/conexion", { token: "mala", datos: {} }), env(), store)).status).toBe(401);
+    expect((await handle(post("/api/conexion", { token: "clave", datos: { PUBLIC_URL: "http://inseguro.mx" } }), env(), store)).status).toBe(400);
+  });
+});

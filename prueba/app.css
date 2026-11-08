@@ -173,3 +173,5 @@ details.fold:not([open]) { gap: 0; }
 .chat.sim { max-height: 60vh; min-height: 220px; }
 .bubble.muted { opacity: 0.75; font-style: italic; }
 .item.muted { opacity: 0.6; }
+details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+details[open] > summary { margin-bottom: 4px; }

@@ -5009,6 +5009,17 @@ function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @_
   const quedar = (motivo2) => ({ respuestas: [], conv: c, lead, motivo: motivo2 });
   if (c.autos.length >= MAX_POR_HORA) return quedar("freno");
   const pideMenu = t.trim() === "0" || texto.trim().split(/\s+/).length <= 3 && tieneAlguna(t, MENU);
+  const limpio = sinAcentos(texto).replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (/\b(borra|borrar|borren|elimina|eliminar|eliminen) (todos )?mis datos\b/.test(limpio)) {
+    Object.assign(lead, { pideBorrar: true, quiereAsesor: true });
+    Object.assign(c, { paso: "asesor", desde: now.toISOString(), opciones: null, autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
+    return { respuestas: [{ texto: `Recibimos tu solicitud para borrar tus datos. ${cfg.asesor || "Un asesor"} la confirma contigo por este medio y te avisa cuando quede hecho (m\xE1ximo 15 d\xEDas h\xE1biles).` }], conv: c, lead, motivo: "borrar-datos" };
+  }
+  if (/\b(no|sin) (mas )?promociones\b|\bya no (me )?(manden|envien|mandes|envies) promociones\b/.test(limpio)) {
+    lead.noPromociones = true;
+    Object.assign(c, { autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
+    return { respuestas: [{ texto: "Listo, ya no te enviaremos promociones. Te seguimos contestando lo que nos preguntes \u{1F642}" }], conv: c, lead, motivo: "sin-promociones" };
+  }
   if (c.paso === "asesor" && now - new Date(c.desde ?? 0) < v.horasConAsesor * HORA && !pideMenu) return quedar("con-asesor");
   if (!texto.trim()) return quedar("vacio");
   const resp = [];
@@ -5367,6 +5378,48 @@ async function hmacHex(secret, body) {
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, body));
   return [...sig].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+var DESDE_APP = {
+  WA_TOKEN: /^\S{20,600}$/,
+  WA_PHONE_NUMBER_ID: /^\d{1,25}$/,
+  WA_WABA_ID: /^\d{1,25}$/,
+  META_APP_SECRET: /^[a-f0-9]{16,64}$/i,
+  META_VERIFY_TOKEN: /^[\w.-]{6,100}$/,
+  FB_PAGE_ID: /^\d{1,25}$/,
+  FB_PAGE_TOKEN: /^\S{20,600}$/,
+  IG_USER_ID: /^\d{1,25}$/,
+  ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/,
+  ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/,
+  PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/
+};
+var SECRETOS = /* @__PURE__ */ new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY"]);
+async function conConexion(env, store) {
+  const d = await store.get("conexion:meta") ?? {};
+  const extra = Object.fromEntries(Object.keys(DESDE_APP).filter((k) => typeof d[k] === "string" && d[k]).map((k) => [k, d[k]]));
+  return Object.keys(extra).length ? { ...env, ...extra } : env;
+}
+async function guardarConexion(env, store, datos) {
+  if (!datos || typeof datos !== "object" || Array.isArray(datos)) throw invalido("Faltan los datos");
+  const actual = await store.get("conexion:meta") ?? {};
+  for (const [k, v] of Object.entries(datos)) {
+    if (!Object.hasOwn(DESDE_APP, k)) throw invalido(`Dato desconocido: ${k}`);
+    const t = String(v ?? "").trim().replace(/\/+$/, "");
+    if (!t) {
+      delete actual[k];
+      continue;
+    }
+    if (!DESDE_APP[k].test(t)) throw invalido(`${k} no tiene el formato esperado`);
+    actual[k] = t;
+  }
+  if (!actual.META_VERIFY_TOKEN && !env.META_VERIFY_TOKEN) actual.META_VERIFY_TOKEN = `sofia-${nuevoId().slice(0, 16)}`;
+  await store.put("conexion:meta", actual);
+}
+async function vistaConexion(env, store, base) {
+  const d = await store.get("conexion:meta") ?? {};
+  const efectivo = await conConexion(env, store);
+  const configurado = Object.fromEntries(Object.keys(DESDE_APP).map((k) => [k, d[k] ? "app" : env[k] ? "servidor" : null]));
+  const visibles = Object.fromEntries(Object.keys(DESDE_APP).filter((k) => !SECRETOS.has(k) && efectivo[k]).map((k) => [k, efectivo[k]]));
+  return { configurado, valores: visibles, webhook: { url: `${publicBase(efectivo, base)}/webhook/meta`, verifyToken: efectivo.META_VERIFY_TOKEN ?? null } };
 }
 var graphUrl = (env) => (env.META_GRAPH_URL || "https://graph.facebook.com/v23.0").replace(/\/+$/, "");
 var waReady = (env) => Boolean(env.WA_TOKEN && env.WA_PHONE_NUMBER_ID);
@@ -5963,7 +6016,8 @@ async function publicarProgramada(env, store, x, base, ahora) {
     x.siguiente = new Date(ahora.getTime() + x.intentos * REINTENTO_MS).toISOString();
   }
 }
-async function runScheduled(env, store, ahoraISO = (/* @__PURE__ */ new Date()).toISOString(), baseUrl = "", soloId = null) {
+async function runScheduled(envBase, store, ahoraISO = (/* @__PURE__ */ new Date()).toISOString(), baseUrl = "", soloId = null) {
+  const env = await conConexion(envBase, store);
   const ahora = new Date(ahoraISO);
   const cola = await store.get("social:cola") ?? [];
   const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && (x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora || x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS));
@@ -6021,9 +6075,10 @@ async function status(env, store, ahora) {
   }
   return out;
 }
-async function handle(req, env, store, opciones = {}) {
+async function handle(req, envBase, store, opciones = {}) {
   const url = new URL(req.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
+  const env = path === "/webhook/meta" || path.startsWith("/api/") && path !== "/api/salud" ? await conConexion(envBase, store) : envBase;
   const ahora = ahoraDe(opciones);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (path === "/webhook/meta") {
@@ -6107,6 +6162,13 @@ async function handle(req, env, store, opciones = {}) {
         const config = normalizarConfig({ ...prev, ...body.config, horario: { ...prev.horario, ...body.config.horario ?? {} }, ventas: { ...prev.ventas, ...body.config.ventas ?? {} } });
         await store.put("agente:config", config);
         return json({ ok: true, config });
+      }
+      // Datos de Meta y de la IA desde la app (Más → Conexiones)
+      case "GET /api/conexion":
+        return json({ ok: true, ...await vistaConexion(envBase, store, baseDe(req)) });
+      case "POST /api/conexion": {
+        await guardarConexion(envBase, store, body.datos);
+        return json({ ok: true, ...await vistaConexion(envBase, store, baseDe(req)) });
       }
       // Inventario de la vendedora (lo administra la app)
       case "GET /api/inventario": {

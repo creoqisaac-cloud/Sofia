@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [claude/focused-gauss-q4hxvr, claude/laughing-sagan-hbxj3y]
-    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "tests/33-ine-mrz.test.ts", "tests/34-google-apps-script.test.ts", "tests/35-vendedor.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
+    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-cloudflare.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "tests/33-ine-mrz.test.ts", "tests/34-google-apps-script.test.ts", "tests/35-vendedor.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
 
 concurrency:
   group: prueba-${{ github.ref }}
@@ -44,6 +44,9 @@ jobs:
           SOFIA_DATA_DIR=$RUNNER_TEMP/datos nohup node prueba/servidor/servidor.mjs > $RUNNER_TEMP/servidor.log 2>&1 &
           for i in $(seq 1 30); do curl -sf localhost:8080/api/salud && break; sleep 1; done
           BASE=http://localhost:8080/ SHOTS=capturas node scripts/prueba-e2e.mjs || (cat $RUNNER_TEMP/servidor.log; exit 1)
+
+      - name: Conector en el motor real de Cloudflare (workerd)
+        run: node scripts/prueba-cloudflare.mjs
 
       - name: APK de prueba
         env:

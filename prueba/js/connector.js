@@ -56,6 +56,12 @@ export const getAgentConfig = async () => (await call("/api/agente/config")).con
 /** Guarda solo lo que cambies (lo demás se conserva). Devuelve la configuración completa ya validada. */
 export const setAgentConfig = async (config) => (await call("/api/agente/config", { method: "POST", body: { config } })).config;
 
+// ── Datos de Meta y de la IA guardados en el servidor desde Conexiones (sin tocar Cloudflare) ──
+/** { configurado: { WA_TOKEN: "app"|"servidor"|null, … }, valores (solo los que no son secretos), webhook: { url, verifyToken } } */
+export const getConnection = () => call("/api/conexion");
+/** datos: { WA_TOKEN, WA_PHONE_NUMBER_ID, … } — vacío borra ese dato. Devuelve lo mismo que getConnection. */
+export const saveConnection = (datos) => call("/api/conexion", { method: "POST", body: { datos } });
+
 // ── Inventario de la vendedora: lo que Sofía ofrece por WhatsApp ──
 /** autos: [{ id, marca, modelo, version, anio, precio, tipo, km, color, transmision, descripcion, palabras, disponible, fotoId? }] */
 export const saveInventory = async (autos) => (await call("/api/inventario", { method: "POST", body: { autos } })).autos;

@@ -176,6 +176,18 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
 
   if (c.autos.length >= MAX_POR_HORA) return quedar("freno");
   const pideMenu = t.trim() === "0" || (texto.trim().split(/\s+/).length <= 3 && tieneAlguna(t, MENU));
+  // Derechos del aviso de privacidad (privacidad.html): se contestan siempre, aunque ya lo atienda el asesor.
+  const limpio = sinAcentos(texto).replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (/\b(borra|borrar|borren|elimina|eliminar|eliminen) (todos )?mis datos\b/.test(limpio)) {
+    Object.assign(lead, { pideBorrar: true, quiereAsesor: true });
+    Object.assign(c, { paso: "asesor", desde: now.toISOString(), opciones: null, autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
+    return { respuestas: [{ texto: `Recibimos tu solicitud para borrar tus datos. ${cfg.asesor || "Un asesor"} la confirma contigo por este medio y te avisa cuando quede hecho (máximo 15 días hábiles).` }], conv: c, lead, motivo: "borrar-datos" };
+  }
+  if (/\b(no|sin) (mas )?promociones\b|\bya no (me )?(manden|envien|mandes|envies) promociones\b/.test(limpio)) {
+    lead.noPromociones = true;
+    Object.assign(c, { autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
+    return { respuestas: [{ texto: "Listo, ya no te enviaremos promociones. Te seguimos contestando lo que nos preguntes 🙂" }], conv: c, lead, motivo: "sin-promociones" };
+  }
   if (c.paso === "asesor" && now - new Date(c.desde ?? 0) < v.horasConAsesor * HORA && !pideMenu) return quedar("con-asesor");
   if (!texto.trim()) return quedar("vacio"); // stickers, audios, reacciones: los ve el asesor
 

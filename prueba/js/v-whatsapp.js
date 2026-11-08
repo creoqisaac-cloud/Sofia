@@ -271,7 +271,8 @@ function leadLines(l) {
     l.interes && `Interés: ${l.interes}${l.precio ? ` (${money(l.precio)})` : ""}`,
     l.formaPago === "credito" ? `Crédito${l.enganche ? ` · enganche ${money(l.enganche)}` : ""}${l.mensualidad ? ` · ~${money(l.mensualidad)} a ${l.plazo} meses` : ""}` : l.formaPago === "contado" ? "De contado" : "",
     l.cita && `Cita: ${l.cita}`,
-    l.quiereAsesor && "Pidió hablar contigo",
+    l.pideBorrar ? "⚠️ Pidió BORRAR SUS DATOS (aviso de privacidad: confírmalo y bórralo en máximo 15 días hábiles)" : l.quiereAsesor && "Pidió hablar contigo",
+    l.noPromociones && "No quiere promociones",
   ].filter(Boolean);
 }
 
