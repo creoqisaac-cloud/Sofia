@@ -61,7 +61,8 @@ npx wrangler deploy
 ```
 
 **Límites del plan gratis de Cloudflare:**
-- **1,000 escrituras al día** en KV. Cada mensaje que entra usa de 3 a 6, así que alcanza para **unos 200 mensajes al día**.
+- **1,000 escrituras al día** en KV. Medido: el primer mensaje de un cliente nuevo con su bienvenida usa 8; un mensaje con respuesta automática, 6; uno sin respuesta, 2; cada mensaje que mandas tú, 4. En la práctica alcanza para **unas 25 a 30 conversaciones nuevas al día** (unos 130 mensajes).
+- Para clientes que pagan conviene el plan **Workers Paid (5 USD al mes)**: incluye 1 millón de escrituras al mes.
 - 100,000 peticiones al día.
 - Si te quedas corto: el plan pagado de Workers, o el mismo conector en tu computadora (abajo), que no tiene ese límite.
 

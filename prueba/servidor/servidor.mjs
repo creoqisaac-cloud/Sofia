@@ -34,7 +34,9 @@ const MAX_BODY = 60 * 1024 * 1024;
 fs.mkdirSync(path.join(DATA_DIR, "kv"), { recursive: true });
 fs.mkdirSync(path.join(DATA_DIR, "versiones"), { recursive: true });
 
+let claveGenerada = false; // solo así se imprime la clave: en un hosting quedaría en los registros
 if (!process.env.SOFIA_TOKEN) {
+  claveGenerada = true;
   const f = path.join(DATA_DIR, "clave.txt");
   if (!fs.existsSync(f)) fs.writeFileSync(f, crypto.randomBytes(12).toString("base64url"), { mode: 0o600 });
   process.env.SOFIA_TOKEN = fs.readFileSync(f, "utf8").trim();
@@ -62,11 +64,18 @@ const store = {
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".webmanifest": "application/manifest+json", ".svg": "image/svg+xml", ".png": "image/png", ".gz": "application/gzip", ".apk": "application/vnd.android.package-archive" };
 
 function serveStatic(req, res, url) {
-  let rel = decodeURIComponent(url.pathname);
+  let rel;
+  try { rel = decodeURIComponent(url.pathname); } catch { res.writeHead(400); res.end(); return; }
   if (rel.endsWith("/")) rel += "index.html";
   const file = path.resolve(APP_DIR, `.${rel}`);
-  // Nunca servir fuera de la app ni la carpeta del servidor (datos, claves, .env).
-  if (!file.startsWith(APP_DIR + path.sep) || file.startsWith(here + path.sep)) { res.writeHead(404); res.end(); return; }
+  // Nunca servir fuera de la app ni la carpeta del servidor (datos, claves, .env). Sin distinguir mayúsculas
+  // (en Mac y Windows "/Servidor/.env" es el mismo archivo) y sin partes ocultas o que terminen en punto/espacio
+  // (Windows ignora "servidor." → "servidor").
+  const lc = (x) => x.toLowerCase();
+  const partes = rel.split(/[/\\]/).filter(Boolean);
+  if (!file.startsWith(APP_DIR + path.sep) || lc(file).startsWith(lc(here + path.sep)) || partes.some((x) => x.startsWith(".") || /[.\s]$/.test(x))) {
+    res.writeHead(404); res.end(); return;
+  }
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }); res.end("No encontrado"); return; }
     res.writeHead(200, { "content-type": TYPES[path.extname(file)] ?? "application/octet-stream", "cache-control": "no-cache" });
@@ -120,7 +129,7 @@ server.listen(PORT, "0.0.0.0", () => {
   const e = process.env;
   console.log(`\nSofía (${VERSION}) corriendo.\n  En esta computadora: http://localhost:${PORT}`);
   for (const ip of ips) console.log(`  En la misma red Wi-Fi: http://${ip}:${PORT}`);
-  console.log(`\nEn la app → Más → Conexiones → Servidor:\n  Dirección: https://<tu-dominio-o-túnel>   (o http://<IP>:${PORT} si abres la app desde aquí)\n  Clave:     ${e.SOFIA_TOKEN}`);
+  console.log(`\nEn la app → Más → Conexiones → Servidor:\n  Dirección: https://<tu-dominio-o-túnel>   (o http://<IP>:${PORT} si abres la app desde aquí)\n  Clave:     ${claveGenerada ? e.SOFIA_TOKEN : `(la de SOFIA_TOKEN, termina en …${e.SOFIA_TOKEN.slice(-4)})`}`);
   console.log(`\nWhatsApp:  ${e.WA_TOKEN && e.WA_PHONE_NUMBER_ID ? "configurado" : "sin configurar"} · Facebook: ${e.FB_PAGE_ID && e.FB_PAGE_TOKEN ? "configurado" : "sin configurar"} · Webhook: ${e.META_APP_SECRET && e.META_VERIFY_TOKEN ? "listo en /webhook/meta" : "falta META_APP_SECRET / META_VERIFY_TOKEN"}`);
   console.log(`Datos en: ${DATA_DIR}\n`);
 });

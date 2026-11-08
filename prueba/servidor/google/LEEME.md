@@ -71,9 +71,9 @@ Archivos: `sofia-google.gs` (el código) y `appsscript.json` (los permisos y la 
 - **Clave:** se rechaza si es incorrecta.
 - **Correo:** envío con adjuntos y etiqueta, revisión de respuestas sin el texto citado y clasificación por palabras clave.
 - **Seguimiento automático:** uno por periodo, máximo 3, nunca si ya contestaron o avisaron *placas listas*. Tampoco se repite si Gmail falla o si las propiedades del script se llenan.
-- **Palabras clave:** negaciones y futuro («aún no están listas», «estarán listas el viernes») no cuentan como *placas listas*.
+- **Palabras clave:** negaciones y futuro («aún no están listas», «estarán listas el viernes») no cuentan como *placas listas*; «ya puede pasar a recoger» sí, y frena el seguimiento aunque el correo también hable del costo.
 - **Lo ajeno se ignora:** un `sofia-datos.json` o un calendario **Sofía** que otra persona te comparta.
-- **Calendario y OCR:** eventos con avisos y OCR sin dejar archivos.
+- **Calendario y OCR:** eventos con avisos (sin duplicarlos si la app repite el mismo recordatorio) y OCR sin dejar archivos.
 - **APIs de Google:** el script solo usa métodos revisados contra la documentación de Apps Script.
 
 La prueba también conecta el cliente de la app (`js/google.js`) con el script.
@@ -84,9 +84,9 @@ La prueba también conecta el cliente de la app (`js/google.js`) con el script.
    - Debe llegar con el adjunto.
    - En Gmail, el hilo debe tener la etiqueta **Sofía**.
 3. **Respuestas:** contesta desde ese otro correo «Le falta la CURP». En Sofía, al revisar respuestas, debe salir **Falta documento**.
-4. **Seguimiento:** pon el seguimiento automático a **1 día** y no contestes. Al día siguiente debe llegar **un solo** correo de seguimiento en el mismo hilo, y debe aparecer en la bitácora del estado.
+4. **Seguimiento:** primero, en **Más → Conexiones**, marca el seguimiento automático, ponlo a **1 día** y toca **Guardar agente de correo**. Luego manda desde Sofía un correo de placas **nuevo** a tu otro correo y no lo contestes (en el hilo del paso 3 la última palabra es de la gestoría: ahí no toca seguimiento). Al día siguiente debe llegar **un solo** correo de seguimiento en el mismo hilo.
    - Comprueba a quién llegó: es una respuesta a todos de tu último correo, y puede que también te llegue una copia a ti.
-   - En **Ejecuciones** del editor ves cada vuelta del agente.
+   - En **Ejecuciones** del editor ves cada vuelta del agente: ahí revisas que corrió.
 5. **Calendario:** crea un recordatorio para dentro de 15 minutos. Debe aparecer en el calendario **Sofía** y sonar en el iPhone 5 minutos antes.
 6. **OCR:** lee una foto de INE con «Google».
    - Debe salir el texto.

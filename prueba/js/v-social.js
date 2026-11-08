@@ -10,12 +10,23 @@ import { deliverFiles, openExternal } from "./native.js";
 const GOALS = [["vender", "Vender este auto"], ["prueba", "Agendar pruebas de manejo"], ["credito", "Promover crédito / financiamiento"], ["evento", "Evento o promoción del mes"], ["entrega", "Celebrar una entrega (con permiso del cliente)"]];
 let photo = null; // foto elegida (se conserva al redibujar)
 let ratio = null; // ancho/alto de la foto (Instagram acepta de 4:5 a 1.91:1)
+let draft = null; // lo escrito, para no perderlo al redibujar por la foto
 
 export function renderSocial(root) {
   const vehicle = input({ placeholder: "Ej. CR-V Touring 2026, blanca" });
   const offer = textarea({ rows: 2, placeholder: "Lo que SÍ puedes anunciar: precio, bono, tasa, enganche… (la IA no inventa nada)" });
   const goal = select(GOALS, "vender");
   const text = textarea({ rows: 7, placeholder: "Texto de la publicación" });
+  const when = input({ type: "datetime-local", value: toLocalInput(new Date(Date.now() + 3600000)) });
+  const ad = h("div");
+  let adData = null; // anuncio de la IA
+  if (draft) {
+    vehicle.value = draft.vehicle; offer.value = draft.offer; goal.value = draft.goal; text.value = draft.text; when.value = draft.when;
+    adData = draft.ad;
+    if (adData) ad.replaceChildren(adView(adData));
+    draft = null;
+  }
+  const keepDraft = () => { draft = { vehicle: vehicle.value, offer: offer.value, goal: goal.value, text: text.value, when: when.value, ad: adData }; };
   const preview = h("div");
   const drawPhoto = () => preview.replaceChildren(photo ? h("img", { src: URL.createObjectURL(photo), alt: "Foto de la publicación", class: "chat-img" }) : h("p", { class: "muted small" }, "Sin foto (las publicaciones con foto funcionan mucho mejor)."));
   drawPhoto();
@@ -24,9 +35,9 @@ export function renderSocial(root) {
     if (!f) return;
     photo = await shrinkImage(f, 1440, 0.9); // JPG (Instagram solo acepta JPG)
     try { const bmp = await createImageBitmap(photo); ratio = bmp.width / bmp.height; } catch { ratio = null; }
+    keepDraft();
     rerender();
   } });
-  const when = input({ type: "datetime-local", value: toLocalInput(new Date(Date.now() + 3600000)) });
   const igOk = igReady() && photo && (ratio === null || (ratio >= 0.8 && ratio <= 1.91));
   const chFb = h("input", { type: "checkbox", checked: fbReady(), disabled: !fbReady() });
   const chIg = h("input", { type: "checkbox", checked: Boolean(igOk), disabled: !igOk });
@@ -39,18 +50,23 @@ export function renderSocial(root) {
     b.disabled = true;
     b.textContent = cuando ? "Programando…" : "Publicando…";
     try {
-      const item = await schedulePost({ texto: text.value.trim(), imagen: photo ? await blobToDataUrl(photo) : undefined, cuando: cuando ?? new Date().toISOString(), canales });
-      for (const [canal, r] of Object.entries(item.resultados ?? {})) if (r.ok && r.url) state.posts.unshift({ id: r.id, url: r.url, at: r.at, message: text.value.trim().slice(0, 300), vehicle: vehicle.value, canal });
+      // Sin cuando, el servidor usa SU hora: con el reloj del teléfono adelantado no saldría al momento.
+      const item = await schedulePost({ texto: text.value.trim(), imagen: photo ? await blobToDataUrl(photo) : undefined, cuando: cuando ?? undefined, canales });
+      const res = Object.entries(item.resultados ?? {});
+      for (const [canal, r] of res) if (r.ok && r.url) state.posts.unshift({ id: r.id, url: r.url, at: r.at, message: text.value.trim().slice(0, 300), vehicle: vehicle.value, canal });
       save();
-      const fallas = Object.entries(item.resultados ?? {}).filter(([, r]) => !r.ok);
-      toast(cuando ? `Programada para ${fmtWhen(item.cuando)}: se publica sola aunque Sofía esté cerrada.` : fallas.length ? `Publicada con errores: ${fallas.map(([c, r]) => `${c}: ${r.error}`).join(" · ")}` : "¡Publicado en tu página!", 7000);
+      const fallas = res.filter(([, r]) => !r.ok);
+      const detalle = fallas.map(([c, r]) => `${c}: ${r.error}`).join(" · ");
+      toast(cuando ? `Programada para ${fmtWhen(item.cuando)}: se publica sola aunque Sofía esté cerrada.`
+        : item.estado === "publicado" ? "¡Publicado en tu página!"
+          : res.some(([, r]) => r.ok) ? `Publicada con errores: ${detalle}`
+            : fallas.length ? `No se publicó (se reintenta sola): ${detalle}` : "En cola: sale en unos minutos.", 7000);
       photo = null;
       ratio = null;
       refreshStatus().catch(() => {});
       rerender();
     } catch (err) { toast(err.message, 7000); b.disabled = false; b.textContent = label; }
   };
-  const ad = h("div");
 
   const aiFill = (kind) => async (e) => {
     const b = e.currentTarget;
@@ -60,7 +76,7 @@ export function renderSocial(root) {
     try {
       const r = await socialCopy({ kind, vehicle: vehicle.value, offer: offer.value, goal: GOALS.find((g) => g[0] === goal.value)?.[1] });
       if (kind === "post") text.value = `${r.texto}${r.hashtags?.length ? `\n\n${r.hashtags.map((x) => (x.startsWith("#") ? x : `#${x}`)).join(" ")}` : ""}`;
-      else ad.replaceChildren(adView(r));
+      else { adData = r; ad.replaceChildren(adView(r)); }
     } catch (err) { toast(err.message, 6000); }
     finally { b.disabled = false; b.textContent = old; }
   };
@@ -76,7 +92,7 @@ export function renderSocial(root) {
         h("div", { class: "grid2" }, field("Auto", vehicle), field("Objetivo", goal)),
         field("Oferta / datos confirmados", offer),
         pick,
-        h("div", { class: "row wrap gap-s" }, btn(photo ? "Cambiar foto" : "Agregar foto", () => pick.click(), "small"), photo ? btn("Quitar foto", () => { photo = null; drawPhoto(); }, "small ghost") : null),
+        h("div", { class: "row wrap gap-s" }, btn(photo ? "Cambiar foto" : "Agregar foto", () => pick.click(), "small"), photo ? btn("Quitar foto", () => { photo = null; ratio = null; keepDraft(); rerender(); }, "small ghost") : null),
         preview,
         field("Texto", text),
         h("div", { class: "row wrap gap-s" },

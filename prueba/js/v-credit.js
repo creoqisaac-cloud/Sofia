@@ -224,7 +224,7 @@ function side(c, which, label, status) {
         }, "small primary")
         : btn(fileId ? "Otra foto" : "Tomar foto", () => camera.click(), "small primary"),
       btn("Galería", () => gallery.click(), "small ghost"),
-      fileId ? btn("Quitar", async () => { await removeFile(fileId); if (which === "front") c.credit.ineFront = null; else c.credit.ineBack = null; delete c.credit.obs[which]; save(); rerender(); }, "small ghost") : null));
+      fileId ? btn("Quitar", async () => { await removeFile(fileId); if (which === "front") c.credit.ineFront = null; else c.credit.ineBack = null; delete c.credit.obs[which]; delete c.credit.obs[`google_${which}`]; save(); rerender(); }, "small ghost") : null));
   return box;
 }
 
@@ -262,7 +262,10 @@ async function analyze(c, status) {
     for (const [which, fid] of [["front", cr.ineFront], ["back", cr.ineBack]]) {
       if (!fid || cr.obs[`google_${which}`]) continue;
       status.textContent = "Google también está leyendo la credencial (gratis, en tu cuenta)…";
-      try { cr.obs[`google_${which}`] = await ocrObservation((await readFile(fid)).blob); }
+      try {
+        const o = await ocrObservation((await readFile(fid)).blob);
+        if ((which === "front" ? cr.ineFront : cr.ineBack) === fid) cr.obs[`google_${which}`] = o; // solo si la foto no cambió mientras Google leía
+      }
       catch (e) { status.textContent = `Google no pudo leerla (${e.message}). Sigo con el lector del teléfono.`; break; }
     }
     const gpages = [...(cr.obs.google_front?.pages ?? []), ...(cr.obs.google_back?.pages ?? [])];

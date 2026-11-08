@@ -100,6 +100,7 @@ class FakeMessage {
 
 class FakeEvent {
   reminders: number[] = [];
+  tags = new Map<string, string>();
   constructor(public cal: FakeCalendar, public id: string, public title: string, public start: Date, public end: Date, public description: string) {}
   getId() { return this.id; }
   setTitle(t: string) { this.title = t; return this; }
@@ -113,6 +114,8 @@ class FakeEvent {
     return this;
   }
   deleteEvent() { this.cal.events.delete(this.id); }
+  getTag(k: string) { return this.tags.get(k) ?? null; }
+  setTag(k: string, v: string) { this.tags.set(k, String(v)); return this; }
 }
 
 class FakeCalendar {
@@ -128,6 +131,8 @@ class FakeCalendar {
     return ev;
   }
   getEventById(id: string) { return this.events.get(id) ?? null; }
+  /** Como el real: los que ocurren (aunque sea en parte) entre start y end. */
+  getEvents(start: Date, end: Date) { return [...this.events.values()].filter((e) => e.start < end && e.end > start); }
 }
 
 type Sent = { kind: string; to: string; subject: string; body: string; opts: { attachments?: GBlob[]; cc?: string; name?: string }; threadId: string };
@@ -590,6 +595,9 @@ describe("correo: revisión de respuestas y estado sugerido (sin IA)", () => {
     expect(c("Las placas ya están listas, pueden pasar por ellas.")).toBe("placas_listas");
     expect(c("Ya salieron sus placas.")).toBe("placas_listas");
     expect(c("Recibimos su pago, las placas ya están listas.")).toBe("placas_listas");
+    expect(c("Ya puede pasar a recoger las placas.")).toBe("placas_listas");
+    expect(c("Ya las tenemos, pase por ellas cuando guste.")).toBe("placas_listas");
+    expect(c("Ya las tenemos, puede venir por ellas.")).toBe("placas_listas");
     expect(c("Aún no están listas las placas, le aviso.")).toBe("en_tramite");
     expect(c("Las placas todavía no están listas.")).toBe("en_tramite");
     expect(c("No falta nada, ya ingresamos el trámite.")).toBe("en_tramite");
@@ -686,6 +694,17 @@ describe("correo: seguimiento automático", () => {
     expect(seguimientos().filter((s) => s.threadId === e)).toHaveLength(1);
   });
 
+  it("«listas… el costo fue de $850» y un «Gracias» del asesor no disparan seguimiento", () => {
+    post(w, { action: "correo.config", seguimientoAuto: true, dias: 3 });
+    const tid = enviar("c1").threadId as string;
+    w.reply(tid, "Sus placas ya están listas para recoger. El costo fue de $850.");
+    expect(w.gs.clasificar_("Sus placas ya están listas para recoger. El costo fue de $850.")?.clave).toBe("pago"); // la app sugiere pagar
+    post(w, { action: "correo.enviar", ref: "c1", enHilo: true, to: GESTORIA, subject: "x", body: "Gracias" });
+    w.age(tid, 10);
+    w.gs.agenteCorreo();
+    expect(seguimientos().filter((s) => s.body !== "Gracias")).toHaveLength(0);
+  });
+
   it("sin cuota de Gmail espera a la siguiente vuelta y olvida casos de hace más de 180 días", () => {
     post(w, { action: "correo.config", seguimientoAuto: true, dias: 3 });
     const t = enviar("c1").threadId as string;
@@ -743,6 +762,24 @@ describe("calendario «Sofía»", () => {
     expect(post(w, { action: "calendario.borrar", id: r3.id })).toEqual({ ok: true, borrado: false });
     expect(post(w, { action: "calendario.guardar", titulo: "x", inicio: "mañana" }).error).toMatch(/fecha/);
     expect(post(w, { action: "calendario.guardar", titulo: " ", inicio }).error).toMatch(/título/);
+  });
+
+  it("con ref no duplica: una respuesta perdida u otro dispositivo reutilizan el mismo evento", () => {
+    const w = makeWorld();
+    const inicio = "2026-10-12T16:00:00.000Z";
+    const r = post(w, { action: "calendario.guardar", ref: "rec-1", titulo: "Llamar a Cliente Sintético", inicio });
+    const cal = [...w.calendars.values()][0]!;
+    expect(cal.events.get(r.id as string)!.getTag("sofiaRef")).toBe("rec-1");
+    // Sin id (la respuesta no llegó), el mismo recordatorio: mismo evento, actualizado.
+    const r2 = post(w, { action: "calendario.guardar", ref: "rec-1", titulo: "Llamar (otro teléfono)", inicio, avisos: [10] });
+    expect(r2.id).toBe(r.id);
+    expect(cal.events.size).toBe(1);
+    expect(cal.events.get(r.id as string)).toMatchObject({ title: "Llamar (otro teléfono)", reminders: [10] });
+    // Otro recordatorio a la misma hora sí es otro evento; sin ref se crea como antes.
+    expect(post(w, { action: "calendario.guardar", ref: "rec-2", titulo: "Otro", inicio }).id).not.toBe(r.id);
+    expect(post(w, { action: "calendario.guardar", titulo: "Sin ref", inicio }).id).not.toBe(r.id);
+    expect(cal.events.size).toBe(3);
+    expect(post(w, { action: "calendario.guardar", ref: "no válido", titulo: "x", inicio }).error).toMatch(/ref/);
   });
 
   it("si el usuario borró el calendario, lo vuelve a crear", () => {
@@ -1000,6 +1037,9 @@ describe("cliente google.js ↔ script", () => {
     expect(typeof id).toBe("string");
     expect([...w.calendars.values()][0]!.events.get(id)).toMatchObject({ title: "Confirmar cita", reminders: [10] });
     expect(await g.saveEvent({ id, title: "Confirmar cita (cambio)", at: "2026-10-16T15:30:00.000Z" })).toBe(id);
+    const conRef = await g.saveEvent({ ref: "rec-1", title: "Llamar", at: "2026-10-17T15:30:00.000Z" });
+    expect(await g.saveEvent({ ref: "rec-1", title: "Llamar", at: "2026-10-17T15:30:00.000Z" })).toBe(conRef); // respuesta perdida: no duplica
+    expect(await g.deleteEvent(conRef)).toMatchObject({ borrado: true });
     expect(await g.deleteEvent(id)).toMatchObject({ borrado: true });
 
     const texto = "INSTITUTO NACIONAL ELECTORAL\nNOMBRE\nSINTETICO\nPRUEBA PERSONA";

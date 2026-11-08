@@ -1,6 +1,6 @@
 // Cliente del conector (prueba/servidor): WhatsApp Business, Messenger y Facebook reales.
 // La app nunca guarda tokens de Meta: solo la dirección del conector y su clave.
-import { state, save, serverBase, isAppsScript } from "./store.js";
+import { state, persist, serverBase, isAppsScript } from "./store.js";
 
 export const connectorReady = () => Boolean(serverBase() && !isAppsScript() && state.settings.server.token);
 /** Lo último que respondió el conector (para decidir qué mostrar sin esperar a la red). */
@@ -39,7 +39,7 @@ export async function refreshStatus() {
     at: new Date().toISOString(), whatsapp: st.whatsapp, facebook: st.facebook, instagram: st.instagram, webhook: st.webhook, version: st.version,
     agente: st.agente, prospectos: st.prospectos, programadas: st.programadas, publicUrl: st.publicUrl,
   };
-  save();
+  persist(); // es estado de la conexión, no un cambio de datos: no tapa respaldos más nuevos
   return st;
 }
 
@@ -63,13 +63,13 @@ export const listLeads = async () => (await call("/api/prospectos")).prospectos;
 export const markLeads = (ids, importado = true) => call("/api/prospectos/marcar", { method: "POST", body: { ids, importado } });
 
 // ── Programador de publicaciones (Facebook e Instagram) ──
-/** post: { texto, imagen (data URL, JPG para Instagram), cuando (ISO; si ya pasó, sale de inmediato), canales: ["facebook", "instagram"] } */
+/** post: { texto, imagen (data URL, JPG para Instagram), cuando (ISO; sin cuando sale de inmediato con la hora del servidor), canales: ["facebook", "instagram"] } */
 export const schedulePost = async (post) => (await call("/api/social/programar", { method: "POST", body: { post } })).item;
 /** [{ id, texto, imagen (URL), cuando, canales, estado, intentos, resultados { facebook?, instagram? } }] */
 export const listQueue = async () => (await call("/api/social/cola")).cola;
 export const cancelPost = (id) => call("/api/social/cancelar", { method: "POST", body: { id } });
 
-/** Descarga una foto/documento que el cliente mandó por WhatsApp. */
+/** Descarga una foto/documento que el cliente mandó por WhatsApp (lo que no es foto se guarda, nunca se abre). */
 export async function downloadMedia(id) {
   const res = await call("/api/media", { params: { id } });
   return res.blob();

@@ -69,11 +69,12 @@ async function addMessage(store, channel, peer, name, msg, autoKey) {
   await store.put("inbox:index", index);
   return { prev };
 }
+var ORDEN_ESTADO = { sent: 1, delivered: 2, read: 3 };
 async function setStatus(store, channel, peer, id, status2) {
   const k = `inbox:c:${channel}:${peer}`;
   const list = await store.get(k);
   const m = list?.find((x) => x.id === id);
-  if (!m) return;
+  if (!m || m.status === status2 || ORDEN_ESTADO[status2] < ORDEN_ESTADO[m.status]) return;
   m.status = status2;
   await store.put(k, list);
 }
@@ -227,7 +228,7 @@ async function responderSolo(env, store, cfg, e, ahora) {
   if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
   const plantilla = elegirRespuesta(cfg, e, ahora);
   if (!plantilla) return false;
-  const text = rellenar(plantilla, { nombre: primerNombre(e.nombre), asesor: cfg.asesor, agencia: cfg.agencia });
+  const text = rellenar(plantilla, { nombre: primerNombre(e.nombre), asesor: cfg.asesor, agencia: cfg.agencia || "la agencia" });
   if (!text) return false;
   try {
     await sendMessage(env, store, { channel: e.canal, to: e.id, text }, { ahora, autoKey: huella(plantilla) });
@@ -266,6 +267,7 @@ function fechaMeta(ms, ahora) {
   const d = new Date(ms);
   return Number.isNaN(d.getTime()) ? ahora.toISOString() : d.toISOString();
 }
+var AVISO_MS = 10 * 60 * 1e3;
 async function handleWebhook(req, env, store, ahora) {
   const raw = new Uint8Array(await req.arrayBuffer());
   if (!env.META_APP_SECRET) return fail("Falta META_APP_SECRET en el servidor", 500);
@@ -277,7 +279,8 @@ async function handleWebhook(req, env, store, ahora) {
   } catch {
     return fail("JSON inv\xE1lido");
   }
-  await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
+  const ultimo = await store.get("webhook:last");
+  if (!ultimo || ultimo.object !== body.object || !(ahora - new Date(ultimo.at) < AVISO_MS)) await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
   const cfg = await leerConfig(store);
   const contestados = /* @__PURE__ */ new Set();
   const recibido = async (canal, peer, nombre, msg, { contestable, propio = false }) => {
@@ -405,7 +408,9 @@ var MAX_CAPTION_IG = 2200;
 var REINTENTO_MS = 5 * 60 * 1e3;
 var BLOQUEO_MS = 15 * 60 * 1e3;
 var nuevoId = () => crypto.randomUUID().replace(/-/g, "");
+var hecho = (id, canal) => `social:hecho:${id}:${canal}`;
 var MEDIA_ID = /^[a-f0-9]{32}$/;
+var MEDIA_SEGURA = /^(image\/(jpeg|png|gif|webp)|application\/pdf|audio\/(ogg|mpeg|mp4|aac|amr)|video\/(mp4|3gpp))$/;
 function baseDe(req) {
   const u = new URL(req.url);
   const proto = (req.headers.get("x-forwarded-proto") ?? "").split(",")[0].trim();
@@ -446,7 +451,10 @@ async function programar(env, store, p, base, ahora) {
   }
   cola.push(item);
   const sobran = terminadas.sort((a, b) => a.cuando.localeCompare(b.cuando)).slice(0, Math.max(0, cola.length - MAX_COLA));
-  for (const x of sobran) if (x.mediaId) await borrar(store, `media:${x.mediaId}`);
+  for (const x of sobran) {
+    if (x.mediaId) await borrar(store, `media:${x.mediaId}`);
+    for (const c of x.canales) if (x.resultados?.[c]?.ok) await borrar(store, hecho(x.id, c));
+  }
   await store.put("social:cola", cola.filter((x) => !sobran.includes(x)));
   return item;
 }
@@ -460,8 +468,13 @@ async function publicarProgramada(env, store, x, base, ahora) {
   const foto = x.mediaId ? await store.get(`media:${x.mediaId}`) : null;
   for (const canal of x.canales) {
     if (x.resultados[canal]?.ok) continue;
+    const previo = await store.get(hecho(x.id, canal));
+    if (previo?.ok) {
+      x.resultados[canal] = previo;
+      continue;
+    }
+    let r;
     try {
-      let r;
       if (x.mediaId && !foto) throw new Error("La foto ya no est\xE1 en el servidor");
       if (canal === "facebook") {
         r = await publishPost(env, store, { message: x.texto, ...foto ? { image: `data:${foto.mime};base64,${foto.datos}` } : {} });
@@ -470,10 +483,12 @@ async function publicarProgramada(env, store, x, base, ahora) {
         if (!base) throw new Error("Falta PUBLIC_URL: Instagram necesita una direcci\xF3n p\xFAblica para descargar la foto");
         r = await publishInstagram(env, { caption: x.texto, imageUrl: `${base}/media/${x.mediaId}` });
       }
-      x.resultados[canal] = { ok: true, id: r.id, ...r.url ? { url: r.url } : {}, at: ahora.toISOString() };
     } catch (e) {
       x.resultados[canal] = { ok: false, error: e.message ?? String(e), at: ahora.toISOString() };
+      continue;
     }
+    x.resultados[canal] = { ok: true, id: r.id, ...r.url ? { url: r.url } : {}, at: ahora.toISOString() };
+    await store.put(hecho(x.id, canal), x.resultados[canal]);
   }
   delete x.bloqueo;
   if (x.canales.every((c) => x.resultados[c]?.ok)) {
@@ -486,10 +501,10 @@ async function publicarProgramada(env, store, x, base, ahora) {
     x.siguiente = new Date(ahora.getTime() + x.intentos * REINTENTO_MS).toISOString();
   }
 }
-async function runScheduled(env, store, ahoraISO = (/* @__PURE__ */ new Date()).toISOString(), baseUrl = "") {
+async function runScheduled(env, store, ahoraISO = (/* @__PURE__ */ new Date()).toISOString(), baseUrl = "", soloId = null) {
   const ahora = new Date(ahoraISO);
   const cola = await store.get("social:cola") ?? [];
-  const vencidas = cola.filter((x) => x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora || x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS);
+  const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && (x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora || x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS));
   if (!vencidas.length) return { revisadas: cola.length, publicadas: 0, fallidas: 0 };
   const intentar = [];
   for (const x of vencidas) {
@@ -612,7 +627,8 @@ async function handle(req, env, store, opciones = {}) {
         const meta = await graph(env, id, { token: env.WA_TOKEN });
         const file = await fetch(meta.url, { headers: { authorization: `Bearer ${env.WA_TOKEN}` } });
         if (!file.ok) return fail("No se pudo descargar el archivo de WhatsApp", 502);
-        return new Response(file.body, { headers: { "content-type": meta.mime_type ?? "application/octet-stream", "cache-control": "no-store", ...CORS } });
+        const tipo = String(meta.mime_type ?? "").split(";")[0].trim().toLowerCase();
+        return new Response(file.body, { headers: { "content-type": MEDIA_SEGURA.test(tipo) ? tipo : "application/octet-stream", "content-disposition": "attachment", "x-content-type-options": "nosniff", "cache-control": "no-store", ...CORS } });
       }
       case "POST /api/facebook/publicar":
         return json({ ok: true, ...await publishPost(env, store, body) });
@@ -654,7 +670,7 @@ async function handle(req, env, store, opciones = {}) {
       case "POST /api/social/programar": {
         const base = baseDe(req);
         const item = await programar(env, store, body.post, base, ahora);
-        if (new Date(item.cuando) <= ahora) await runScheduled(env, store, ahora.toISOString(), base);
+        if (new Date(item.cuando) <= ahora) await runScheduled(env, store, ahora.toISOString(), base, item.id);
         const final = (await store.get("social:cola") ?? []).find((x) => x.id === item.id) ?? item;
         return json({ ok: true, item: vistaCola(env, final, base) });
       }

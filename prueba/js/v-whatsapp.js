@@ -1,6 +1,6 @@
 // WhatsApp: bandeja REAL (WhatsApp Business + Messenger vía el conector) con borradores de IA en el
 // estilo del asesor, y el asistente sin IA (plantillas, respuestas por tema, pendientes) que abre wa.me.
-import { h, toast, inDays, fmtWhen, uid, waDigits, confirmBox } from "./util.js";
+import { h, toast, inDays, fmtWhen, uid, waDigits, confirmBox, download } from "./util.js";
 import { state, customer, save, lastContact, updateCustomer, setFollowUp, DEFAULT_TEMPLATES, addCustomer, stageLabel, log, learnFromAdvisor } from "./store.js";
 import { header, section, empty, btn, go, rerender, query, route, field, input, textarea, customerSelect, sendWhatsApp, followUpPicker, stageChip, chip, select } from "./ui.js";
 import { fillTemplate, suggestTemplateId, template, classifyMessage } from "./rules.js";
@@ -112,7 +112,8 @@ export function renderChat(root, key) {
           const blob = await downloadMedia(m.media.id);
           mediaCache.set(m.media.id, blob); // se queda visible aunque la conversación se actualice
           if (m.type === "image") showPhoto(blob);
-          else window.open(URL.createObjectURL(blob), "_blank");
+          // Nunca abrirlo aquí: un .html o .svg de un desconocido correría con acceso a los datos de la app.
+          else download(new Blob([blob], { type: "application/octet-stream" }), m.media.filename || `archivo-${m.media.id}`);
         } catch (err) { toast(err.message, 5000); }
       }, "small"));
     }
@@ -129,6 +130,7 @@ export function renderChat(root, key) {
   function createCustomer(info = null) {
     const created = addCustomer({ name: info?.nombre || meta?.name || title(), phone: channel === "wa" ? id.slice(-10) : "", fbId: channel === "fb" ? id : undefined, source: channel === "wa" ? "whatsapp" : "redes", stage: info?.etapa ?? "nuevo", vehicle: info?.auto_interes ?? "", notes: info?.resumen ?? "", chat: msgs.slice(-80).map((m) => ({ dir: m.dir, text: m.text, at: m.at })) });
     if (info?.dias_para_seguimiento > 0) setFollowUp(created.id, inDays(info.dias_para_seguimiento), info.siguiente_paso || "Dar seguimiento");
+    markLeads([key]).then(() => refreshStatus()).catch(() => {}); // ya no es prospecto nuevo
     return created;
   }
 
@@ -271,10 +273,10 @@ async function drawLeads(box) {
           await markLeads([l.clave]).catch(() => {});
           toast(existing ? `${c.name} ya era cliente` : `${c.name} agregado a clientes`);
           refreshStatus().catch(() => {});
-          rerender();
+          drawLeads(box); // solo la lista: no tirar cambios sin guardar del formulario de abajo
         }, "small primary"),
         btn("Ver conversación", () => go(`/whatsapp/chat/${encodeURIComponent(l.clave)}`), "small ghost"),
-        btn("Descartar", async () => { await markLeads([l.clave]).catch(() => {}); rerender(); }, "small ghost")))));
+        btn("Descartar", async () => { await markLeads([l.clave]).catch(() => {}); refreshStatus().catch(() => {}); drawLeads(box); }, "small ghost")))));
   } catch (e) { box.replaceChildren(h("p", { class: "warn" }, e.message)); }
 }
 
@@ -298,7 +300,7 @@ function drawAgentForm(box, cfg) {
   if (!reglas.length) reglas.push(
     { palabras: "precio, cuánto, cuanto cuesta, costo", respuesta: "Con gusto te paso el precio, {nombre}. ¿Qué versión te interesa y lo buscas de contado o a crédito?" },
     { palabras: "crédito, credito, financiamiento, mensualidad, enganche", respuesta: "¡Claro! Manejamos crédito. Para darte una mensualidad aproximada, ¿cuánto te gustaría dar de enganche y a cuántos meses?" },
-    { palabras: "ubicación, ubicacion, dirección, direccion, dónde están, donde estan", respuesta: "Estamos en {agencia}. Te comparto la ubicación y con gusto te espero; ¿qué día te acomoda?" });
+    { palabras: "ubicación, ubicacion, dirección, direccion, dónde están, donde estan", respuesta: `${agencia.value.trim() ? "Estamos en {agencia}. " : ""}Te comparto la ubicación y con gusto te espero; ¿qué día te acomoda?` });
   const reglasBox = h("div", { class: "stack-s" });
   const drawReglas = () => reglasBox.replaceChildren(...reglas.map((r, i) => h("div", { class: "tpl" },
     field(`Regla ${i + 1}: si el mensaje dice…`, input({ value: r.palabras, placeholder: "palabras separadas por coma", oninput: (e) => { r.palabras = e.target.value; } })),
@@ -311,7 +313,8 @@ function drawAgentForm(box, cfg) {
     h("label", { class: "row gap-s" }, activo, h("span", {}, "Contestar automáticamente")),
     h("p", { class: "muted small" }, "Variables: {nombre} (del perfil del cliente), {asesor}, {agencia}. Una sola respuesta automática por mensaje; nunca se contesta a sí mismo."),
     h("div", { class: "grid2" }, field("Asesor", asesor), field("Agencia", agencia)),
-    field("Días de atención", diasBox),
+    // div y no <label>: un toque en el título o entre los chips activaría el botón "L" (lunes).
+    h("div", { class: "field" }, h("span", {}, "Días de atención"), diasBox),
     h("div", { class: "grid2" }, field("Abre", inicio), field("Cierra", fin)),
     field("Zona horaria", zona),
     field("Bienvenida (primer mensaje de un contacto nuevo)", bienvenida),
@@ -330,7 +333,8 @@ function drawAgentForm(box, cfg) {
           horario: { dias: [...dias], inicio: inicio.value, fin: fin.value },
           bienvenida: bienvenida.value, fueraDeHorario: fuera.value,
           reglas: reglas.filter((r) => r.palabras.trim() || r.respuesta.trim()),
-          esperaHoras: Number(espera.value), pausaMinutos: Number(pausa.value),
+          // Vacío = conservar lo guardado (Number("") sería 0).
+          esperaHoras: espera.value === "" ? undefined : Number(espera.value), pausaMinutos: pausa.value === "" ? undefined : Number(pausa.value),
         });
         await refreshStatus().catch(() => {});
         toast(activo.checked ? "Listo: Sofía contesta sola en WhatsApp y Messenger." : "Respuestas automáticas guardadas (apagadas).", 5000);

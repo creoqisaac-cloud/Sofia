@@ -49,6 +49,8 @@ beforeAll(async () => {
       if (path.startsWith("/v/222/message_templates")) return send({ data: [{ name: "hello_world", status: "APPROVED", language: "en_US" }, { name: "borrador", status: "PENDING" }] });
       if (path === "/v/555") return send({ url: `${G}/archivo/555`, mime_type: "image/jpeg" });
       if (path === "/archivo/555") { res.writeHead(200, { "content-type": "image/jpeg" }); return res.end(Buffer.from([0xff, 0xd8, 0xff, 0xd9])); }
+      if (path === "/v/666") return send({ url: `${G}/archivo/666`, mime_type: "text/html" }); // "documento" de un desconocido
+      if (path === "/archivo/666") { res.writeHead(200, { "content-type": "text/html" }); return res.end("<script>robar()</script>"); }
       if (path.startsWith("/v/333?fields")) return send({ name: "Página Prueba", link: "https://facebook.com/prueba" });
       if (path === "/v/333/photos") return send({ id: "ph1", post_id: "333_99" });
       if (path === "/v/333/feed") return send({ id: "333_100" });
@@ -580,5 +582,73 @@ describe("conector · programador de publicaciones", () => {
     await Promise.all(pendientes);
     expect(JSON.parse(calls.find((c) => c.path === "/v/333/feed")!.body)).toEqual({ message: "Desde el cron" });
     expect(JSON.parse(kv.get("social:cola")!)[0].estado).toBe("publicado");
+  });
+});
+
+describe("conector · límites de KV, archivos ajenos y publicación única", () => {
+  it("un archivo que no es foto/PDF/audio/video se entrega como descarga, nunca como página", async () => {
+    const store = memStore();
+    const html = await handle(req("/api/media?token=clave&id=666"), env(), store);
+    expect(html.headers.get("content-type")).toBe("application/octet-stream");
+    expect(html.headers.get("content-disposition")).toBe("attachment");
+    expect(html.headers.get("x-content-type-options")).toBe("nosniff");
+    const foto = await handle(req("/api/media?token=clave&id=555"), env(), store);
+    expect(foto.headers.get("content-type")).toBe("image/jpeg");
+    expect(foto.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("estados de Meta: no reescribe si no cambian ni si llegan en desorden", async () => {
+    const store = memStore();
+    const r = await (await handle(post("/api/enviar", { token: "clave", channel: "wa", to: "+52 1 81 1111 1111", text: "Hola" }), env(), store)).json();
+    const estado = (status: string) => handle(signed({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { statuses: [{ id: r.id, recipient_id: "5218111111111", status }] } }] }] }), env(), store);
+    await estado("read");
+    const antes = store.escrituras;
+    await estado("read");
+    await estado("delivered"); // llegó tarde: no regresa de "leído" a "entregado"
+    expect(store.escrituras).toBe(antes);
+    const msgs = (await (await handle(req("/api/buzon/conversacion?token=clave&c=wa:5218111111111"), env(), store)).json()).messages;
+    expect(msgs[0].status).toBe("read");
+  });
+
+  it("webhook:last se escribe como mucho cada 10 minutos", async () => {
+    const store = memStore();
+    const aviso = (iso: string) => handle(signed({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { statuses: [{ id: "wamid.DESCONOCIDO", status: "read" }] } }] }] }), env(), store, { ahora: iso });
+    await aviso(LUNES_10);
+    await aviso(mas(LUNES_10, 5));
+    expect(store.escrituras).toBe(1);
+    await aviso(mas(LUNES_10, 11));
+    expect(store.escrituras).toBe(2);
+    expect(await store.get("webhook:last")).toMatchObject({ at: mas(LUNES_10, 11) });
+  });
+
+  it("lo ya publicado no sale dos veces aunque una copia vieja de la cola lo regrese a pendiente", async () => {
+    const store = memStore();
+    await programarEn(store, { texto: "Una sola vez", cuando: mas(LUNES_10, 30), canales: ["facebook"] });
+    await runScheduled(env(), store, mas(LUNES_10, 31));
+    const cola = await store.get("social:cola");
+    expect(cola[0].estado).toBe("publicado");
+    await store.put("social:cola", cola.map((x: Record<string, unknown>) => ({ ...x, estado: "pendiente", resultados: {} }))); // KV con copia vieja
+    calls.length = 0;
+    await runScheduled(env(), store, mas(LUNES_10, 40));
+    expect(calls.filter((c) => c.path === "/v/333/feed")).toHaveLength(0);
+    expect((await store.get("social:cola"))[0]).toMatchObject({ estado: "publicado", resultados: { facebook: { ok: true, id: "333_100" } } });
+  });
+
+  it("«Publicar ahora» publica solo la nueva; lo demás vencido queda para el programador", async () => {
+    const store = memStore();
+    await programarEn(store, { texto: "Programada antes", cuando: mas(LUNES_10, 1), canales: ["facebook"] });
+    calls.length = 0;
+    const { item } = await (await programarEn(store, { texto: "Ahora mismo", canales: ["facebook"] }, env(), mas(LUNES_10, 5))).json();
+    expect(item.estado).toBe("publicado");
+    expect(calls.filter((c) => c.path === "/v/333/feed").map((c) => JSON.parse(c.body).message)).toEqual(["Ahora mismo"]);
+  });
+
+  it("sin nombre de agencia, la respuesta automática dice «la agencia» y no deja la frase rota", async () => {
+    const store = memStore();
+    await configurar(store, agente({ agencia: "", reglas: [{ palabras: ["ubicación"], respuesta: "Estamos en {agencia}. Te espero." }] }));
+    await handle(signed(waMsg("wamid.U0", "hola", LUNES_10)), env(), store, { ahora: LUNES_10 });
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.U1", "¿Cuál es su ubicación?", mas(LUNES_10, 1))), env(), store, { ahora: mas(LUNES_10, 1) });
+    expect(waEnvios().map((m) => m.text.body)).toEqual(["Estamos en la agencia. Te espero."]);
   });
 });

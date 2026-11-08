@@ -398,7 +398,7 @@ const REGLAS = [
   // ("no están listas", "estarán listas el viernes", "cuando estén listas"), todavía no lo están.
   { clave: 'placas_listas', texto: 'Placas listas', sinNegacion: true, res: [
     /\b(placas|tarjeta de circulacion|engomado|tramite)\b[^.!?]{0,40}\b(listas?|terminad[oa]s?|concluid[oa]s?|salieron)\b/,
-    /\b(listas? para (recoger|entrega\w*)|pasen? a recoger\w*|pueden? pasar por (ellas|las placas)|ya (las )?puedes? recoger|ya (las )?pueden recoger)\b/,
+    /\b(listas? para (recoger|entrega\w*)|(pasen?|pasar|venir|vengan?) (a recoger\w*|por ellas)|pueden? pasar por (ellas|las placas)|ya (las )?puedes? recoger|ya (las )?pueden recoger)\b/,
     /\bya (salieron|estan|quedaron)\b[^.!?]{0,30}\b(placas|tarjeta de circulacion)\b/,
   ] },
   { clave: 'en_tramite', texto: 'En trámite', res: [
@@ -418,10 +418,16 @@ const NIEGA = /\b(no|ni|sin|cuando|estaran|estara|esten|estarian|quedaran|quedar
 
 const normalizar_ = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 
-/** "Le falta la constancia…" → { clave: 'falta_documento', texto: 'Falta documento', coincidencia: 'falta la constancia' } */
-function clasificar_(texto) {
+/** Sin acentos y con las frases engañosas (NEUTRAS) ya neutralizadas. */
+function neutro_(texto) {
   let t = normalizar_(texto);
   for (const [re, por] of NEUTRAS) t = t.replace(re, por);
+  return t;
+}
+
+/** "Le falta la constancia…" → { clave: 'falta_documento', texto: 'Falta documento', coincidencia: 'falta la constancia' } */
+function clasificar_(texto) {
+  const t = neutro_(texto);
   for (const regla of REGLAS) {
     for (const re of regla.res) {
       const m = re.exec(t);
@@ -429,6 +435,15 @@ function clasificar_(texto) {
     }
   }
   return null;
+}
+
+/** ¿Avisan que las placas ya están listas? Aunque el mismo correo hable de un pago (que clasificar_ pone antes). */
+function avisaListas_(texto) {
+  const t = neutro_(texto);
+  return REGLAS.find((r) => r.clave === 'placas_listas').res.some((re) => {
+    const m = re.exec(t);
+    return Boolean(m) && !NIEGA.test(m[0]);
+  });
 }
 
 // ───────── Seguimiento automático ─────────
@@ -489,8 +504,7 @@ function seguimientoPendiente_(c, cfg, yo, ahora) {
   if (!ultimo || !esMio_(ultimo, yo)) return null; // contestaron: ahora le toca al asesor
   if (ahora - ultimo.getDate().getTime() < dias * DIA) return null;
   const suyos = msgs.filter((m) => !esMio_(m, yo));
-  const estado = suyos.length ? clasificar_(sinCitas_(suyos[suyos.length - 1].getPlainBody())) : null;
-  if (estado && estado.clave === 'placas_listas') return null;
+  if (suyos.length && avisaListas_(sinCitas_(suyos[suyos.length - 1].getPlainBody()))) return null;
   return ultimo;
 }
 
@@ -588,6 +602,14 @@ function evento_(cal, id) {
   try { return cal.getEventById(String(id)); } catch (err) { return null; }
 }
 
+const ETIQUETA_REF = 'sofiaRef'; // id del recordatorio en la app, guardado en el evento
+
+/** El evento que ya se creó para ese recordatorio (busca un día antes y después de su hora). */
+function eventoPorRef_(cal, ref, inicio) {
+  const eventos = cal.getEvents(new Date(inicio.getTime() - DIA), new Date(inicio.getTime() + DIA));
+  return eventos.find((ev) => ev.getTag(ETIQUETA_REF) === ref) || null;
+}
+
 /** Minutos antes del evento: Google Calendar acepta de 5 a 40320 (4 semanas) y hasta 5 avisos. */
 function avisos_(lista) {
   const v = (Array.isArray(lista) ? lista : []).map(Number).filter((m) => isFinite(m)).map((m) => entre_(m, 5, 40320, 5));
@@ -595,7 +617,11 @@ function avisos_(lista) {
   return unicos.length ? unicos : [5]; // sin avisos válidos, uno 5 min antes: un recordatorio que no suena no sirve
 }
 
-/** { id?, titulo, descripcion?, inicio (ISO), minutos?, avisos?: [minutos antes] } → { id } */
+/**
+ * { id?, ref?, titulo, descripcion?, inicio (ISO), minutos?, avisos?: [minutos antes] } → { id }
+ * ref (id del recordatorio): sin id, reutiliza el evento que ya tenga ese ref, así una respuesta perdida
+ * o un segundo dispositivo no lo duplican (sonaría dos veces).
+ */
 function calendarioGuardar_(p) {
   const titulo = linea_(p.titulo, 200);
   if (!titulo) throw new Error('Falta el título del recordatorio.');
@@ -604,14 +630,17 @@ function calendarioGuardar_(p) {
   const fin = new Date(inicio.getTime() + entre_(p.minutos, 5, 24 * 60, 15) * 60000);
   const descripcion = String(p.descripcion || '').slice(0, 4000);
   const avisos = avisos_(p.avisos);
+  const ref = p.ref != null && p.ref !== '' ? ref_(p.ref) : '';
   const cal = calendario_();
   let ev = p.id ? evento_(cal, p.id) : null; // si lo borraron en Google Calendar, se crea de nuevo
+  if (!ev && ref) ev = eventoPorRef_(cal, ref, inicio);
   if (ev) {
     ev.setTitle(titulo);
     ev.setDescription(descripcion);
     ev.setTime(inicio, fin);
   } else {
     ev = cal.createEvent(titulo, inicio, fin, { description: descripcion });
+    if (ref) ev.setTag(ETIQUETA_REF, ref);
   }
   ev.removeAllReminders();
   avisos.forEach((m) => ev.addPopupReminder(m));

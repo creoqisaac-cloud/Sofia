@@ -109,11 +109,15 @@ async function addMessage(store, channel, peer, name, msg, autoKey) {
   return { prev };
 }
 
+// Meta manda sent → delivered → read (a veces en desorden). "failed" y otros no tienen orden: se guardan siempre.
+const ORDEN_ESTADO = { sent: 1, delivered: 2, read: 3 };
+
 async function setStatus(store, channel, peer, id, status) {
   const k = `inbox:c:${channel}:${peer}`;
   const list = await store.get(k);
   const m = list?.find((x) => x.id === id);
-  if (!m) return;
+  // Sin cambio, o un "delivered" que llega después del "read": no se reescribe (cuida el límite de KV).
+  if (!m || m.status === status || ORDEN_ESTADO[status] < ORDEN_ESTADO[m.status]) return;
   m.status = status;
   await store.put(k, list);
 }
@@ -287,7 +291,7 @@ async function responderSolo(env, store, cfg, e, ahora) {
   if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
   const plantilla = elegirRespuesta(cfg, e, ahora);
   if (!plantilla) return false;
-  const text = rellenar(plantilla, { nombre: primerNombre(e.nombre), asesor: cfg.asesor, agencia: cfg.agencia });
+  const text = rellenar(plantilla, { nombre: primerNombre(e.nombre), asesor: cfg.asesor, agencia: cfg.agencia || "la agencia" }); // sin nombre: "Estamos en la agencia.", no "Estamos en."
   if (!text) return false;
   try {
     await sendMessage(env, store, { channel: e.canal, to: e.id, text }, { ahora, autoKey: huella(plantilla) });
@@ -337,6 +341,8 @@ function fechaMeta(ms, ahora) {
   return Number.isNaN(d.getTime()) ? ahora.toISOString() : d.toISOString();
 }
 
+const AVISO_MS = 10 * 60 * 1000; // webhook:last se reescribe como mucho cada 10 min
+
 async function handleWebhook(req, env, store, ahora) {
   const raw = new Uint8Array(await req.arrayBuffer());
   if (!env.META_APP_SECRET) return fail("Falta META_APP_SECRET en el servidor", 500);
@@ -344,7 +350,9 @@ async function handleWebhook(req, env, store, ahora) {
   if (!sameSecret(sig, await hmacHex(env.META_APP_SECRET, raw))) return fail("Firma inválida", 401);
   let body;
   try { body = JSON.parse(new TextDecoder().decode(raw)); } catch { return fail("JSON inválido"); }
-  await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
+  // Solo sirve para mostrar "último aviso de Meta": no se escribe en cada aviso (cuida el límite gratis de KV).
+  const ultimo = await store.get("webhook:last");
+  if (!ultimo || ultimo.object !== body.object || !(ahora - new Date(ultimo.at) < AVISO_MS)) await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
 
   const cfg = await leerConfig(store);
   const contestados = new Set(); // como mucho una respuesta automática por contacto en cada aviso de Meta
@@ -474,6 +482,8 @@ async function publishInstagram(env, { caption, imageUrl }) {
 //                    resultados: { facebook?: { ok, id?, url?, error?, at }, instagram?: … } } ]
 //                estado: "pendiente" → "publicando" → "publicado" | "error" (tras MAX_INTENTOS)
 // media:<id>   → { mime, datos (base64) }  se sirve en público en /media/<id>: Instagram exige descargarla de una URL.
+// social:hecho:<id>:<canal> → resultado ya publicado. En Cloudflare KV una copia vieja de la cola puede revivir
+//                "pendiente" algo que ya salió; esta marca (clave propia, sin caché previa) evita publicarlo dos veces.
 
 const CANALES = ["facebook", "instagram"];
 const FOTOS = ["image/jpeg", "image/png", "image/gif"]; // nada de SVG: /media es público y comparte origen con la app
@@ -485,7 +495,10 @@ const REINTENTO_MS = 5 * 60 * 1000; // espera entre intentos: 5 min, luego 10 mi
 const BLOQUEO_MS = 15 * 60 * 1000; // si algo quedó "publicando" más tiempo, el proceso se cayó: se retoma
 
 const nuevoId = () => crypto.randomUUID().replace(/-/g, "");
+const hecho = (id, canal) => `social:hecho:${id}:${canal}`;
 const MEDIA_ID = /^[a-f0-9]{32}$/;
+// Archivos de WhatsApp que se entregan con su tipo; cualquier otro va como binario.
+const MEDIA_SEGURA = /^(image\/(jpeg|png|gif|webp)|application\/pdf|audio\/(ogg|mpeg|mp4|aac|amr)|video\/(mp4|3gpp))$/;
 
 /** Dirección pública del conector: PUBLIC_URL manda; si no, la de la petición (respetando el proxy HTTPS). */
 function baseDe(req) {
@@ -531,7 +544,10 @@ async function programar(env, store, p, base, ahora) {
   cola.push(item);
   // Historial acotado: se olvidan primero las terminadas más viejas (y su foto).
   const sobran = terminadas.sort((a, b) => a.cuando.localeCompare(b.cuando)).slice(0, Math.max(0, cola.length - MAX_COLA));
-  for (const x of sobran) if (x.mediaId) await borrar(store, `media:${x.mediaId}`);
+  for (const x of sobran) {
+    if (x.mediaId) await borrar(store, `media:${x.mediaId}`);
+    for (const c of x.canales) if (x.resultados?.[c]?.ok) await borrar(store, hecho(x.id, c));
+  }
   await store.put("social:cola", cola.filter((x) => !sobran.includes(x)));
   return item;
 }
@@ -548,8 +564,10 @@ async function publicarProgramada(env, store, x, base, ahora) {
   const foto = x.mediaId ? await store.get(`media:${x.mediaId}`) : null;
   for (const canal of x.canales) {
     if (x.resultados[canal]?.ok) continue; // ya salió en ese canal: no duplicar al reintentar el otro
+    const previo = await store.get(hecho(x.id, canal));
+    if (previo?.ok) { x.resultados[canal] = previo; continue; } // ya salió, aunque la cola diga otra cosa
+    let r;
     try {
-      let r;
       if (x.mediaId && !foto) throw new Error("La foto ya no está en el servidor"); // nunca publicar solo el texto
       if (canal === "facebook") {
         r = await publishPost(env, store, { message: x.texto, ...(foto ? { image: `data:${foto.mime};base64,${foto.datos}` } : {}) });
@@ -558,10 +576,12 @@ async function publicarProgramada(env, store, x, base, ahora) {
         if (!base) throw new Error("Falta PUBLIC_URL: Instagram necesita una dirección pública para descargar la foto");
         r = await publishInstagram(env, { caption: x.texto, imageUrl: `${base}/media/${x.mediaId}` });
       }
-      x.resultados[canal] = { ok: true, id: r.id, ...(r.url ? { url: r.url } : {}), at: ahora.toISOString() };
     } catch (e) {
       x.resultados[canal] = { ok: false, error: e.message ?? String(e), at: ahora.toISOString() };
+      continue;
     }
+    x.resultados[canal] = { ok: true, id: r.id, ...(r.url ? { url: r.url } : {}), at: ahora.toISOString() };
+    await store.put(hecho(x.id, canal), x.resultados[canal]);
   }
   delete x.bloqueo;
   if (x.canales.every((c) => x.resultados[c]?.ok)) {
@@ -579,12 +599,13 @@ async function publicarProgramada(env, store, x, base, ahora) {
  * Publica lo programado que ya venció. La llaman el cron de Cloudflare (cada 5 min) y servidor.mjs (cada minuto),
  * así funciona aunque la app esté cerrada. Si no hay nada que publicar no escribe nada (cuida el límite gratis de KV).
  * baseUrl: dirección pública del conector si no hay PUBLIC_URL (si falta, la que se guardó al programar).
+ * soloId: publicar solo esa ("Publicar ahora"); lo demás vencido queda para el programador.
  */
-export async function runScheduled(env, store, ahoraISO = new Date().toISOString(), baseUrl = "") {
+export async function runScheduled(env, store, ahoraISO = new Date().toISOString(), baseUrl = "", soloId = null) {
   const ahora = new Date(ahoraISO);
   const cola = (await store.get("social:cola")) ?? [];
-  const vencidas = cola.filter((x) => (x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora)
-    || (x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS));
+  const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && ((x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora)
+    || (x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS)));
   if (!vencidas.length) return { revisadas: cola.length, publicadas: 0, fallidas: 0 };
 
   // Se apartan antes de llamar a Meta para que otra corrida simultánea no las publique dos veces.
@@ -710,7 +731,9 @@ export async function handle(req, env, store, opciones = {}) {
         const meta = await graph(env, id, { token: env.WA_TOKEN });
         const file = await fetch(meta.url, { headers: { authorization: `Bearer ${env.WA_TOKEN}` } });
         if (!file.ok) return fail("No se pudo descargar el archivo de WhatsApp", 502);
-        return new Response(file.body, { headers: { "content-type": meta.mime_type ?? "application/octet-stream", "cache-control": "no-store", ...CORS } });
+        // Lo manda cualquiera que escriba al número: un HTML o SVG nunca debe abrirse como página.
+        const tipo = String(meta.mime_type ?? "").split(";")[0].trim().toLowerCase();
+        return new Response(file.body, { headers: { "content-type": MEDIA_SEGURA.test(tipo) ? tipo : "application/octet-stream", "content-disposition": "attachment", "x-content-type-options": "nosniff", "cache-control": "no-store", ...CORS } });
       }
       case "POST /api/facebook/publicar": return json({ ok: true, ...(await publishPost(env, store, body)) });
       case "GET /api/facebook/publicaciones": return json({ ok: true, posts: (await store.get("fb:posts")) ?? [] });
@@ -751,8 +774,8 @@ export async function handle(req, env, store, opciones = {}) {
       case "POST /api/social/programar": {
         const base = baseDe(req);
         const item = await programar(env, store, body.post, base, ahora);
-        // Si ya es hora ("publicar ahora"), sale de una vez; si falla, el programador lo reintenta.
-        if (new Date(item.cuando) <= ahora) await runScheduled(env, store, ahora.toISOString(), base);
+        // Si ya es hora ("publicar ahora"), sale de una vez SOLO esta; si falla, el programador la reintenta.
+        if (new Date(item.cuando) <= ahora) await runScheduled(env, store, ahora.toISOString(), base, item.id);
         const final = ((await store.get("social:cola")) ?? []).find((x) => x.id === item.id) ?? item;
         return json({ ok: true, item: vistaCola(env, final, base) });
       }

@@ -10,6 +10,8 @@ import { googleReady, sendEmail, checkEmails, closeEmailCase, lastGoogleStatus }
 
 // Estado sugerido por el agente de correo → estado del trámite
 const SUGERIDO = { placas_listas: "listas", falta_documento: "documentos", en_tramite: "tramite" };
+// Gmail solo cuando el script nuevo ya contestó (el anterior, de solo respaldo, nunca guarda un estado).
+const gmailMode = () => googleReady() && Boolean(lastGoogleStatus()?.version);
 
 function ensurePlates(c) {
   if (!c.plates) {
@@ -34,7 +36,12 @@ export function renderPlates(root, id) {
     if (p.status === "listas") setFollowUp(c.id, inDays(1), "Coordinar entrega de placas");
     if (p.status === "entregadas") {
       setFollowUp(c.id, null);
-      if (p.threadId && googleReady()) closeEmailCase(c.id).catch(() => {}); // el agente deja de dar seguimiento
+      if (p.threadId && googleReady()) { // el agente deja de dar seguimiento; si falla, se reintenta al abrir Sofía
+        p.closePending = true;
+        save();
+        closeEmailCase(c.id).then(() => { delete p.closePending; save(); })
+          .catch((e) => toast(`No se pudo detener el seguimiento en Gmail: ${e.message}`, 6000));
+      }
     }
     save();
     toast("Estado actualizado");
@@ -49,8 +56,10 @@ export function renderPlates(root, id) {
   const body = textarea({ rows: 12, oninput: () => keepDraft() }, draft.body);
   function keepDraft() { p.draft = { subject: subject.value, body: body.value }; save(); }
   const loadDraft = (d) => { subject.value = d.subject; body.value = d.body; keepDraft(); };
-  const gmail = googleReady();
+  const gmail = gmailMode();
   const replies = h("div", { class: "stack-s" });
+  const send = (viaGmail) => (e) => sendWithAttachments(c, subject.value, body.value, to.value, e.currentTarget, viaGmail, otherApp);
+  const otherApp = btn("Enviar con otra app (con adjuntos)", send(false), "ghost"); // aparece si Gmail falla
 
   root.append(
     header(`Placas · ${c.name.split(" ")[0]}`, { back: `/cliente/${c.id}` }),
@@ -71,7 +80,7 @@ export function renderPlates(root, id) {
         field("Asunto", subject),
         field("Mensaje", body),
         h("div", { class: "row wrap gap-s" },
-          btn(gmail ? "Enviar desde mi Gmail (con adjuntos)" : "Enviar con adjuntos", (e) => sendWithAttachments(c, subject.value, body.value, to.value, e.currentTarget), "primary"),
+          btn(gmail ? "Enviar desde mi Gmail (con adjuntos)" : "Enviar con adjuntos", send(gmail), "primary"),
           btn("Abrir en mi correo (sin adjuntos)", () => {
             openExternal(`mailto:${encodeURIComponent(to.value)}?subject=${encodeURIComponent(subject.value)}&body=${encodeURIComponent(body.value)}`);
           }, "ghost"),
@@ -92,7 +101,7 @@ export function renderPlates(root, id) {
             } catch (err) { toast(err.message, 6000); b.disabled = false; }
           }, "small") : null,
           gmail && p.threadId ? btn("Revisar respuestas", (e) => reviewReplies(c, replies, e.currentTarget), "small") : null,
-          gmail ? null : btn("Ya lo envié", () => {
+          btn("Ya lo envié", () => {
             p.sentAt = new Date().toISOString();
             if (p.status === "documentos") p.status = "enviado";
             log(c.id, "correo", `Correo de placas enviado a ${to.value || "gestoría"}: ${subject.value}`);
@@ -146,32 +155,39 @@ async function attachedFiles(c) {
   return files;
 }
 
-async function sendWithAttachments(c, subject, body, to, button) {
-  const p = c.plates;
-  const files = await attachedFiles(c);
-  if (googleReady()) {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to.trim())) { toast("Escribe el correo de la gestoría."); return; }
-    if (button) { button.disabled = true; button.textContent = "Enviando desde tu Gmail…"; }
-    try {
-      const r = await sendEmail({ to: to.trim(), subject, body, files, ref: c.id, seguimientoDias: lastGoogleStatus()?.correo?.dias ?? 3 });
-      p.sentAt = r.enviadoAt ?? new Date().toISOString();
-      p.threadId = r.threadId;
-      if (p.status === "documentos") p.status = "enviado";
-      log(c.id, "correo", `Correo de placas enviado desde Gmail a ${to.trim()} con ${r.adjuntos ?? files.length} adjunto(s): ${subject}`);
-      setFollowUp(c.id, inDays(3), "Pedir estatus de placas");
-      toast(r.aviso ? `Enviado. Aviso: ${r.aviso}` : `Enviado desde tu Gmail con ${files.length} adjunto(s). Sofía revisará la respuesta.`, 6000);
-      rerender();
-    } catch (e) {
-      toast(e.message, 7000);
-      if (button) { button.disabled = false; button.textContent = "Enviar desde mi Gmail (con adjuntos)"; }
+/** viaGmail: envía con el agente de correo; si falla, muestra `fallback` (enviar con otra app) junto al botón. */
+async function sendWithAttachments(c, subject, body, to, button, viaGmail, fallback) {
+  if (button?.disabled) return;
+  if (button) button.disabled = true; // antes de leer los adjuntos: un doble toque no envía dos veces
+  try {
+    const p = c.plates;
+    const files = await attachedFiles(c);
+    if (viaGmail) {
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to.trim())) { toast("Escribe el correo de la gestoría."); return; }
+      if (button) button.textContent = "Enviando desde tu Gmail…";
+      try {
+        const r = await sendEmail({ to: to.trim(), subject, body, files, ref: c.id }); // los días de seguimiento son los de Conexiones
+        p.sentAt = r.enviadoAt ?? new Date().toISOString();
+        p.threadId = r.threadId;
+        if (p.status === "documentos") p.status = "enviado";
+        log(c.id, "correo", `Correo de placas enviado desde Gmail a ${to.trim()} con ${r.adjuntos ?? files.length} adjunto(s): ${subject}`);
+        setFollowUp(c.id, inDays(3), "Pedir estatus de placas");
+        toast(r.aviso ? `Enviado. Aviso: ${r.aviso}` : `Enviado desde tu Gmail con ${files.length} adjunto(s). Sofía revisará la respuesta.`, 6000);
+        rerender();
+      } catch (e) {
+        toast(e.message, 7000);
+        if (button) { button.textContent = "Enviar desde mi Gmail (con adjuntos)"; if (fallback) button.after(fallback); }
+      }
+      return;
     }
-    return;
+    if (!files.length) { toast("No hay documentos adjuntos todavía. Usa \"Abrir en mi correo\" o adjunta fotos."); return; }
+    if (to) await navigator.clipboard?.writeText(to).catch(() => {});
+    toast(to ? `Elige Gmail/Correo. El destinatario (${to}) quedó copiado para pegarlo.` : "Elige Gmail o tu app de correo.", 4000);
+    const r = await deliverFiles(files, { title: subject, text: body });
+    if (r === "downloaded") toast("Se descargaron los archivos: adjúntalos en tu correo.");
+  } finally {
+    if (button?.isConnected) button.disabled = false;
   }
-  if (!files.length) { toast("No hay documentos adjuntos todavía. Usa \"Abrir en mi correo\" o adjunta fotos."); return; }
-  if (to) await navigator.clipboard?.writeText(to).catch(() => {});
-  toast(to ? `Elige Gmail/Correo. El destinatario (${to}) quedó copiado para pegarlo.` : "Elige Gmail o tu app de correo.", 4000);
-  const r = await deliverFiles(files, { title: subject, text: body });
-  if (r === "downloaded") toast("Se descargaron los archivos: adjúntalos en tu correo.");
 }
 
 /** Lee en Gmail lo que contestó la gestoría y sugiere el estado del trámite (palabras clave, sin IA). */
@@ -181,6 +197,7 @@ async function reviewReplies(c, box, button) {
   try {
     const [caso] = await checkEmails(c.id);
     if (!caso) { box.replaceChildren(h("p", { class: "muted small" }, "Sin datos de este correo en tu Gmail.")); return; }
+    if (caso.error) { box.replaceChildren(h("p", { class: "warn small" }, caso.error)); return; } // p. ej. se borró el hilo
     const nuevas = (caso.respuestas ?? []).filter((r) => !p.lastReplyAt || r.fecha > p.lastReplyAt);
     for (const r of nuevas) log(c.id, "correo", `Respuesta de ${r.de}: ${r.texto.slice(0, 300)}`);
     if (nuevas.length) { p.lastReplyAt = nuevas.at(-1).fecha; save(); }

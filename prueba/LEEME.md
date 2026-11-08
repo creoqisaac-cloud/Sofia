@@ -48,7 +48,7 @@ Todo lo de las columnas "Sin conexiones" y "Con conexiones gratis" funciona sin 
 - **WhatsApp:**
   - Después de 24 h sin mensaje del cliente, Meta solo permite plantillas aprobadas.
   - Las respuestas automáticas son por reglas (bienvenida, horario, palabras clave). Las redacta la IA solo si la conectas, y tú las revisas.
-- **Servidor gratis (Cloudflare):** unos 200 mensajes entrantes al día; lo programado sale con hasta 5 minutos de retraso.
+- **Servidor gratis (Cloudflare):** unas 25 a 30 conversaciones nuevas al día (unos 130 mensajes); con el plan de 5 USD al mes, sin preocuparse. Lo programado sale con hasta 5 minutos de retraso.
 - **Google gratis:** 100 destinatarios de correo al día.
 - **Anuncios pagados:** Sofía los escribe y te lleva al Administrador de anuncios. Crear campañas automáticamente requiere un permiso de Meta (`ads_management`) que se tramita aparte.
 - **Formatos de crédito:** se llenan los datos. PEP, consentimientos y firmas los responde y firma el cliente.
