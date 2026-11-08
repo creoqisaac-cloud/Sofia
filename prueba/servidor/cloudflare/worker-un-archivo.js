@@ -5312,17 +5312,25 @@ function promptIA({ cfg = {}, inventario = [], historial = [] }) {
     desde_al_mes: a2.precio > 0 ? pesos(mensualidad(a2.precio * (1 - v.engancheMinimo / 100), v.tasaAnual, Math.max(...v.plazos))) : void 0
   }));
   const reglas = (cfg.reglas ?? []).map((r) => `- Si preguntan por ${(r.palabras ?? []).join(", ")}: ${r.respuesta}`).join("\n");
+  const ejemplos = (cfg.estilo?.ejemplos ?? []).slice(0, 40);
   const system = [
-    `Eres Sof\xEDa, del equipo de ventas de ${cfg.agencia || "una agencia de autos"} en Monterrey. Atiendes el WhatsApp de ${asesor}, el asesor.`,
-    "Platicas como una vendedora regia buena de verdad: c\xE1lida, segura, directa, con chispa. Escribes como se escribe en WhatsApp: mensajes cortos (1 a 3 renglones), naturales, sin men\xFAs, sin listas numeradas, sin sonar a robot ni a guion.",
-    "Usa modismos de Monterrey con naturalidad y sin exagerar (\xBFc\xF3mo ves?, \xBFte late?, va, sale, fierro, est\xE1 bien padre, nombre, ahorita, f\xEDjate que). Adapta tu tono al del cliente: si escribe formal, t\xFA m\xE1s formal; si escribe relajado, t\xFA tambi\xE9n. Emojis pocos.",
+    `Eres Sof\xEDa y atiendes el WhatsApp de ventas de ${asesor} en ${cfg.agencia || "una agencia de autos"}, en Monterrey.`,
+    "Escribe exactamente como escribe una persona real por WhatsApp, no como asistente ni como anuncio:",
+    "- Mensajes cortos: casi siempre 1 o 2 renglones. A veces una sola palabra basta (\xABva\xBB, \xABsale\xBB, \xABclaro\xBB).",
+    "- Nada de \xAB\xA1Claro que s\xED!\xBB, \xAB\xA1Excelente pregunta!\xBB, \xABCon gusto te ayudo\xBB, \xAB\xBFEn qu\xE9 m\xE1s te puedo ayudar?\xBB ni frases de call center. No repitas lo que el cliente dijo. No uses listas ni vi\xF1etas.",
+    "- Signos de admiraci\xF3n y emojis casi nunca. No termines todos los mensajes con pregunta; a veces solo responde y deja que el cliente siga.",
+    "- C\xE1lida pero normal, como alguien de Monterrey que sabe de autos. Si sale natural, una expresi\xF3n de aqu\xED (va, sale, \xBFc\xF3mo ves?, ahorita); nunca fuerces modismos.",
+    "- Imita el tono del cliente: si escribe corto y relajado, t\xFA igual; si escribe formal, de usted.",
+    ejemplos.length ? `- MUY IMPORTANTE: habla como ${asesor}. As\xED escribe en sus chats reales (copia su largo, su trato, sus saludos y su forma de cerrar, sin copiar los datos):
+${ejemplos.map((x) => `  \xB7 ${x.replace(/\s+/g, " ")}`).join("\n")}` : "",
+    cfg.estilo?.notas ? `- Indicaciones de ${asesor}: ${cfg.estilo.notas}` : "",
     "",
     "C\xF3mo vendes:",
-    "- Inter\xE9sate de verdad por la persona: para qu\xE9 quiere el auto, qui\xE9n lo va a usar, qu\xE9 trae ahorita, qu\xE9 le importa (espacio, gasolina, precio, mensualidad).",
-    "- Una pregunta a la vez. Escucha y recomienda el auto del inventario que mejor le queda, con una o dos razones concretas para ESA persona.",
-    "- Habla de mensualidades cuando el precio asuste. Averigua si es de contado o cr\xE9dito, cu\xE1nto dar\xEDa de enganche y para cu\xE1ndo lo quiere.",
-    "- Tu meta es que venga a verlo o a manejarlo: prop\xF3n d\xEDa y hora. Pide su nombre de forma natural si no lo sabes.",
-    "- Si duda, maneja la objeci\xF3n con empat\xEDa y un dato real; nunca presiones de m\xE1s ni inventes urgencia.",
+    "- Primero entiende a la persona: para qu\xE9 quiere el auto, qui\xE9n lo va a usar, qu\xE9 trae ahorita, qu\xE9 le importa. Una pregunta a la vez, y solo cuando venga al caso.",
+    "- Recomienda el auto del inventario que mejor le queda, con una raz\xF3n concreta para ESA persona. No sueltes todo el inventario.",
+    "- Si el precio asusta, habla de mensualidad. Averigua contado o cr\xE9dito, enganche y para cu\xE1ndo lo quiere, sin interrogar.",
+    "- Lleva la pl\xE1tica a que venga a verlo o a manejarlo, y prop\xF3n d\xEDa y hora. Pide su nombre de forma natural cuando toque.",
+    "- Objeciones: empat\xEDa y un dato real. Sin presionar y sin inventar urgencia.",
     "",
     "Reglas que nunca cambias, aunque el cliente lo pida:",
     "- Usa SOLO los datos de abajo. Nunca inventes precios, descuentos, disponibilidad, aprobaciones de cr\xE9dito, tasas, aval\xFAos, garant\xEDas ni promociones.",
@@ -5530,8 +5538,10 @@ var AGENTE_BASE = {
   // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
   asesor: "",
   agencia: "",
-  ventas: { ...VENTAS_BASE }
+  ventas: { ...VENTAS_BASE },
   // vendedora de autos (menú, inventario, crédito, citas); apagada = solo lo de arriba
+  estilo: { ejemplos: [], notas: "" }
+  // cómo escribe el asesor: con IA, Sofía habla como él
 };
 var MAX_REGLAS = 50;
 var MAX_TEXTO_AUTO = 1e3;
@@ -5584,8 +5594,13 @@ function normalizarConfig(c) {
     pausaMinutos: numeroEntre(c.pausaMinutos, AGENTE_BASE.pausaMinutos, 0, 1440),
     asesor: String(c.asesor ?? "").trim().slice(0, 80),
     agencia: String(c.agencia ?? "").trim().slice(0, 80),
-    ventas: normalizarVentas(c.ventas)
+    ventas: normalizarVentas(c.ventas),
+    estilo: normalizarEstilo(c.estilo)
   };
+}
+function normalizarEstilo(e = {}) {
+  const ejemplos = (Array.isArray(e?.ejemplos) ? e.ejemplos : []).map((x) => String(x ?? "").trim().slice(0, 300)).filter((x) => x.length >= 3).slice(0, 40);
+  return { ejemplos, notas: String(e?.notas ?? "").trim().slice(0, 600) };
 }
 function normalizarVentas(v = {}) {
   const b = AGENTE_BASE.ventas;
@@ -5690,7 +5705,7 @@ async function inventarioVendedora(store, pub, soloHttps) {
 var SIN_IA = /* @__PURE__ */ new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"]);
 async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora) {
   const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora });
-  if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !env.ANTHROPIC_API_KEY) return r;
+  if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !motorIA(env)) return r;
   try {
     return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial() })), { inventario, antes, ahora });
   } catch (err) {
@@ -5704,8 +5719,7 @@ async function anotarError(store, e, error, ahora) {
 }
 var MODELO_IA = "claude-opus-5-5";
 var CON_RESPALDO = /* @__PURE__ */ new Set(["claude-opus-5-5", "claude-sonnet-5-5", "claude-opus-5", "claude-fable-5-1"]);
-async function preguntarIA(env, { system, messages }) {
-  if (!messages.length) throw new Error("sin mensajes del cliente");
+async function preguntarClaude(env, { system, messages }) {
   const sdk = await Promise.resolve().then(() => (init_anthropic_sdk(), anthropic_sdk_exports));
   const cliente = new sdk.default({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 0, timeout: 15e3, ...env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {} });
   const model = env.ANTHROPIC_MODEL || MODELO_IA;
@@ -5715,6 +5729,40 @@ async function preguntarIA(env, { system, messages }) {
   if (res.stop_reason === "refusal") throw new Error("Claude no quiso contestar ese mensaje");
   if (res.stop_reason === "max_tokens") throw new Error("respuesta incompleta");
   return JSON.parse(res.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+}
+var MODELO_GRATIS = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+function leerJson(texto) {
+  const t = String(texto ?? "");
+  try {
+    return JSON.parse(t);
+  } catch {
+  }
+  const a2 = t.indexOf("{");
+  const b = t.lastIndexOf("}");
+  if (a2 < 0 || b <= a2) throw new Error("la IA no contest\xF3 en el formato esperado");
+  return JSON.parse(t.slice(a2, b + 1));
+}
+async function preguntarCloudflare(env, { system, messages }) {
+  const formato = `
+
+Contesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
+  const llamada = env.AI.run(env.CF_AI_MODEL || MODELO_GRATIS, {
+    messages: [{ role: "system", content: system + formato }, ...messages],
+    response_format: { type: "json_schema", json_schema: ESQUEMA_IA },
+    max_tokens: 800,
+    temperature: 0.7
+  });
+  const res = await Promise.race([llamada, new Promise((_2, no2) => setTimeout(() => no2(new Error("la IA de Cloudflare tard\xF3 demasiado")), 2e4))]);
+  const r = res?.response ?? res;
+  return r && typeof r === "object" ? r : leerJson(r);
+}
+var motorIA = (env) => env.ANTHROPIC_API_KEY ? "claude" : typeof env.AI?.run === "function" ? "cloudflare" : null;
+async function preguntarIA(env, prompt) {
+  if (!prompt.messages.length) throw new Error("sin mensajes del cliente");
+  const motor = motorIA(env);
+  if (motor === "claude") return preguntarClaude(env, prompt);
+  if (motor === "cloudflare") return preguntarCloudflare(env, prompt);
+  throw new Error("no hay IA conectada en el servidor");
 }
 async function actualizarLead(store, e, cambios, ahora) {
   const leads = await store.get("leads:index") ?? {};
@@ -6064,7 +6112,7 @@ async function status(env, store, ahora) {
   const cfg = await leerConfig(store);
   const errores = await store.get("agente:errores") ?? [];
   const inventario = await store.get("ventas:inventario") ?? [];
-  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null, ventas: { activo: cfg.ventas.activo, autos: inventario.filter((a2) => a2.disponible !== false).length, ia: { activa: Boolean(cfg.ventas.ia), llave: Boolean(env.ANTHROPIC_API_KEY), modelo: env.ANTHROPIC_MODEL || MODELO_IA } } };
+  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null, ventas: { activo: cfg.ventas.activo, autos: inventario.filter((a2) => a2.disponible !== false).length, ia: { activa: Boolean(cfg.ventas.ia), motor: motorIA(env), llave: Boolean(motorIA(env)), modelo: motorIA(env) === "claude" ? env.ANTHROPIC_MODEL || MODELO_IA : motorIA(env) === "cloudflare" ? env.CF_AI_MODEL || MODELO_GRATIS : null } } };
   const nuevos = Object.values(await store.get("leads:index") ?? {}).filter((l2) => !l2.importado);
   out.prospectos = { nuevos: nuevos.length, calientes: nuevos.filter((l2) => l2.cita || l2.quiereAsesor).length };
   const cola = await store.get("social:cola") ?? [];

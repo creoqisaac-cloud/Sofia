@@ -377,9 +377,14 @@ function drawAgentForm(box, cfg) {
     h("div", { class: "grid2" }, field("Tasa anual de referencia (%)", tasa, "Solo para estimar; Sofía aclara que está sujeta a aprobación."), field("Enganche mínimo (%)", enganche)),
     h("div", { class: "grid2" }, field("Plazos (meses)", plazos), field("Al pedirte, Sofía se calla (horas)", conAsesor)),
     h("label", { class: "row gap-s" }, conIa, h("span", {}, "Con IA: contesta lo que el menú no entiende y platica como vendedora (opcional, de pago)")),
-    h("p", { class: iaSt && !iaSt.llave && conIa.checked ? "warn small" : "muted small" }, iaSt?.llave
-      ? `Usa tu llave de Anthropic del servidor (modelo ${iaSt.modelo}). Nunca inventa precios: solo usa tu inventario y tus reglas; si no sabe, te pasa al cliente.`
-      : "Necesita ANTHROPIC_API_KEY en tu servidor (ver la guía de conexiones). Sin ella, Sofía funciona igual con el menú."),
+    h("p", { class: iaSt && !iaSt.llave && conIa.checked ? "warn small" : "muted small" }, iaSt?.motor === "cloudflare"
+      ? "Usa la IA GRATIS de tu Cloudflare (cuota diaria sin costo). Nunca inventa precios: solo usa tu inventario y tus reglas; si no sabe, te pasa al cliente."
+      : iaSt?.motor === "claude"
+        ? `Usa Claude con la llave de tu servidor (modelo ${iaSt.modelo}): la más natural, con costo por uso.`
+        : "Para la IA gratis: en Cloudflare, tu Worker → Settings → Bindings → Add → Workers AI, con el nombre AI (ver la guía). Sin IA, Sofía contesta con el menú."),
+    h("p", { class: "muted small" }, state.settings.style.examples.length
+      ? `Habla como tú: al guardar se le mandan ${Math.min(40, state.settings.style.examples.length)} mensajes tuyos de «Mi estilo de venta».`
+      : "Para que hable como tú, importa tus chats en Más → Mi estilo de venta y vuelve a guardar."),
     soloReglas,
     h("h3", {}, "Respuestas por palabra clave"),
     reglasBox,
@@ -394,6 +399,8 @@ function drawAgentForm(box, cfg) {
           activo: activo.checked, asesor: asesor.value, agencia: agencia.value, zonaHoraria: zona.value,
           horario: { dias: [...dias], inicio: inicio.value, fin: fin.value },
           bienvenida: bienvenida.value, fueraDeHorario: fuera.value,
+          // Mensajes reales del asesor (los más recientes con algo de contenido) para que la IA hable como él.
+          estilo: { ejemplos: state.settings.style.examples.map((e) => e.text).filter((t) => t.length >= 8 && t.length <= 300).slice(-40), notas: state.settings.style.notes ?? "" },
           ventas: {
             activo: ventas.checked, ia: conIa.checked, presentacion: presentacion.value, tasaAnual: Number(tasa.value) || 0, engancheMinimo: Number(enganche.value) || 0,
             plazos: plazos.value.split(/[^\d]+/).map(Number).filter(Boolean), ...(conAsesor.value === "" ? {} : { horasConAsesor: Number(conAsesor.value) }),

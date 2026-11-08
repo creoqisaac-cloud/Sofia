@@ -140,18 +140,17 @@ Otros cuidados:
 - Contra otro contestador automático, Sofía no manda más de 15 respuestas por hora a un mismo contacto.
 - Corre en tu servidor: contesta aunque el teléfono esté apagado.
 
-### 3.5 IA opcional para la vendedora (de pago)
-Sin IA, Sofía contesta con el menú y tus reglas. Con IA, lo que el menú no entiende («¿aceptan mi auto a cuenta?», «¿trae cámara de reversa?») lo contesta Claude con los mismos datos: tu inventario, tus respuestas, tu horario y tu crédito de referencia. Nunca inventa precios, descuentos ni aprobaciones: si no sabe, te pasa al cliente.
+### 3.5 IA para que Sofía platique como persona (gratis con Cloudflare)
+Sin IA, Sofía contesta con el menú y tus reglas. Con IA, lleva toda la plática como vendedora: mensajes cortos y naturales, entiende lo que le escriban y te pasa al cliente con un resumen. Nunca inventa precios, descuentos ni aprobaciones, y si le preguntan en serio si es un bot, lo dice.
 
-1. Conecta tu llave en **Más → Conexiones → Inteligencia artificial** (sección 5) y toca **Usar esta llave también en mi servidor**. Se usa el modelo que elegiste ahí: con Opus 5.5 la máxima calidad, y con Haiku 5.5 cuesta unas 40 veces menos.
-2. También puedes ponerla en Cloudflare como **Secret** `ANTHROPIC_API_KEY` (y `ANTHROPIC_MODEL`, por defecto `claude-opus-5-5`).
-3. En **WhatsApp → Automático**, marca **Con IA** y guarda. En **Probar a Sofía** verás «✨ Contestó con IA» en esas respuestas.
+**Gratis (recomendado para empezar): la IA de Cloudflare.**
+1. En Cloudflare, tu Worker → **Settings → Bindings → Add → Workers AI**. Nombre de variable: `AI`. Guarda y despliega. (Con la terminal ya viene en `wrangler.toml`.)
+2. En Sofía: **WhatsApp → Automático**, marca **Con IA** y guarda. Debe decir «Usa la IA GRATIS de tu Cloudflare».
+3. Cloudflare da una cuota diaria sin costo; revisa cuánto llevas en tu panel, en **Workers AI**. Si un día se acaba, Sofía sigue contestando con el menú.
 
-Costo aproximado: unos 2 centavos de dólar por respuesta con IA usando Opus 5.5, y mucho menos con Haiku 5.5. Solo se usa en los mensajes que el menú no entendió. Si la IA falla o tarda, se envía la respuesta del menú.
+**Para que hable como tú:** en **Más → Mi estilo de venta** importa 2 o 3 chats tuyos donde vendiste (en WhatsApp: el chat → ⋮ → Más → Exportar chat → Sin archivos). Después, en **WhatsApp → Automático**, vuelve a tocar **Guardar**: Sofía recibe tus mensajes como ejemplo y copia tu forma de escribir.
 
-**Reglas de WhatsApp que conviene saber:**
-- Puedes escribir libremente durante **24 horas** después del último mensaje del cliente. Las respuestas automáticas siempre caen dentro de esa ventana.
-- Pasado ese tiempo solo se permiten **plantillas aprobadas**. Se crean en el Administrador de WhatsApp y Sofía las muestra para enviarlas.
+**Opcional, de pago: Claude**, que es la que habla más natural. Conecta tu llave en **Más → Conexiones → Inteligencia artificial** y toca **Usar esta llave también en mi servidor**. Con Haiku 5.5 sale en centavos por cada mil mensajes. Si hay llave de Claude, Sofía usa Claude; si no, la gratis de Cloudflare.
 
 ---
 

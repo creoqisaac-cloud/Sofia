@@ -804,6 +804,34 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect(ia.peticiones).toHaveLength(0);
   });
 
+  it("IA GRATIS de Cloudflare (enlace AI del Worker): sin llave de Claude, contesta con Llama y habla como el asesor", async () => {
+    const store = memStore();
+    await handle(post("/api/inventario", { token: "clave", autos: AUTOS }), env(), store);
+    await configurar(store, vendedora({ ventas: { ia: true }, estilo: { ejemplos: ["Qué onda, aquí Pedro 👋", "va, te espero el sábado"], notas: "Nunca hables de usted" } }));
+    const corridas: { modelo: string; entrada: { messages: { role: string; content: string }[]; response_format: { type: string } } }[] = [];
+    let respuesta: unknown = { response: { respuesta: "va, la Versa está bien para empezar. ¿la quieres a crédito?", pasar_a_asesor: false, auto_id: "versa", resumen: "Busca algo económico", forma_pago: "", cita: "" } };
+    const AI = { run: async (modelo: string, entrada: (typeof corridas)[number]["entrada"]) => { corridas.push({ modelo, entrada }); return respuesta; } };
+    const e = { ...env(), AI };
+    await handle(signed(waMsg("wamid.CF1", "hola busco algo barato", LUNES_10)), e, store, { ahora: LUNES_10 });
+    expect(corridas[0]!.modelo).toBe("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+    expect(corridas[0]!.entrada.response_format.type).toBe("json_schema");
+    const sistema = corridas[0]!.entrada.messages[0]!;
+    expect(sistema.role).toBe("system");
+    expect(sistema.content).toContain("habla como Pedro");
+    expect(sistema.content).toContain("va, te espero el sábado");
+    expect(sistema.content).toContain("Nunca hables de usted");
+    expect(waEnvios().at(-1)!.text.body).toBe("va, la Versa está bien para empezar. ¿la quieres a crédito?");
+    expect(await leadDe(store)).toMatchObject({ autoId: "versa", resumen: "Busca algo económico" });
+    // Algunos modelos regresan texto con algo antes del JSON: se lee igual.
+    respuesta = { response: 'Aquí está: {"respuesta":"sale, ¿qué día puedes venir?","pasar_a_asesor":false,"auto_id":"","resumen":"","forma_pago":"credito","cita":""}' };
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.CF2", "si a credito", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
+    expect(waEnvios()[0]!.text.body).toBe("sale, ¿qué día puedes venir?");
+    expect((await (await handle(req("/api/estado?token=clave"), e, store)).json()).agente.ventas.ia).toMatchObject({ activa: true, motor: "cloudflare", modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" });
+    // Con llave de Claude, manda Claude.
+    expect((await (await handle(req("/api/estado?token=clave"), { ...e, ANTHROPIC_API_KEY: "sk-ant-x" }, store)).json()).agente.ventas.ia.motor).toBe("claude");
+  });
+
   it("«Probar a Sofía»: contesta como el servidor (menú + IA) sin guardar nada ni mandar mensajes", async () => {
     const store = memStore();
     await handle(post("/api/inventario", { token: "clave", autos: AUTOS }), env(), store);

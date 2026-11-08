@@ -201,6 +201,7 @@ const AGENTE_BASE = {
   asesor: "",
   agencia: "",
   ventas: { ...VENTAS_BASE }, // vendedora de autos (menú, inventario, crédito, citas); apagada = solo lo de arriba
+  estilo: { ejemplos: [], notas: "" }, // cómo escribe el asesor: con IA, Sofía habla como él
 };
 const MAX_REGLAS = 50;
 const MAX_TEXTO_AUTO = 1000;
@@ -256,7 +257,14 @@ function normalizarConfig(c) {
     asesor: String(c.asesor ?? "").trim().slice(0, 80),
     agencia: String(c.agencia ?? "").trim().slice(0, 80),
     ventas: normalizarVentas(c.ventas),
+    estilo: normalizarEstilo(c.estilo),
   };
+}
+
+/** Cómo escribe el asesor (mensajes reales suyos de «Mi estilo de venta»), para que Sofía hable como él. */
+function normalizarEstilo(e = {}) {
+  const ejemplos = (Array.isArray(e?.ejemplos) ? e.ejemplos : []).map((x) => String(x ?? "").trim().slice(0, 300)).filter((x) => x.length >= 3).slice(0, 40);
+  return { ejemplos, notas: String(e?.notas ?? "").trim().slice(0, 600) };
 }
 
 function normalizarVentas(v = {}) {
@@ -385,7 +393,7 @@ const SIN_IA = new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-pro
  */
 async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora) {
   const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora });
-  if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !env.ANTHROPIC_API_KEY) return r;
+  if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !motorIA(env)) return r;
   try {
     return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial() })), { inventario, antes, ahora });
   } catch (err) {
@@ -408,8 +416,7 @@ const CON_RESPALDO = new Set(["claude-opus-5-5", "claude-sonnet-5-5", "claude-op
  * Esfuerzo bajo: son mensajes cortos de WhatsApp. Sin reintentos y con tiempo límite, porque Meta espera
  * respuesta del webhook. Si Claude rechaza, se usa otro modelo automáticamente (fallbacks) cuando aplica.
  */
-async function preguntarIA(env, { system, messages }) {
-  if (!messages.length) throw new Error("sin mensajes del cliente");
+async function preguntarClaude(env, { system, messages }) {
   const sdk = await import("../vendor/anthropic-sdk.mjs");
   const cliente = new sdk.default({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 0, timeout: 15_000, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
   const model = env.ANTHROPIC_MODEL || MODELO_IA;
@@ -419,6 +426,44 @@ async function preguntarIA(env, { system, messages }) {
   if (res.stop_reason === "refusal") throw new Error("Claude no quiso contestar ese mensaje");
   if (res.stop_reason === "max_tokens") throw new Error("respuesta incompleta");
   return JSON.parse(res.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+}
+
+// IA GRATIS: Workers AI de Cloudflare (enlace "AI" en el Worker), con su cuota diaria sin costo. Se usa cuando no
+// hay llave de Claude. Habla bien español aunque menos natural que Claude.
+export const MODELO_GRATIS = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+
+/** El primer objeto JSON de un texto (los modelos abiertos a veces agregan algo antes o después). */
+function leerJson(texto) {
+  const t = String(texto ?? "");
+  try { return JSON.parse(t); } catch { /* sigue */ }
+  const a = t.indexOf("{");
+  const b = t.lastIndexOf("}");
+  if (a < 0 || b <= a) throw new Error("la IA no contestó en el formato esperado");
+  return JSON.parse(t.slice(a, b + 1));
+}
+
+async function preguntarCloudflare(env, { system, messages }) {
+  const formato = `\n\nContesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
+  const llamada = env.AI.run(env.CF_AI_MODEL || MODELO_GRATIS, {
+    messages: [{ role: "system", content: system + formato }, ...messages],
+    response_format: { type: "json_schema", json_schema: ESQUEMA_IA },
+    max_tokens: 800,
+    temperature: 0.7,
+  });
+  const res = await Promise.race([llamada, new Promise((_, no) => setTimeout(() => no(new Error("la IA de Cloudflare tardó demasiado")), 20_000))]);
+  const r = res?.response ?? res;
+  return r && typeof r === "object" ? r : leerJson(r);
+}
+
+/** Motor de IA disponible: Claude si hay llave; si no, la IA gratis de Cloudflare si el Worker la tiene enlazada. */
+const motorIA = (env) => (env.ANTHROPIC_API_KEY ? "claude" : typeof env.AI?.run === "function" ? "cloudflare" : null);
+
+async function preguntarIA(env, prompt) {
+  if (!prompt.messages.length) throw new Error("sin mensajes del cliente");
+  const motor = motorIA(env);
+  if (motor === "claude") return preguntarClaude(env, prompt);
+  if (motor === "cloudflare") return preguntarCloudflare(env, prompt);
+  throw new Error("no hay IA conectada en el servidor");
 }
 
 /** Lo que el cliente fue diciendo (auto, crédito, enganche, cita…) se guarda en su prospecto para la app. */
@@ -803,7 +848,7 @@ async function status(env, store, ahora) {
   const cfg = await leerConfig(store);
   const errores = (await store.get("agente:errores")) ?? [];
   const inventario = (await store.get("ventas:inventario")) ?? [];
-  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null, ventas: { activo: cfg.ventas.activo, autos: inventario.filter((a) => a.disponible !== false).length, ia: { activa: Boolean(cfg.ventas.ia), llave: Boolean(env.ANTHROPIC_API_KEY), modelo: env.ANTHROPIC_MODEL || MODELO_IA } } };
+  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null, ventas: { activo: cfg.ventas.activo, autos: inventario.filter((a) => a.disponible !== false).length, ia: { activa: Boolean(cfg.ventas.ia), motor: motorIA(env), llave: Boolean(motorIA(env)), modelo: motorIA(env) === "claude" ? env.ANTHROPIC_MODEL || MODELO_IA : motorIA(env) === "cloudflare" ? env.CF_AI_MODEL || MODELO_GRATIS : null } } };
   const nuevos = Object.values((await store.get("leads:index")) ?? {}).filter((l) => !l.importado);
   out.prospectos = { nuevos: nuevos.length, calientes: nuevos.filter((l) => l.cita || l.quiereAsesor).length };
   const cola = (await store.get("social:cola")) ?? [];

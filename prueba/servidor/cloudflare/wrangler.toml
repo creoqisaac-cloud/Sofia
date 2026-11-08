@@ -12,3 +12,8 @@ id = "PEGA_AQUI_EL_ID_DEL_KV"
 # Programador de publicaciones: cada 5 minutos publica lo que ya tocaba (el plan gratis permite hasta 5 crons).
 [triggers]
 crons = ["*/5 * * * *"]
+
+# IA gratis de Cloudflare para la vendedora (Workers AI, cuota diaria sin costo). En el panel:
+# tu Worker → Settings → Bindings → Add → Workers AI, con el nombre de variable AI.
+[ai]
+binding = "AI"
