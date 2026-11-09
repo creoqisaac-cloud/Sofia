@@ -435,7 +435,7 @@ step(`vendedora en WhatsApp: «${fichaTexto.split("\n").filter((l) => /🚗|💵
 const pedirCita = graphCalls.length;
 await webhook({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { contacts: [{ wa_id: "5218177776666", profile: { name: "Pedro Nuevo" } }], messages: [{ from: "5218177776666", id: "wamid.NUEVO2", timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "¿Puedo ir a manejarlo el sábado a las 11?" } }] } }] }] });
 await new Promise((r) => setTimeout(r, 800));
-if (!graphCalls.slice(pedirCita).some((c) => c.path === "/v/111/messages" && c.body.includes("Anoté tu visita"))) throw new Error("La vendedora no anotó la cita");
+if (!graphCalls.slice(pedirCita).some((c) => c.path === "/v/111/messages" && c.body.includes("queda anotado"))) throw new Error("La vendedora no anotó la cita");
 await p.goto(BASE + "#/whatsapp?tab=auto");
 await p.reload(); // recargar para traer los prospectos nuevos
 await p.locator(".item strong", { hasText: "🔥 Pedro Nuevo" }).waitFor();

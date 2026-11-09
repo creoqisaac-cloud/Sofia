@@ -189,8 +189,8 @@ function waText(m) {
 // mandado a ese contacto en las últimas esperaHoras: bienvenida (primer contacto) → fuera de horario →
 // reglas por palabra. Nunca más de una respuesta automática por mensaje.
 
-// De fábrica: contesta en nombre del Lic. Mario Abarca (Honda), sola y con IA (gratis de Cloudflare), sin configurar nada.
-const PERFIL = 2; // sube cuando cambia lo de fábrica y hay que pasar las configuraciones guardadas a la nueva forma
+// De fábrica: contesta por Mario Abarca (Honda), sola y con IA (gratis de Cloudflare), sin configurar nada.
+const PERFIL = 3; // sube cuando cambia lo de fábrica y hay que pasar las configuraciones guardadas a la nueva forma
 const AGENTE_BASE = {
   perfil: PERFIL,
   activo: true,
@@ -201,7 +201,7 @@ const AGENTE_BASE = {
   reglas: [], // [ { palabras: ["precio", "cuánto cuesta"], respuesta: "…" } ]
   esperaHoras: 12, // no repetir la misma respuesta automática al mismo contacto antes de N horas
   pausaMinutos: 30, // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
-  asesor: "Lic. Mario Abarca",
+  asesor: "Mario Abarca",
   agencia: "Honda",
   marca: "Honda",
   ventas: { ...VENTAS_BASE, ia: true }, // vendedora (agenda citas); apagada = solo lo de arriba
@@ -302,9 +302,9 @@ async function leerConfig(store) {
   // Configuración guardada antes de la Sofía de Mario en Honda (no trae «marca»): pasa a la nueva forma de trabajar,
   // contestando sola y con IA, con Mario y Honda donde estaba vacío.
   if (c && !c.marca) c = { ...c, activo: true, asesor: c.asesor || AGENTE_BASE.asesor, agencia: c.agencia || AGENTE_BASE.agencia, marca: AGENTE_BASE.marca, ventas: { ...(c.ventas ?? {}), activo: true, ia: true } };
-  // Antes del perfil 2 lo de fábrica era «Mario» y «Soy Sofía, asistente de…»: ahora contesta en nombre del Lic. Mario Abarca.
-  if (c && (c.perfil ?? 1) < 2) {
-    c = { ...c, perfil: PERFIL, asesor: !c.asesor || c.asesor === "Mario" ? AGENTE_BASE.asesor : c.asesor };
+  // Lo de fábrica antes era «Mario» o «Lic. Mario Abarca» y «Soy Sofía, asistente de…»: ahora contesta por Mario Abarca.
+  if (c && (c.perfil ?? 1) < PERFIL) {
+    c = { ...c, perfil: PERFIL, asesor: ["", "Mario", "Lic. Mario Abarca"].includes(c.asesor ?? "") ? AGENTE_BASE.asesor : c.asesor };
     if (/Soy Sofía/i.test(c.ventas?.presentacion ?? "")) c.ventas = { ...c.ventas, presentacion: "" };
   }
   return { ...AGENTE_BASE, ...(c ?? {}), horario: { ...AGENTE_BASE.horario, ...(c?.horario ?? {}) }, ventas: { ...AGENTE_BASE.ventas, ...(c?.ventas ?? {}) } };

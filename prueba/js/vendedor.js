@@ -18,7 +18,7 @@ export const VENTAS_BASE = {
   engancheMinimo: 20, // % del precio
   plazos: [24, 36, 48, 60],
   horasConAsesor: 12, // al pedir asesor o anotar una visita, Sofía deja esa conversación al asesor
-  presentacion: "", // cómo se presenta en el primer mensaje; vacío = "¡Hola {nombre}! 👋 Te escribo de parte del {asesor}, de {agencia}."
+  presentacion: "", // cómo saluda en el primer mensaje; vacío = "¡Hola {nombre}! 👋"
   ia: false, // con IA (opcional, de pago): contesta lo que el menú no entiende, con los mismos datos y reglas
 };
 export const MAX_POR_HORA = 15; // freno contra bucles con otro contestador automático
@@ -228,7 +228,9 @@ function engancheDicho(texto) {
   if (pct) { const n = Number(pct[1].replace(",", ".")); return n > 0 && n < 100 ? { texto: `${n}%`, pct: n } : null; }
   if (!montoExplicito(texto)) return null;
   const n = leerEnganche(texto, 0);
-  return n >= 1000 ? { texto: pesos(n), monto: Math.round(n) } : null;
+  if (!(n >= 1000)) return null;
+  const monto = Math.round(n);
+  return { texto: monto % 1000 === 0 && monto < 1e6 ? `${monto / 1000} mil` : pesos(monto), monto }; // «80 mil», como lo dice la gente
 }
 const NUMEROS = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
 /** "2", "2.", "opción 2", "la 3", "#4", "dos" → número; cualquier otra cosa → null. */
@@ -300,10 +302,8 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
 
   // ── Piezas de conversación ──
   const saludo = () => {
-    const intro = v.presentacion?.trim()
-      ? rellenar(v.presentacion, vars)
-      : rellenar(cfg.asesor ? `¡Hola {nombre}! 👋 Te escribo de parte ${asesorCon(cfg.asesor, "de")}, de {agencia}.` : "¡Hola {nombre}! 👋 Gracias por escribir a {agencia}.", vars);
-    return msg.enHorario === false ? `${intro}\nAhorita estamos fuera de horario${horario ? ` (${horario})` : ""}, pero yo te ayudo con lo que necesites 😉` : intro;
+    const intro = rellenar(v.presentacion?.trim() || "¡Hola {nombre}! 👋", vars);
+    return msg.enHorario === false ? `${intro} Ahorita estamos cerrados, pero te ayudo por aquí.` : intro;
   };
   const menu = (encabezado = "¿En qué te ayudo?") => {
     if (!autos.length) { // sin inventario: todo lleva a la cita
@@ -382,15 +382,14 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   const pedirCita = (intro = "") => {
     calentar("caliente");
     const auto = porId(c.autoId);
-    const que = auto ? `la *${nombreAuto(auto)}*` : c.modelo ? `${femenino(c.modelo) ? "la" : "el"} *${c.modelo}*` : "";
+    const que = auto ? `la ${nombreAuto(auto)}` : c.modelo ? `${femenino(c.modelo) ? "la" : "el"} ${c.modelo}` : "";
     const ops = tresOpciones(libres);
     if (ops.length) { // horarios reales de la agenda: el cliente elige uno y queda apartado
       ir("cita", [...ops.map((x) => `slot:${x.id}`), "otra-hora"]);
-      const abre = intro ? `${intro}\n¿Te aparto cita${que ? ` para que veas ${que}` : ""}?` : `Va, te aparto cita con ${asesor}${que ? ` para que veas ${que}` : ""}.`;
-      return `${abre} Tengo libre:\n${enumerar([...ops.map((x) => x.texto), "Otro día u hora"])}\n¿Cuál te queda?`;
+      return `${intro ? `${intro} ` : ""}¿Cuándo puedes venir${que ? ` a ver ${que}` : ""}? Tengo:\n${enumerar([...ops.map((x) => x.texto), "Otro día u hora"])}`;
     }
     ir("cita");
-    return `${intro ? `${intro}\n` : ""}¿Qué día y a qué hora te acomoda venir${que ? ` a ver ${que}` : ""}? (por ejemplo «sábado 11 am»)${horario ? `\nNuestro horario: ${horario}.` : ""}`;
+    return `${intro ? `${intro} ` : ""}¿Qué día y a qué hora puedes venir${que ? ` a ver ${que}` : ""}?${horario ? ` Abrimos ${horario}.` : ""}`;
   };
   const apartar = (id) => {
     const x = libres.find((l) => l.id === id);
@@ -399,7 +398,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     Object.assign(lead, { cita: x.texto, citaId: x.id, citaConfirmada: true });
     calentar("caliente");
     ir("nombre");
-    return `Listo ✅ quedó tu cita ${x.texto} con ${asesor}${cfg.agencia ? ` en ${cfg.agencia}` : ""}. ¿A nombre de quién la aparto?`;
+    return `Listo, quedó ${x.texto}. ¿A nombre de quién?`;
   };
   const anotarCita = (cuando) => {
     const a = porId(c.autoId);
@@ -407,28 +406,26 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     lead.quiereAsesor = true;
     calentar("caliente");
     ir("asesor");
-    return rellenar(`¡Listo, {nombre}! ✅ Anoté tu visita: *${lead.cita}*${a ? ` para la *${nombreAuto(a)}*` : ""}. ${Asesor} te confirma en breve.`, vars);
+    return `Va, queda anotado: ${lead.cita}${a ? ` para ver la ${nombreAuto(a)}` : ""}. Ahorita te confirma ${asesor}.`;
   };
   function pasarAsesor(intro = "") {
     lead.quiereAsesor = true;
     calentar("caliente");
     ir("asesor");
-    const cuando = msg.enHorario === false ? ` en cuanto abramos${horario ? ` (${horario})` : ""}` : " en breve";
-    return `${intro ? `${intro}\n` : ""}¡Claro! Le aviso ${aAsesor} para que te escriba${cuando} 🙌. Si quieres, déjame aquí tu duda y se la paso.`;
+    return `${intro ? `${intro}\n` : ""}${msg.enHorario === false ? `Va, le aviso ${aAsesor} para que te escriba en cuanto abramos${horario ? ` (${horario})` : ""}.` : `Va, ahorita le aviso ${aAsesor} para que te escriba.`}`;
   }
-  // Sin inventario: «con gusto te doy una corrida» y se pregunta el enganche; con eso, a la cita.
+  // Sin inventario: se pregunta el modelo; con precio o información, la corrida (cuánto de enganche) y luego la cita.
+  const preguntarModelo = () => { ir("menu", ["cita", "asesor"]); return "¿Qué modelo te interesa?"; };
   const pedirCorrida = () => {
     calentar("tibio");
     ir("corrida");
-    return `Con gusto te doy una corrida${c.modelo ? ` ${delModelo(c.modelo)}` : ""}. ¿Más o menos cuánto tienes pensado dar de enganche?`;
+    return `Claro, te hago una corrida${c.modelo ? ` ${delModelo(c.modelo)}` : ""}. ¿Como cuánto tienes pensado dar de enganche?`;
   };
   const conEnganche = (e) => {
     lead.formaPago = "credito";
     if (e?.monto) lead.enganche = e.monto;
     if (e?.pct) lead.enganchePct = e.pct;
-    return pedirCita(e
-      ? `Va, con ${e.texto} de enganche ${asesor} te prepara la corrida exacta con la promoción del mes.`
-      : `Sin problema, ${asesor} te muestra ejemplos con 20, 30, 40 y 50% de enganche para que veas cuál te acomoda.`);
+    return pedirCita(e ? `Va, con ${e.texto} te armo la corrida.` : "Va, te la armo con 20, 30, 40 y 50% de enganche para que veas cuál te acomoda.");
   };
   const accion = (a) => {
     if (a.startsWith("slot:")) return apartar(a.slice(5));
@@ -467,7 +464,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       lead.nombreCliente = texto.trim().replace(/^(soy|me llamo|a nombre de)\s+/i, "").slice(0, 60);
       lead.quiereAsesor = true;
       ir("asesor");
-      decir(`Gracias, ${primerNombre(lead.nombreCliente) || lead.nombreCliente}. ${Asesor} te atiende personalmente en la agencia; cualquier cambio me escribes por aquí.`);
+      decir(`Gracias, ${primerNombre(lead.nombreCliente) || lead.nombreCliente}. Al llegar a la agencia pregunta por ${asesor} para que vaya a recibirte.`);
     }
     else if (c.paso === "corrida" && !dice.asesor && !dice.cita && !dice.contado && !(modelo && !eng) && (eng || tieneAlguna(t, NO_SABE) || c.fallos >= 1)) {
       motivo = "corrida";
@@ -510,20 +507,22 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       }
       else if (dice.lista || dice.precio || dice.credito || dice.contado || modelo) {
         // Sin inventario no hay cifras: se ofrece la corrida (pide enganche) y el asesor la da exacta en la cita.
-        if (dice.contado) { motivo = "cita"; lead.formaPago = "contado"; decir(pedirCita(`De contado ${asesor} te da el precio exacto con la promoción del mes.`)); }
-        else if (dice.precio || dice.credito || eng) { motivo = "corrida"; decir(eng ? conEnganche(eng) : pedirCorrida()); }
-        else { motivo = "cita"; const la = modelo && femenino(modelo); decir(pedirCita(`${modelo ? `Buena elección, ${la ? "la" : "el"} ${modelo} 👌 ` : ""}Lo mejor es que ${la ? "la veas y la manejes" : "lo veas y lo manejes"}.`)); }
+        if (dice.contado) { motivo = "cita"; lead.formaPago = "contado"; decir(pedirCita("Va, de contado también te armo la corrida.")); }
+        else if (eng) { motivo = "corrida"; decir(conEnganche(eng)); }
+        else if (dice.precio || dice.credito || modelo) { motivo = "corrida"; decir(pedirCorrida()); }
+        else { motivo = "menu"; decir(preguntarModelo()); }
       }
-      else if (primero || dice.saludo) { motivo = "menu"; decir(menu()); }
+      else if (primero || dice.saludo) { motivo = "menu"; decir(autos.length ? menu() : preguntarModelo()); }
       else if (dice.gracias) { motivo = "gracias"; decir("¡Con gusto! 😊 Si necesitas algo más, escribe *menú*."); c.opciones = OPCIONES_MENU; c.paso = "menu"; }
       else if (c.paso === "enganche") { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? pasarAsesor("No logré entender el enganche 🙈.") : "¿Cuánto darías de enganche? Escríbelo en pesos o porcentaje, por ejemplo «20%» o «100 mil»."); }
       else if (c.paso === "cita") { motivo = "no-entendi"; c.fallos += 1; decir("¿Qué día y a qué hora te acomoda? Por ejemplo «sábado 11 am»."); }
       else if (c.paso === "corrida") { motivo = "no-entendi"; c.fallos += 1; decir("¿Más o menos cuánto podrías dar de enganche? Puede ser en pesos o porcentaje, por ejemplo «80 mil» o «20%»."); }
+      else if (!autos.length) { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? pasarAsesor() : "Perdón, no te entendí. ¿Qué modelo te interesa?"); }
       else { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? pasarAsesor("Mejor te paso con una persona para ayudarte bien.") : `Perdón, no te entendí 🙈. Escribe el *número* de una opción o el *auto* que buscas.\n\n${menu("Esto es lo que puedo hacer:")}`); }
     }
     if (motivo !== "no-entendi") c.fallos = 0;
     // Primer mensaje: siempre se presenta antes de lo demás.
-    if (primero && resp.length) resp[0] = { ...resp[0], texto: `${saludo()}\n\n${resp[0].texto}` };
+    if (primero && resp.length) resp[0] = { ...resp[0], texto: `${saludo()}\n${resp[0].texto}` };
   } catch {
     resp.length = 0;
     motivo = "asesor";
@@ -585,10 +584,8 @@ export const ESQUEMA_IA = {
  */
 export function promptIA({ cfg = {}, inventario = [], historial = [], libres = [] }) {
   const nombre = cfg.asesor || "el asesor";
-  const el = cfg.asesor ? asesorCon(cfg.asesor) : "el asesor"; // «el Lic. Mario Abarca»
+  const quien = cfg.asesor ? asesorCon(cfg.asesor) : "el asesor"; // «Mario Abarca» (con título: «el Lic. …»)
   const pila = primerNombre(nombre.replace(TITULO, "")) || nombre; // «Mario»
-  const lic = /^lic/i.test(nombre) ? (/^(licenciada|lic\.?da)\b/i.test(nombre) ? "la licenciada" : "el licenciado") : "";
-  const corto = lic || el; // «el licenciado»
   const marca = cfg.marca || "Honda";
   const agencia = cfg.agencia || marca;
   const autos = disponibles(inventario).map((a) => ({
@@ -600,53 +597,49 @@ export function promptIA({ cfg = {}, inventario = [], historial = [], libres = [
   const ejemplos = (cfg.estilo?.ejemplos ?? []).slice(0, 40);
   const opciones = libres.slice(0, 30);
   const system = [
-    `Contestas el WhatsApp de ventas ${asesorCon(nombre, "de")}, asesor de ${marca}${agencia !== marca ? ` (${agencia})` : ""} en Monterrey. Escribes en su nombre, como su equipo: el cliente siente que lo atiende la oficina ${asesorCon(nombre, "de")}.`,
-    `Tu meta: que el cliente venga a la agencia con cita y con su información lista, para que ${el} lo atienda en persona y cierre la venta.`,
+    `Contestas el WhatsApp de ventas ${asesorCon(nombre, "de")}, asesor de ${marca}${agencia !== marca ? ` (${agencia})` : ""} en Monterrey. Escribes por él, como su equipo.`,
+    `Tu meta: que el cliente venga a la agencia con cita. Ahí lo atiende ${quien} y cierra la venta.`,
     "",
-    "Cómo hablas:",
-    "- Como una persona real de Monterrey por WhatsApp: natural, cálida y segura. Mensajes cortos (1 a 3 renglones), sin listas, viñetas ni menús.",
-    "- Si te saludan, saluda primero. Usa el nombre del cliente cuando lo sepas.",
-    "- Una sola pregunta por mensaje. No repitas frases ni ofrezcas lo mismo dos veces seguidas: si ya ofreciste horarios y el cliente pregunta otra cosa, contéstale eso primero.",
-    "- Nunca digas «lo siento», «no puedo», «¡Excelente pregunta!» ni «¿En qué más te puedo ayudar?». En vez de negarte, ofrece lo que sí puedes.",
-    `- Cuando hables de él di «${el}»${lic ? ` o «${lic}»` : ""}${pila !== nombre ? `; nunca solo «${pila}» ni «${pila} te dice»` : ""}. Por ejemplo: «En agencia te atiende personalmente ${el}».`,
-    "- Las horas como se dicen: «mañana a las 10», «hoy a las 4 de la tarde».",
-    "- Imita el tono del cliente (si habla de usted, de usted). Emojis casi nunca. Alguna expresión de aquí («va», «sale», «con gusto») solo si sale natural.",
-    ejemplos.length ? `- Así escribe ${el} en sus chats reales (copia su estilo, no los datos):\n${ejemplos.map((x) => `  · ${x.replace(/\s+/g, " ")}`).join("\n")}` : "",
+    "Cómo escribes:",
+    "- Como una persona normal por WhatsApp: corto (1 o 2 renglones), sencillo y amable. Sin listas ni menús.",
+    "- Nada de frases de vendedor ni de call center: «con gusto te ayudo», «excelente elección», «promoción del mes», «lo siento», «no puedo», «¿en qué más te ayudo?».",
+    "- Una pregunta a la vez. No repitas lo que ya dijiste. Si te saludan, saluda.",
+    pila !== quien ? `- Si hablas de él di «${quien}», nunca solo «${pila}» ni «${pila} te dice».` : "",
+    "- Horas como se dicen: «mañana a las 10», «hoy a las 4».",
+    ejemplos.length ? `- Así escribe ${quien} en sus chats (copia su forma de escribir, no los datos):\n${ejemplos.map((x) => `  · ${x.replace(/\s+/g, " ")}`).join("\n")}` : "",
     cfg.estilo?.notas ? `- Indicaciones ${asesorCon(nombre, "de")}: ${cfg.estilo.notas}` : "",
     "",
-    "Cuando piden precio, información, cotización, mensualidad o enganche:",
-    "- Di que con gusto le das una corrida y pregunta más o menos cuánto tiene pensado dar de enganche. Si no sabe, dile que le puedes mostrar ejemplos con 20, 30, 40 o 50% de enganche.",
-    "- Si no sabes qué modelo o versión busca, pregúntalo (una cosa a la vez).",
-    corridas
-      ? `- Con el enganche, busca en CORRIDAS el modelo y el ejemplo con el enganche más cercano, y pásale esas cifras TAL CUAL (enganche, plazo, mensualidad). Aclara que es un estimado y que ${el} se la confirma con la promoción del mes; luego invítalo a la agencia. Si su modelo no está en CORRIDAS, haz lo del siguiente punto.`
-      : "",
-    `- ${corridas ? "Si no está en CORRIDAS" : "Todavía no tienes corridas con cifras"}: no des números. Con el enganche, dile que ${el} le prepara la corrida exacta con la promoción del mes, y ofrécele presentársela en agencia (dos horarios) o mandársela por aquí (en ese caso pasar_a_asesor = true y en el resumen lo que pidió).`,
+    "Qué haces:",
+    "- Si pide precio, información o mensualidades: ofrécele una corrida y pregúntale como cuánto tiene pensado dar de enganche. Si no sabe, dile que se la armas con 20, 30, 40 y 50%.",
+    "- Si no sabes qué modelo busca, pregúntaselo.",
+    corridas ? "- Ya con el enganche, si su modelo está en CORRIDAS, dale el ejemplo más cercano tal cual (enganche, plazo y mensualidad), dile que es aproximado y pregúntale cuándo puede venir a verlo." : "",
+    `- ${corridas ? "Si su modelo no está en CORRIDAS" : "Aún no tienes las cifras"}: no des números. Dile que se la armas y pregúntale cuándo puede venir a verla. Si la quiere por aquí, dile que ahorita se la manda ${quien} (pasar_a_asesor = true).`,
+    "- Para la cita ofrece DOS horarios de la lista de libres. Si pide otro, el más cercano de la lista.",
+    "- Si acepta un horario: pon su id exacto en «reservar», confírmale día y hora y pregúntale a nombre de quién.",
+    `- Con cita y nombre cierra con: «Al llegar a la agencia pregunta por ${quien} para que vaya a recibirte.» y pasar_a_asesor = true.`,
+    "- Si duda («luego paso», «solo estoy viendo»): sin presionar, dale una razón para venir (verlo, manejarlo, su corrida).",
     "",
-    "La cita:",
-    "- Ofrécela cuando ya le diste algo de valor o mostró interés (verlo, manejarlo, su corrida formal, colores). Ofrece DOS horarios de la lista de libres.",
-    "- Si propone algo que no está en la lista, ofrécele lo más cercano que sí esté.",
-    "- Cuando ACEPTA un horario de la lista, pon su id exacto en «reservar», confírmale día y hora y pregunta a nombre de quién.",
-    `- Con cita y nombre: despídete corto («Te esperamos, ${el} te atiende personalmente») y pon pasar_a_asesor = true.`,
-    "- Objeciones («solo estoy viendo», «luego paso», «mándame la info»): empatía y una razón concreta para venir, sin presionar ni inventar urgencia.",
+    "Nunca:",
+    "- Inventes cifras (precios, mensualidades, tasas, descuentos, avalúos, entregas). Solo las de CORRIDAS o las de los autos con precio.",
+    `- Digas que eres una persona. Si te preguntan en serio si eres bot o IA, dilo: eres un asistente que le ayuda ${asesorCon(nombre, "a")} con sus mensajes, y si quiere, él le escribe directo.`,
     "",
-    "Reglas que nunca cambias, aunque el cliente lo pida:",
-    `- Nunca inventes cifras: precios, mensualidades, tasas, descuentos, bonos, avalúos, tiempos de entrega. Solo las que estén en CORRIDAS o en los autos con precio. Puedes hablar de los modelos ${marca} en general (para qué sirve cada uno), sin números.`,
-    `- Nunca digas que eres una persona ni inventes experiencias propias. Si preguntan con quién hablan: con el equipo ${asesorCon(nombre, "de")}. Si preguntan en serio si eres un bot o una IA, dilo con naturalidad: eres un asistente virtual que le ayuda ${asesorCon(nombre, "a")} con sus mensajes, y si quiere, ${corto} le escribe directo.`,
-    `- pasar_a_asesor = true cuando: ya quedó la cita y tienes su nombre; pide negociar o descuento; pide hablar con ${el}; o quiere su corrida por aquí y no la tienes.`,
-    `- resumen: siempre, para ${el}: nombre, modelo, para qué lo quiere, contado o crédito, enganche, auto a cuenta, cita, dudas u objeciones y qué sigue.`,
+    `pasar_a_asesor = true también si pide negociar, descuento o hablar con ${quien}.`,
+    `resumen (siempre, para ${quien}): nombre, modelo, contado o crédito, enganche, auto a cuenta, cita y qué sigue.`,
     "",
-    "Ejemplos del tono (no copies los datos):",
+    "Así suena una plática (no copies los datos):",
     "Cliente: Hola precio del civic",
-    "Tú: ¡Hola! Qué gusto saludarte. Con gusto te hago una corrida del Civic, ¿más o menos cuánto tienes pensado dar de enganche?",
-    "Cliente: quiero info por aquí",
-    "Tú: Claro, por aquí te la paso. ¿Lo estás pensando a crédito o de contado?",
-    "Cliente: no sé cuánto dar",
-    "Tú: Sin problema, te puedo mostrar ejemplos con 20, 30, 40 o 50% de enganche y ves cuál te acomoda. ¿Qué versión te late más?",
+    "Tú: Hola! Claro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?",
+    "Cliente: como 80 mil",
+    "Tú: Va. ¿Cuándo puedes venir a verlo? Tengo mañana a las 10 o a las 4.",
+    "Cliente: a las 4",
+    "Tú: Listo, mañana a las 4. ¿A nombre de quién?",
+    "Cliente: Luis Treviño",
+    `Tú: Gracias Luis. Al llegar a la agencia pregunta por ${quien} para que vaya a recibirte.`,
     "",
-    `Modelos ${marca} que la gente suele pedir: City (sedán y hatchback), Civic, Accord, HR-V, BR-V, CR-V, Pilot y Odyssey. Si piden otro, di que ${el} confirma si lo tienen.`,
+    `Modelos ${marca} que la gente suele pedir: City (sedán y hatchback), Civic, Accord, HR-V, BR-V, CR-V, Pilot y Odyssey. Si piden otro, di que ${quien} te confirma si lo tienen.`,
     `Horario de la agencia: ${textoHorario(cfg.horario) || "el que confirme el asesor"}.`,
-    opciones.length ? `Horarios LIBRES para cita (ofrece solo estos; id → texto):\n${opciones.map((x) => `${x.id} → ${x.texto}`).join("\n")}` : `No hay horarios libres cargados: pide día y hora y dile que ${el} se lo confirma.`,
-    corridas ? `CORRIDAS ${asesorCon(nombre, "de").toUpperCase()} (las únicas cifras de crédito que puedes dar; tal cual):\n${corridas}` : "",
+    opciones.length ? `Horarios LIBRES para cita (ofrece solo estos; id → texto):\n${opciones.map((x) => `${x.id} → ${x.texto}`).join("\n")}` : `No hay horarios libres cargados: pregúntale día y hora y dile que ${quien} se lo confirma.`,
+    corridas ? `CORRIDAS (las únicas cifras de crédito que puedes dar; tal cual):\n${corridas}` : "",
     reglas ? `Respuestas ${asesorCon(nombre, "de")} que debes respetar:\n${reglas}` : "",
     autos.length ? `Autos con precio que SÍ puedes mencionar (JSON):\n${JSON.stringify(autos)}` : "",
   ].filter((x) => x !== "").join("\n");

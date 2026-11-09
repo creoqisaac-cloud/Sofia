@@ -110,7 +110,7 @@ try {
   k = llamadas.length;
   for (const [id, t] of [["wamid.2", "1"], ["wamid.3", "20%"], ["wamid.3", "20%"], ["wamid.4", "1"], ["wamid.5", "el sábado a las 11"]]) await mensaje("5218122222222", id, t);
   e = enviados(k).map((m) => m.text?.body ?? "");
-  ok(e.length === 4 && e[1].includes("60 meses") && e[3].includes("Anoté tu visita: *el sábado a las 11*"), "recuerda la conversación (enganche → cotización → cita) y no contesta dos veces un reenvío de Meta");
+  ok(e.length === 4 && e[1].includes("60 meses") && e[3].includes("queda anotado: el sábado a las 11"), "recuerda la conversación (enganche → cotización → cita) y no contesta dos veces un reenvío de Meta");
   const leads = (await (await fetch(`${W}/api/prospectos?token=clave-prueba`)).json()).prospectos;
   ok(leads[0]?.cita === "el sábado a las 11" && leads[0].formaPago === "credito" && leads[0].enganche === 137980, "prospecto con auto, crédito, enganche y cita");
 

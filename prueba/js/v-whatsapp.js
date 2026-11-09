@@ -365,7 +365,7 @@ function drawAgentForm(box, cfg) {
     { palabras: "ubicación, ubicacion, dirección, direccion, dónde están, donde estan", respuesta: `${agencia.value.trim() ? "Estamos en {agencia}. " : ""}Te comparto la ubicación y con gusto te espero; ¿qué día te acomoda?` });
   const v = cfg.ventas ?? {};
   const ventas = h("input", { type: "checkbox", checked: v.activo !== false });
-  const presentacion = textarea({ rows: 2, placeholder: "¡Hola {nombre}! 👋 Te escribo de parte del {asesor}, de {agencia}." }, v.presentacion ?? "");
+  const presentacion = textarea({ rows: 2, placeholder: "¡Hola {nombre}! 👋" }, v.presentacion ?? "");
   const tasa = input({ type: "number", min: "0", max: "80", step: "0.1", value: v.tasaAnual ?? 15.9 });
   const enganche = input({ type: "number", min: "0", max: "90", value: v.engancheMinimo ?? 20 });
   const plazos = input({ value: (v.plazos ?? [24, 36, 48, 60]).join(", "), inputmode: "numeric" });
@@ -395,7 +395,7 @@ function drawAgentForm(box, cfg) {
     field("Zona horaria", zona),
     h("h3", {}, "Vendedora"),
     h("label", { class: "row gap-s" }, ventas, h("span", {}, "Vender autos: menú, inventario con foto, crédito, citas y pase contigo")),
-    field("Cómo se presenta (opcional)", presentacion, "Va al inicio del primer mensaje. Vacío: «Te escribo de parte del…»."),
+    field("Cómo se presenta (opcional)", presentacion, "Va al inicio del primer mensaje. Vacío: «¡Hola {nombre}! 👋»."),
     h("div", { class: "grid2" }, field("Tasa anual de referencia (%)", tasa, "Solo para estimar; Sofía aclara que está sujeta a aprobación."), field("Enganche mínimo (%)", enganche)),
     h("div", { class: "grid2" }, field("Plazos (meses)", plazos), field("Al pedirte, Sofía se calla (horas)", conAsesor)),
     h("label", { class: "row gap-s" }, conIa, h("span", {}, "Con IA: contesta lo que el menú no entiende y platica como vendedora (opcional, de pago)")),

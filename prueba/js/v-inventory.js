@@ -186,7 +186,7 @@ export function renderCarForm(root, id) {
 let sim = { conv: {}, lead: {}, mensajes: [] };
 
 /** Lo que Sofía usa sin servidor: tu nombre y agencia de Ajustes, y la configuración de ventas por defecto. */
-const cfgLocal = () => ({ asesor: "Lic. Mario Abarca", agencia: state.settings.agency || "Honda", marca: "Honda", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, reglas: [], ventas: { ...VENTAS_BASE, ia: true } });
+const cfgLocal = () => ({ asesor: "Mario Abarca", agencia: state.settings.agency || "Honda", marca: "Honda", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, reglas: [], ventas: { ...VENTAS_BASE, ia: true } });
 
 /** *negritas* y _cursivas_ de WhatsApp, sin HTML (todo es texto). */
 export function waFormat(texto) {
