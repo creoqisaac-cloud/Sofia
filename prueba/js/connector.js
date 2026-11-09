@@ -61,6 +61,8 @@ export const setAgentConfig = async (config) => (await call("/api/agente/config"
 export const getConnection = () => call("/api/conexion");
 /** datos: { WA_TOKEN, WA_PHONE_NUMBER_ID, … } — vacío borra ese dato. Devuelve lo mismo que getConnection. */
 export const saveConnection = (datos) => call("/api/conexion", { method: "POST", body: { datos } });
+/** Termina la conexión del WhatsApp Business del asesor (coexistencia) con el código de la ventana de Meta. */
+export const connectCoexistence = (datos) => call("/api/meta/coexistencia", { method: "POST", body: datos });
 
 // ── Inventario de la vendedora: lo que Sofía ofrece por WhatsApp ──
 /** autos: [{ id, marca, modelo, version, anio, precio, tipo, km, color, transmision, descripcion, palabras, disponible, fotoId? }] */

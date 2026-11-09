@@ -228,18 +228,29 @@ await fieldIn("Llave de API de Anthropic").locator("input").fill("sk-ant-prueba"
 await cardOf("Inteligencia artificial").getByRole("button", { name: "Conectar y probar" }).click();
 await p.getByText("Conectada · Claude Opus 5.5").waitFor();
 // Datos de Meta desde la app (se guardan en el servidor; los secretos no regresan)
-await cardOf("WhatsApp Business").getByText("Datos de Meta").click();
+await cardOf("WhatsApp Business (API oficial de Meta)").getByText("Datos de Meta").click();
 await fieldIn("Identificador del número de teléfono").locator("input").waitFor();
 if (await fieldIn("Identificador del número de teléfono").locator("input").inputValue() !== "111") throw new Error("La app no muestra el número que tiene el servidor");
 if (!(await fieldIn("Token permanente").locator("input").getAttribute("placeholder")).includes("guardado")) throw new Error("El token no aparece como guardado");
 await fieldIn("Identificador de la cuenta de WhatsApp Business").locator("input").fill("222");
-await cardOf("WhatsApp Business").getByRole("button", { name: "Guardar en mi servidor y probar" }).click();
+await cardOf("WhatsApp Business (API oficial de Meta)").getByRole("button", { name: "Guardar en mi servidor y probar" }).click();
 await p.getByText("WhatsApp conectado: +52 81 0000 0000").waitFor();
-await cardOf("WhatsApp Business").getByText("Datos de Meta").click();
-await cardOf("WhatsApp Business").getByText(BASE.replace(/\/$/, "") + "/webhook/meta").waitFor();
-await cardOf("WhatsApp Business").getByText("verifica", { exact: true }).waitFor();
+await cardOf("WhatsApp Business (API oficial de Meta)").getByText("Datos de Meta").click();
+await cardOf("WhatsApp Business (API oficial de Meta)").getByText(BASE.replace(/\/$/, "") + "/webhook/meta").waitFor();
+await cardOf("WhatsApp Business (API oficial de Meta)").getByText("verifica", { exact: true }).waitFor();
+// WhatsApp Business de Mario (coexistencia): sus IDs de Meta se guardan en el servidor y el botón queda listo.
+await p.route("https://connect.facebook.net/**", (r) => r.abort()); // la prueba no sale a internet
+const coex = cardOf("WhatsApp Business de Mario (mismo número)");
+await coex.getByText("Antes de conectar (una sola vez)").waitFor();
+await fieldIn("ID de la app de Meta").locator("input").fill("12345");
+await fieldIn("ID de la configuración").locator("input").fill("67890");
+await coex.getByRole("button", { name: "Guardar", exact: true }).click();
+await p.getByText("Guardado. Ya puedes conectar el WhatsApp Business de Mario.").waitFor();
+const conSrv = await (await fetch(new URL("api/conexion?token=clave-prueba", BASE))).json();
+if (conSrv.valores?.META_APP_ID !== "12345" || conSrv.valores?.META_ES_CONFIG_ID !== "67890") throw new Error(`IDs de Meta en el servidor: ${JSON.stringify(conSrv.valores)}`);
+if (!(await cardOf("WhatsApp Business de Mario (mismo número)").getByRole("button", { name: "Conectar el WhatsApp Business de Mario" }).isEnabled())) throw new Error("El botón de conectar no quedó listo");
 await shot("02-conexiones");
-step("conexiones: servidor ✓, WhatsApp ✓ (datos de Meta desde la app, webhook para pegar en Meta), Facebook ✓, IA ✓");
+step("conexiones: servidor ✓, WhatsApp ✓ (datos de Meta desde la app, webhook para pegar en Meta), WhatsApp Business de Mario listo para conectar, Facebook ✓, IA ✓");
 
 // ───── C. INE por FOTO con IA + lector del teléfono ─────
 await p.goto(BASE + "#/cliente/nuevo?siguiente=credito");

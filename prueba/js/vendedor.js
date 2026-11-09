@@ -594,7 +594,8 @@ export function promptIA({ cfg = {}, inventario = [], historial = [], libres = [
   }));
   const corridas = String(cfg.corridas ?? "").trim().slice(0, 12000);
   const reglas = (cfg.reglas ?? []).map((r) => `- Si preguntan por ${(r.palabras ?? []).join(", ")}: ${r.respuesta}`).join("\n");
-  const ejemplos = (cfg.estilo?.ejemplos ?? []).slice(0, 40);
+  // Mensajes reales del asesor: los que la app tomó de «Mi estilo de venta» y los que el servidor aprendió de su historial.
+  const ejemplos = [...(cfg.estilo?.ejemplos ?? []), ...(cfg.estilo?.deChats ?? [])].slice(0, 40);
   const opciones = libres.slice(0, 30);
   const system = [
     `Contestas el WhatsApp de ventas ${asesorCon(nombre, "de")}, asesor de ${marca}${agencia !== marca ? ` (${agencia})` : ""} en Monterrey. Escribes por él, como su equipo.`,

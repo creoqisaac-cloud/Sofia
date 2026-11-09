@@ -19,6 +19,7 @@ let enviados = 0; // cada envío simulado recibe un id distinto, como en Meta
 let fake: http.Server;
 const ia = { peticiones: [] as Record<string, unknown>[], salida: {} as Record<string, unknown>, stop: "end_turn" };
 let G = "";
+const NEGOCIO = "tok-negocio-0123456789abcdef"; // llave del negocio que da el registro integrado de Meta
 
 // Almacén en memoria SIN delete (como servidor.mjs); cuenta escrituras para vigilar el límite gratis de KV.
 const memStore = () => {
@@ -46,6 +47,22 @@ beforeAll(async () => {
         const b = JSON.parse(body);
         ia.peticiones.push(b);
         return send({ id: "msg_1", type: "message", role: "assistant", model: b.model, content: ia.stop === "refusal" ? [] : [{ type: "text", text: JSON.stringify(ia.salida) }], stop_reason: ia.stop, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
+      }
+      // Registro integrado de Meta (coexistencia): código → llave del negocio, cuenta, número y sincronización.
+      if (path.startsWith("/v/oauth/access_token")) {
+        const q = new URL(path, G).searchParams;
+        if (req.headers.authorization) return send({ error: { message: "no debe llevar llave" } }, 400);
+        return q.get("client_id") === "12345" && q.get("client_secret") === "secreto-app" && q.get("code") === "codigo-meta-1234"
+          ? send({ access_token: NEGOCIO, token_type: "bearer" }) : send({ error: { message: "Invalid verification code format." } }, 400);
+      }
+      if (req.headers.authorization === "Bearer 12345|secreto-app") {
+        if (path.startsWith(`/v/debug_token?input_token=${NEGOCIO}`)) return send({ data: { granular_scopes: [{ scope: "whatsapp_business_messaging", target_ids: ["999"] }, { scope: "whatsapp_business_management", target_ids: ["999"] }] } });
+        if (path === "/v/12345/subscriptions") return send({ success: true });
+      }
+      if (req.headers.authorization === `Bearer ${NEGOCIO}`) {
+        if (path.startsWith("/v/999/phone_numbers?fields=")) return send({ data: [{ id: "777", display_phone_number: "+52 81 1111 2222", verified_name: "Mario Abarca Honda", is_on_biz_app: true, platform_type: "CLOUD_API" }] });
+        if (path === "/v/999/subscribed_apps") return send({ success: true });
+        if (path === "/v/777/smb_app_data") return send({ messaging_product: "whatsapp", request_id: `req-${JSON.parse(body).sync_type}` });
       }
       if (req.headers.authorization !== "Bearer tok-wa" && req.headers.authorization !== "Bearer tok-fb") return send({ error: { message: "Invalid OAuth access token" } }, 401);
       if (path.startsWith("/v/111?fields")) return send({ display_phone_number: "+52 81 0000 0000", verified_name: "Agencia Prueba" });
@@ -973,5 +990,95 @@ describe("conector · datos de Meta desde la app (sin tocar las variables del se
     expect((await handle(post("/api/conexion", { token: "clave", datos: { SOFIA_TOKEN: "otra" } }), env(), store)).status).toBe(400);
     expect((await handle(post("/api/conexion", { token: "mala", datos: {} }), env(), store)).status).toBe(401);
     expect((await handle(post("/api/conexion", { token: "clave", datos: { PUBLIC_URL: "http://inseguro.mx" } }), env(), store)).status).toBe(400);
+  });
+});
+
+describe("conector · coexistencia (el WhatsApp Business que el asesor ya usa en su celular)", () => {
+  const webhookDe = (field: string, value: Record<string, unknown>) => signed({ object: "whatsapp_business_account", entry: [{ id: "999", changes: [{ field, value }] }] });
+  const NEGOCIO_TEL = "528111112222";
+
+  it("conecta con el código de Meta: llave del negocio, cuenta, número, webhook e historial — sin registrar el número", async () => {
+    const store = memStore();
+    await handle(post("/api/conexion", { token: "clave", datos: { META_APP_ID: "12345", META_ES_CONFIG_ID: "67890" } }), env(), store);
+    const sinCodigo = await handle(post("/api/meta/coexistencia", { token: "clave" }), env(), store);
+    expect(sinCodigo.status).toBe(400);
+    calls.length = 0;
+    const r = await (await handle(post("/api/meta/coexistencia", { token: "clave", code: "codigo-meta-1234" }), env(), store, { ahora: LUNES_10 })).json();
+    expect(r).toMatchObject({ ok: true, estado: "conectado", numero: "+52 81 1111 2222", nombre: "Mario Abarca Honda", wabaId: "999", phoneId: "777", coexistencia: true });
+    expect(r.pasos.map((x: { ok: boolean }) => x.ok)).toEqual([true, true, true, true]);
+    expect(calls.some((c) => /register/.test(c.path))).toBe(false); // el número sigue en su app: nunca se registra
+    const rutas = calls.map((c) => c.path.split("?")[0]);
+    expect(rutas.indexOf("/v/12345/subscriptions")).toBeLessThan(rutas.indexOf("/v/777/smb_app_data")); // primero los avisos, luego el historial
+    expect(JSON.parse(calls.find((c) => c.path === "/v/12345/subscriptions")!.body)).toEqual({ object: "whatsapp_business_account", callback_url: "https://conector.test/webhook/meta", verify_token: "verifica", fields: "messages,smb_message_echoes,history,smb_app_state_sync,account_update" });
+    expect(calls.filter((c) => c.path === "/v/777/smb_app_data").map((c) => JSON.parse(c.body))).toEqual([{ messaging_product: "whatsapp", sync_type: "smb_app_state_sync" }, { messaging_product: "whatsapp", sync_type: "history" }]);
+    // Desde ahora Sofía contesta con el número de Mario; la llave nunca regresa a la app.
+    const con = await (await handle(req("/api/conexion?token=clave"), env(), store)).json();
+    expect(con.valores).toMatchObject({ WA_PHONE_NUMBER_ID: "777", WA_WABA_ID: "999", META_APP_ID: "12345", META_ES_CONFIG_ID: "67890" });
+    expect(con.configurado.WA_TOKEN).toBe("app");
+    expect(JSON.stringify(con)).not.toContain(NEGOCIO);
+    const st = await (await handle(req("/api/estado?token=clave"), env(), store)).json();
+    expect(st.coexistencia).toMatchObject({ estado: "conectado", numero: "+52 81 1111 2222", coexistencia: true, historial: null, aprendidos: 0 });
+    // Con la cuenta que avisó la ventana de Meta no hace falta preguntarle a Meta cuál fue.
+    calls.length = 0;
+    await handle(post("/api/meta/coexistencia", { token: "clave", code: "codigo-meta-1234", waba_id: "999", phone_number_id: "777" }), env(), store);
+    expect(calls.some((c) => c.path.startsWith("/v/debug_token"))).toBe(false);
+    const mal = await (await handle(post("/api/meta/coexistencia", { token: "clave", code: "codigo-viejo-5678" }), env(), store)).json();
+    expect(mal.error).toContain("Invalid verification code");
+  });
+
+  it("si Mario contesta desde su celular, Sofía se calla en ese chat (12 h) y su mensaje queda en la plática", async () => {
+    const store = memStore();
+    await configurar(store, { activo: true, asesor: "Mario Abarca", agencia: "Honda" });
+    const decir = async (id: string, texto: string, iso: string) => { calls.length = 0; await handle(signed(waMsg(id, texto, iso)), env(), store, { ahora: iso }); return waEnvios().filter((m) => m.to === CLIENTA); };
+    expect(await decir("wamid.C1", "Hola", LUNES_10)).toHaveLength(1);
+    // Mario contesta desde su WhatsApp Business (llega como eco, a 52 + 10 dígitos aunque el chat es 521…).
+    await handle(webhookDe("smb_message_echoes", { messaging_product: "whatsapp", metadata: { display_phone_number: NEGOCIO_TEL, phone_number_id: "777" },
+      message_echoes: [{ from: NEGOCIO_TEL, to: CLIENTA.replace(/^521/, "52"), id: "wamid.ECO1", timestamp: String(Date.parse(mas(LUNES_10, 2)) / 1000), type: "text", text: { body: "Qué onda, aquí Mario. ¿Qué modelo buscas?" } }] }), env(), store, { ahora: mas(LUNES_10, 2) });
+    expect((await charla(store)).at(-1)).toMatchObject({ dir: "out", text: "Qué onda, aquí Mario. ¿Qué modelo buscas?" });
+    expect(await decir("wamid.C2", "La CR-V", mas(LUNES_10, 3))).toHaveLength(0); // ya lo atiende Mario
+    expect(await decir("wamid.C3", "¿sigues?", mas(LUNES_10, 11 * 60))).toHaveLength(0);
+    expect(await decir("wamid.C4", "Hola otra vez", mas(LUNES_10, 13 * 60))).toHaveLength(1); // pasó el día: Sofía vuelve
+    // Ediciones y borrados desde el celular no cuentan como mensaje nuevo.
+    await handle(webhookDe("smb_message_echoes", { message_echoes: [{ from: NEGOCIO_TEL, to: CLIENTA, id: "wamid.ECO2", timestamp: "1", type: "revoke", revoke: { original_message_id: "wamid.ECO1" } }] }), env(), store);
+    expect((await charla(store)).filter((m) => m.text.includes("revoke"))).toHaveLength(0);
+  });
+
+  it("el historial que comparte Mario enseña a Sofía cómo escribe él, sin teléfonos, ligas ni cifras", async () => {
+    const store = memStore();
+    await configurar(store, { activo: true, asesor: "Mario Abarca" });
+    const cliente = "5218100000001";
+    const de = (from: string, id: string, body: string, type = "text") => ({ from, to: from === cliente ? NEGOCIO_TEL : cliente, id, timestamp: "1760000000", type, ...(type === "text" ? { text: { body } } : { image: { id: "1" } }), history_context: { status: "read" } });
+    await handle(webhookDe("history", { messaging_product: "whatsapp", metadata: { display_phone_number: NEGOCIO_TEL, phone_number_id: "777" }, history: [{ metadata: { phase: 0, chunk_order: 1, progress: 60 }, threads: [{ id: cliente, messages: [
+      de(cliente, "h1", "Hola, ¿tienen la CR-V en blanco?"),
+      de(NEGOCIO_TEL, "h2", "Qué tal, sí la tenemos. ¿Cuándo te queda venir a verla?"),
+      de(NEGOCIO_TEL, "h3", "Mi cel es 81 1234 5678 por si algo"),
+      de(NEGOCIO_TEL, "h4", "Te queda en $8,500 al mes más o menos"),
+      de(NEGOCIO_TEL, "h5", "", "image"),
+      de(NEGOCIO_TEL, "h6", "ok"),
+    ] }] }] }), env(), store);
+    await handle(webhookDe("history", { history: [{ metadata: { phase: 1, chunk_order: 1, progress: 100 }, threads: [{ id: cliente, messages: [de(NEGOCIO_TEL, "h7", "Va, te espero el sábado en la agencia 👍")] }] }] }), env(), store);
+    const cfg = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
+    expect(cfg.estilo.deChats).toEqual(["Qué tal, sí la tenemos. ¿Cuándo te queda venir a verla?", "Va, te espero el sábado en la agencia 👍"]);
+    await handle(post("/api/conexion", { token: "clave", datos: { META_APP_ID: "12345" } }), env(), store);
+    await store.put("coex:estado", { estado: "conectado", numero: "+52 81 1111 2222" });
+    const st = await (await handle(req("/api/estado?token=clave"), env(), store)).json();
+    expect(st.coexistencia).toMatchObject({ historial: { mensajes: 7, chats: 1, delAsesor: 6, progreso: 100, error: null }, aprendidos: 2 });
+    // Guardar desde la app (con sus propios ejemplos) no borra lo aprendido del historial.
+    const r = await (await configurar(store, { estilo: { ejemplos: ["Buenas, ¿en qué te ayudo?"], notas: "" } })).json();
+    expect(r.config.estilo).toMatchObject({ ejemplos: ["Buenas, ¿en qué te ayudo?"], deChats: ["Qué tal, sí la tenemos. ¿Cuándo te queda venir a verla?", "Va, te espero el sábado en la agencia 👍"] });
+    // Si Mario no compartió su historial, se dice.
+    await handle(webhookDe("history", { history: [{ errors: [{ code: 2593109, title: "History sync is turned off by the business from the WhatsApp Business App", message: "History sync is turned off by the business from the WhatsApp Business App" }] }] }), env(), store);
+    expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).coexistencia.historial.error).toContain("History sync is turned off");
+  });
+
+  it("si Mario quita la conexión desde su app, la app lo dice", async () => {
+    const store = memStore();
+    await store.put("coex:estado", { estado: "conectado", numero: "+52 81 1111 2222" });
+    await handle(webhookDe("account_update", { phone_number: NEGOCIO_TEL, event: "PARTNER_REMOVED", disconnection_info: { reason: "Removed from app", initiated_by: "BUSINESS_USER" } }), env(), store);
+    expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).coexistencia).toMatchObject({ estado: "desconectado", evento: "PARTNER_REMOVED" });
+    await handle(webhookDe("account_update", { event: "ACCOUNT_RECONNECTED" }), env(), store);
+    expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).coexistencia.estado).toBe("conectado");
+    await handle(webhookDe("smb_app_state_sync", { state_sync: [{ type: "contact", contact: { full_name: "Ana", phone_number: "5218100000002" }, action: "add" }] }), env(), store);
+    expect(await store.get("inbox:index")).toBeNull(); // los contactos del celular no se vuelven chats ni prospectos
   });
 });

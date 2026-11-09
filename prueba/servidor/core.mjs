@@ -21,7 +21,7 @@
 // PUBLIC_URL (dirección pública del conector, para que Instagram descargue las fotos) · META_GRAPH_URL (opcional) ·
 // ANTHROPIC_API_KEY y ANTHROPIC_MODEL (opcionales: la IA de la vendedora, solo para lo que el menú no entiende).
 
-import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres, pesos } from "../js/vendedor.js";
+import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres, pesos, cifras } from "../js/vendedor.js";
 
 export const VERSION = "conector-1.2";
 const MAX_MSGS = 500;
@@ -62,6 +62,7 @@ const DESDE_APP = {
   WA_TOKEN: /^\S{20,600}$/, WA_PHONE_NUMBER_ID: /^\d{1,25}$/, WA_WABA_ID: /^\d{1,25}$/, META_APP_SECRET: /^[a-f0-9]{16,64}$/i,
   META_VERIFY_TOKEN: /^[\w.-]{6,100}$/, FB_PAGE_ID: /^\d{1,25}$/, FB_PAGE_TOKEN: /^\S{20,600}$/, IG_USER_ID: /^\d{1,25}$/,
   ASESOR_WHATSAPP: /^\d{10,15}$/, ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/, ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/, PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/,
+  META_APP_ID: /^\d{5,25}$/, META_ES_CONFIG_ID: /^\d{5,25}$/, // registro integrado de Meta (coexistencia)
 };
 const SECRETOS = new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY"]);
 
@@ -103,7 +104,7 @@ const igReady = (env) => Boolean(env.IG_USER_ID && env.FB_PAGE_TOKEN);
 async function graph(env, path, { method = "GET", token, body, form } = {}) {
   const res = await fetch(`${graphUrl(env)}/${path}`, {
     method,
-    headers: { authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body ? { "content-type": "application/json" } : {}) },
     body: form ?? (body ? JSON.stringify(body) : undefined),
   });
   const data = await res.json().catch(() => ({}));
@@ -205,7 +206,7 @@ const AGENTE_BASE = {
   agencia: "Honda",
   marca: "Honda",
   ventas: { ...VENTAS_BASE, ia: true }, // vendedora (agenda citas); apagada = solo lo de arriba
-  estilo: { ejemplos: [], notas: "" }, // cómo escribe el asesor: con IA, Sofía habla como él
+  estilo: { ejemplos: [], deChats: [], notas: "" }, // cómo escribe el asesor: con IA, Sofía habla como él
   corridas: "", // corridas del asesor (enganche 20/30/40/50 %), tal cual: con IA son las únicas cifras de crédito que da
 };
 const MAX_CORRIDAS = 12000;
@@ -278,8 +279,9 @@ function textoCorridas(v) {
 
 /** Cómo escribe el asesor (mensajes reales suyos de «Mi estilo de venta»), para que Sofía hable como él. */
 function normalizarEstilo(e = {}) {
-  const ejemplos = (Array.isArray(e?.ejemplos) ? e.ejemplos : []).map((x) => String(x ?? "").trim().slice(0, 300)).filter((x) => x.length >= 3).slice(0, 40);
-  return { ejemplos, notas: String(e?.notas ?? "").trim().slice(0, 600) };
+  const lista = (x) => (Array.isArray(x) ? x : []).map((t) => String(t ?? "").trim().slice(0, 300)).filter((t) => t.length >= 3).slice(0, 40);
+  // deChats: lo aprende el servidor del historial de WhatsApp Business (coexistencia); la app no lo manda.
+  return { ejemplos: lista(e?.ejemplos), deChats: lista(e?.deChats), notas: String(e?.notas ?? "").trim().slice(0, 600) };
 }
 
 function normalizarVentas(v = {}) {
@@ -352,6 +354,7 @@ async function responderSolo(env, store, cfg, e, ahora) {
   if (ahora - new Date(e.at) > DIA_MS) return false; // mensaje viejo (Meta lo reenvió tarde): ya no se contesta
   const pausa = cfg.pausaMinutos * 60 * 1000;
   if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
+  if (contestaElAsesor(cfg, e, ahora)) return false;
   const plantilla = elegirRespuesta(cfg, e, ahora);
   if (!plantilla) return false;
   const text = rellenar(plantilla, { nombre: primerNombre(e.nombre), asesor: cfg.asesor, agencia: cfg.agencia || "la agencia" }); // sin nombre: "Estamos en la agencia.", no "Estamos en."
@@ -383,6 +386,7 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
   if (ahora - new Date(e.at) > DIA_MS) return false; // mensaje viejo (Meta lo reenvió tarde): ya no se contesta
   const pausa = cfg.pausaMinutos * 60 * 1000;
   if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
+  if (contestaElAsesor(cfg, e, ahora)) return false;
   const inventario = await inventarioVendedora(store, publicBase(env, base), true);
   const historial = async () => ((await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
   const libres = await libresDe(store, cfg, ahora);
@@ -680,6 +684,11 @@ async function handleWebhook(req, env, store, ahora) {
   if (body.object === "whatsapp_business_account") {
     for (const entry of body.entry ?? []) for (const ch of entry.changes ?? []) {
       const v = ch.value ?? {};
+      // Coexistencia: lo que el asesor escribe desde su WhatsApp Business, su historial y si se desconectó.
+      if (ch.field === "smb_message_echoes") { for (const m of v.message_echoes ?? []) await ecoDelAsesor(store, m, ahora); continue; }
+      if (ch.field === "history") { await historialCoexistencia(store, v, ahora); continue; }
+      if (ch.field === "account_update") { await cambioCoexistencia(store, v, ahora); continue; }
+      if (ch.field === "smb_app_state_sync") continue; // contactos del celular: no hacen falta
       const names = Object.fromEntries((v.contacts ?? []).map((c) => [c.wa_id, c.profile?.name ?? ""]));
       const propio = String(v.metadata?.display_phone_number ?? "").replace(/\D/g, "");
       for (const m of v.messages ?? []) {
@@ -704,6 +713,128 @@ async function handleWebhook(req, env, store, ahora) {
     }
   }
   return json({ ok: true });
+}
+
+// ───────── Coexistencia: el WhatsApp Business que el asesor ya usa en su celular, también por la API ─────────
+// Se conecta con el registro integrado de Meta (Embedded Signup con featureType «whatsapp_business_app_onboarding»):
+// el asesor sigue usando su app y sus chats; Sofía contesta desde el mismo número y se calla cuando él escribe.
+// coex:estado    → { estado: "conectado"|"desconectado", numero, nombre, wabaId, phoneId, coexistencia, at, pasos, evento? }
+// coex:historial → { mensajes, delAsesor, hilos: [ids], ejemplos: [textos del asesor], progreso, error?, at }
+
+const CAMPOS_WEBHOOK = "messages,smb_message_echoes,history,smb_app_state_sync,account_update";
+const MAX_EJEMPLOS_CHATS = 300;
+const MAX_HILOS = 5000;
+
+/** El asesor contestó desde su celular hace menos de horasConAsesor: la plática ya es suya. */
+function contestaElAsesor(cfg, e, ahora) {
+  const horas = cfg.ventas?.horasConAsesor ?? VENTAS_BASE.horasConAsesor;
+  return Boolean(e.prev?.lastAppAt) && horas > 0 && ahora - new Date(e.prev.lastAppAt) < horas * 3600 * 1000;
+}
+
+/** La conversación que ya existe con ese número (en México el mismo cliente llega como 52… o 521…). */
+async function peerWa(store, numero) {
+  const n = String(numero ?? "").replace(/\D/g, "");
+  const index = (await store.get("inbox:index")) ?? {};
+  const otros = n.length === 13 && n.startsWith("521") ? [`52${n.slice(3)}`] : n.length === 12 && n.startsWith("52") ? [`521${n.slice(2)}`] : [];
+  return [n, ...otros].find((x) => index[`wa:${x}`]) ?? n;
+}
+
+/** Mensaje que el asesor mandó desde su WhatsApp Business: se guarda en la plática y Sofía se calla ahí. */
+async function ecoDelAsesor(store, m, ahora) {
+  if (!m?.to || ["edit", "revoke", "reaction"].includes(m.type)) return;
+  const at = fechaMeta(Number(m.timestamp) * 1000, ahora);
+  await addMessage(store, "wa", await peerWa(store, m.to), "", { id: m.id, dir: "out", type: m.type, text: waText(m), at, desdeApp: true }, undefined, { lastAppAt: at });
+}
+
+/** Un mensaje del asesor sirve de ejemplo de cómo escribe si no trae datos de nadie (teléfonos, ligas, correos, cifras). */
+function ejemploLimpio(texto) {
+  const t = String(texto ?? "").replace(/\s+/g, " ").trim();
+  if (t.length < 12 || t.length > 280) return null;
+  if (/https?:\/\/|www\.|\S+@\S+\.\w|\d[\d\s-]{6,}\d|[A-Z]{4}\d{6}/i.test(t) || cifras(t).length) return null;
+  return t;
+}
+
+/** n ejemplos repartidos (no solo los primeros), para que Sofía vea varias situaciones. */
+const muestra = (lista, n) => (lista.length <= n ? lista : Array.from({ length: n }, (_, i) => lista[Math.floor((i * lista.length) / n)]));
+
+/** Historial de hasta 6 meses que comparte el asesor al conectar: Sofía aprende cómo escribe él. */
+async function historialCoexistencia(store, v, ahora) {
+  const h = (await store.get("coex:historial")) ?? { mensajes: 0, delAsesor: 0, hilos: [], ejemplos: [], progreso: 0 };
+  for (const parte of v.history ?? []) {
+    if (parte.errors?.length) { h.error = parte.errors[0].message || parte.errors[0].title || "El historial no se compartió"; continue; }
+    h.progreso = Math.max(h.progreso, Number(parte.metadata?.progress) || 0);
+    for (const hilo of parte.threads ?? []) {
+      if (hilo.id && h.hilos.length < MAX_HILOS && !h.hilos.includes(hilo.id)) h.hilos.push(hilo.id);
+      for (const m of hilo.messages ?? []) {
+        h.mensajes += 1;
+        if (!m.from || m.from === hilo.id) continue; // lo escribió el cliente
+        h.delAsesor += 1;
+        const t = m.type === "text" ? ejemploLimpio(m.text?.body) : null;
+        if (t && h.ejemplos.length < MAX_EJEMPLOS_CHATS && !h.ejemplos.includes(t)) h.ejemplos.push(t);
+      }
+    }
+  }
+  h.at = ahora.toISOString();
+  await store.put("coex:historial", h);
+  if (!h.ejemplos.length) return;
+  const cfg = await leerConfig(store);
+  await store.put("agente:config", normalizarConfig({ ...cfg, estilo: { ...cfg.estilo, deChats: muestra(h.ejemplos, 40) } }));
+}
+
+/** Meta avisa si el asesor quitó la conexión (o la volvió a poner) desde su app. */
+async function cambioCoexistencia(store, v, ahora) {
+  if (!["PARTNER_REMOVED", "ACCOUNT_OFFBOARDED", "ACCOUNT_RECONNECTED"].includes(v.event)) return;
+  const c = (await store.get("coex:estado")) ?? {};
+  await store.put("coex:estado", { ...c, estado: v.event === "ACCOUNT_RECONNECTED" ? "conectado" : "desconectado", evento: v.event, motivo: v.disconnection_info?.reason ?? "", eventoAt: ahora.toISOString() });
+}
+
+/**
+ * Termina el registro integrado: cambia el código de Meta por la llave del negocio, ubica el número, suscribe la
+ * cuenta y los campos del webhook, guarda todo en conexion:meta y pide el historial y los contactos (Meta da 24 h).
+ * Nunca registra el número (/register): eso es para números nuevos en la API y aquí el número sigue en la app.
+ */
+async function conectarCoexistencia(envBase, store, base, body, ahora) {
+  const env = await conConexion(envBase, store);
+  const appId = env.META_APP_ID;
+  const secreto = env.META_APP_SECRET;
+  if (!appId) throw invalido("Falta el ID de la app de Meta");
+  if (!secreto) throw invalido("Falta la clave secreta de la app de Meta");
+  const code = String(body.code ?? "").trim();
+  if (!/^[\w.#-]{10,2000}$/.test(code)) throw invalido("Falta el código que da Meta al terminar");
+  const pide = (x) => (/^\d{1,25}$/.test(String(x ?? "")) ? String(x) : "");
+  const llaveApp = `${appId}|${secreto}`;
+  const pasos = [];
+  const paso = async (nombre, fn) => {
+    try { const r = await fn(); pasos.push({ paso: nombre, ok: true }); return r; } catch (e) { pasos.push({ paso: nombre, ok: false, error: e.message }); return null; }
+  };
+
+  const { access_token: token } = await graph(env, `oauth/access_token?client_id=${appId}&client_secret=${encodeURIComponent(secreto)}&code=${encodeURIComponent(code)}`);
+  if (!token) throw new Error("Meta no dio la llave del negocio");
+  let wabaId = pide(body.waba_id);
+  if (!wabaId) { // si el aviso de la ventana no llegó, la cuenta sale de los permisos de la llave
+    const d = await graph(env, `debug_token?input_token=${encodeURIComponent(token)}`, { token: llaveApp });
+    wabaId = pide((d.data?.granular_scopes ?? []).find((x) => x.scope === "whatsapp_business_management")?.target_ids?.[0]);
+  }
+  if (!wabaId) throw new Error("Meta no dijo qué cuenta de WhatsApp se conectó");
+  const numeros = (await graph(env, `${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,is_on_biz_app,platform_type`, { token })).data ?? [];
+  const tel = numeros.find((x) => x.id === pide(body.phone_number_id)) ?? numeros.find((x) => x.is_on_biz_app) ?? numeros[0];
+  if (!tel) throw new Error("La cuenta de WhatsApp conectada no tiene número");
+
+  await guardarConexion(envBase, store, { WA_TOKEN: token, WA_PHONE_NUMBER_ID: tel.id, WA_WABA_ID: wabaId });
+  const listo = await conConexion(envBase, store);
+  await paso("Recibir los mensajes de esa cuenta", () => graph(env, `${wabaId}/subscribed_apps`, { method: "POST", token }));
+  const callback = `${publicBase(listo, base)}/webhook/meta`;
+  await paso("Avisos del webhook (mensajes, lo que escribe el asesor, historial)", () => {
+    if (!callback.startsWith("https://")) throw new Error("El servidor no tiene dirección HTTPS");
+    return graph(env, `${appId}/subscriptions`, { method: "POST", token: llaveApp, body: { object: "whatsapp_business_account", callback_url: callback, verify_token: listo.META_VERIFY_TOKEN, fields: CAMPOS_WEBHOOK } });
+  });
+  if (tel.is_on_biz_app) {
+    await paso("Contactos del celular", () => graph(env, `${tel.id}/smb_app_data`, { method: "POST", token, body: { messaging_product: "whatsapp", sync_type: "smb_app_state_sync" } }));
+    await paso("Historial de chats", () => graph(env, `${tel.id}/smb_app_data`, { method: "POST", token, body: { messaging_product: "whatsapp", sync_type: "history" } }));
+  }
+  const estado = { estado: "conectado", numero: tel.display_phone_number ?? "", nombre: tel.verified_name ?? "", wabaId, phoneId: tel.id, coexistencia: Boolean(tel.is_on_biz_app), at: ahora.toISOString(), pasos };
+  await store.put("coex:estado", estado);
+  return estado;
 }
 
 // ───────── Envíos ─────────
@@ -954,6 +1085,11 @@ async function status(env, store, ahora) {
   out.prospectos = { nuevos: nuevos.length, calientes: nuevos.filter((l) => l.cita || l.quiereAsesor).length };
   const cola = (await store.get("social:cola")) ?? [];
   out.programadas = { pendientes: cola.filter((x) => x.estado === "pendiente" || x.estado === "publicando").length, conError: cola.filter((x) => x.estado === "error").length };
+  const coex = await store.get("coex:estado");
+  if (coex) {
+    const h = await store.get("coex:historial");
+    out.coexistencia = { ...coex, historial: h ? { mensajes: h.mensajes, chats: h.hilos.length, delAsesor: h.delAsesor, progreso: h.progreso, error: h.error ?? null } : null, aprendidos: cfg.estilo?.deChats?.length ?? 0 };
+  }
   if (waReady(env)) {
     try {
       const p = await graph(env, `${env.WA_PHONE_NUMBER_ID}?fields=display_phone_number,verified_name,quality_rating`, { token: env.WA_TOKEN });
@@ -1061,11 +1197,12 @@ export async function handle(req, envBase, store, opciones = {}) {
       case "GET /api/facebook/publicaciones": return json({ ok: true, posts: (await store.get("fb:posts")) ?? [] });
 
       // Agente sin IA
+      case "POST /api/meta/coexistencia": return json({ ok: true, ...(await conectarCoexistencia(envBase, store, baseDe(req), body, ahora)) });
       case "GET /api/agente/config": return json({ ok: true, config: await leerConfig(store) });
       case "POST /api/agente/config": {
         if (!body.config || typeof body.config !== "object") return fail("Falta la configuración");
         const prev = await leerConfig(store);
-        const config = normalizarConfig({ ...prev, ...body.config, horario: { ...prev.horario, ...(body.config.horario ?? {}) }, ventas: { ...prev.ventas, ...(body.config.ventas ?? {}) } });
+        const config = normalizarConfig({ ...prev, ...body.config, horario: { ...prev.horario, ...(body.config.horario ?? {}) }, ventas: { ...prev.ventas, ...(body.config.ventas ?? {}) }, estilo: { ...prev.estilo, ...(body.config.estilo ?? {}) } });
         await store.put("agente:config", config);
         return json({ ok: true, config });
       }

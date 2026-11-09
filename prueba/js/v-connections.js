@@ -4,7 +4,8 @@ import { h, toast, fmtWhen, modal } from "./util.js";
 import { state, save, serverPeek, serverPull, serverBase, isAppsScript } from "./store.js";
 import { header, section, btn, rerender, field, input, select, chip, go } from "./ui.js";
 import { MODELS, testConnection, aiReady } from "./ai.js";
-import { connectorReady, refreshStatus, lastStatus, sendMessage, waTemplates, getConnection, saveConnection } from "./connector.js";
+import { connectorReady, refreshStatus, lastStatus, sendMessage, waTemplates, getConnection, saveConnection, connectCoexistence } from "./connector.js";
+import { cargarFacebook, registrarWhatsApp } from "./meta-registro.js";
 import { googleReady, googleStatus, lastGoogleStatus, setEmailConfig, saveEvent, deleteEvent } from "./google.js";
 
 const GUIDE = "https://github.com/creoqisaac-cloud/Sofia/blob/claude/focused-gauss-q4hxvr/prueba/CONEXIONES.md";
@@ -18,6 +19,7 @@ export function renderConnections(root) {
       h("p", { class: "muted" }, "Sofía funciona sin nada de esto. Todo lo de abajo es GRATIS excepto la IA, que es un extra opcional."),
       googleCard(),
       serverCard(),
+      coexCard(),
       waCard(),
       fbCard(),
       aiCard(),
@@ -229,6 +231,65 @@ function webhookBox() {
       webhook.url.startsWith("https://") ? null : h("p", { class: "warn small" }, "Meta solo acepta direcciones HTTPS: usa la de Cloudflare o un túnel."));
   }).catch(() => box.replaceChildren());
   return box;
+}
+
+// ───────── WhatsApp Business del asesor (coexistencia: mismo número, él sigue con su app) ─────────
+
+function coexCard() {
+  const co = lastStatus()?.coexistencia;
+  const conectado = co?.estado === "conectado";
+  const box = h("div", { class: "stack-s" });
+  const out = h("p", { class: "small", role: "status" });
+  const lineas = (r) => (r?.pasos ?? []).map((x) => h("div", { class: `small ${x.ok ? "" : "warn"}` }, `${x.ok ? "✓" : "✗"} ${x.paso}${x.error ? `: ${x.error}` : ""}`));
+  const hist = co?.historial;
+  const card = section("WhatsApp Business de Mario (mismo número)",
+    h("div", { class: "stack-s" },
+      pill(conectado, `Conectado: ${co?.numero || "listo"}`, co?.estado === "desconectado" ? "Se desconectó desde su celular" : "Sin conectar"),
+      h("span", { class: "muted small" }, "Mario sigue usando su WhatsApp Business normal, con sus clientes y sus chats. Sofía contesta desde ese mismo número y se calla en cuanto él escribe en un chat.")),
+    conectado && !co.coexistencia ? h("p", { class: "warn small" }, "Meta conectó el número como cuenta nueva de la API (no como el WhatsApp Business del celular).") : null,
+    hist ? h("p", { class: "small" }, hist.error ? `Historial: ${hist.error}` : `Historial: ${hist.mensajes} mensajes de ${hist.chats} chats${hist.progreso < 100 ? ` (llegando, ${hist.progreso}%)` : ""} · Sofía aprendió de ${co.aprendidos} mensajes de Mario.`) : null,
+    ...(conectado ? lineas(co) : []),
+    connectorReady() ? box : h("p", { class: "muted small" }, "Primero conecta el servidor."));
+  if (!connectorReady()) return card;
+  getConnection().then((con) => {
+    const appId = con.valores?.META_APP_ID;
+    const configId = con.valores?.META_ES_CONFIG_ID;
+    if (appId && configId) cargarFacebook(appId).catch((e) => { out.className = "small warn"; out.textContent = e.message; });
+    const conectar = btn(conectado ? "Volver a conectar" : "Conectar el WhatsApp Business de Mario", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      out.className = "small";
+      out.textContent = "Sigue los pasos en la ventana de Meta (Mario confirma en su celular)…";
+      try {
+        const datos = await registrarWhatsApp(configId); // en el mismo clic: si no, el navegador bloquea la ventana
+        out.textContent = "Terminando la conexión en tu servidor…";
+        const r = await connectCoexistence(datos);
+        await refreshStatus().catch(() => {});
+        out.replaceChildren(h("strong", {}, `Listo: ${r.numero}${r.nombre ? ` (${r.nombre})` : ""} conectado.`), ...lineas(r));
+        toast("WhatsApp Business de Mario conectado. Sofía ya contesta desde su número.", 7000);
+      } catch (err) { out.className = "small warn"; out.textContent = err.message; }
+      b.disabled = false;
+    }, conectado ? "ghost" : "primary");
+    conectar.disabled = !(appId && configId);
+    box.replaceChildren(
+      h("details", { class: "stack-s", open: !conectado && !(appId && configId) },
+        h("summary", {}, "Antes de conectar (una sola vez)"),
+        h("ol", { class: "small stack-s" },
+          h("li", {}, "En el celular de Mario: WhatsApp Business → Ajustes → Chats → Copia de seguridad → Guardar. Que tenga la app actualizada."),
+          h("li", {}, "En developers.facebook.com, en tu app: agrega el producto «Facebook Login for Business». En «Configuraciones» crea una nueva de tipo «WhatsApp Embedded Signup» y copia su ID."),
+          h("li", {}, `Ahí mismo, en «Configuración», agrega ${location.hostname} en «Dominios permitidos para el SDK de JavaScript» y activa «Iniciar sesión con el SDK de JavaScript».`),
+          h("li", {}, "No registres el número de Mario en el «Paso 2» de Meta: eso lo sacaría de su app."),
+          h("li", {}, "Pega aquí abajo el ID de la app (arriba a la izquierda en Meta) y el de la configuración.")),
+        serverForm([
+          ["META_APP_ID", "ID de la app de Meta", "Solo números"],
+          ["META_ES_CONFIG_ID", "ID de la configuración (WhatsApp Embedded Signup)", "Solo números"],
+          ["META_APP_SECRET", "Clave secreta de la app", "32 letras y números, de «Configuración de la app → Básica»", true],
+        ], { boton: "Guardar", alGuardar: () => toast("Guardado. Ya puedes conectar el WhatsApp Business de Mario.", 5000) })),
+      h("p", { class: "muted small" }, "Hazlo desde el navegador (no desde la app instalada) y con el celular de Mario a la mano: Meta le pide confirmar en su WhatsApp Business y compartir sus chats."),
+      h("div", { class: "row wrap gap-s" }, conectar),
+      out);
+  }).catch((e) => box.replaceChildren(h("p", { class: "warn small" }, e.message)));
+  return card;
 }
 
 // ───────── WhatsApp ─────────

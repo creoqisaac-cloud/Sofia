@@ -154,6 +154,27 @@ Sin IA, Sofía contesta con el menú y tus reglas. Con IA, lleva toda la plátic
 
 ---
 
+### 3.6 El WhatsApp Business que Mario ya usa (mismo número, coexistencia)
+
+Así Mario **no pierde nada**: sigue usando su WhatsApp Business en el celular, con sus clientes y sus chats, y Sofía contesta desde ese mismo número. Cuando Mario escribe en un chat desde su celular, Sofía se calla en ese chat por 12 horas. Si Mario comparte su historial, Sofía aprende cómo escribe él (sin teléfonos, ligas ni cifras).
+
+**No registres el número de Mario en el «Paso 2» de Meta**: eso es para números nuevos y lo sacaría de su app.
+
+1. **Respaldo** en el celular de Mario: WhatsApp Business → Ajustes → Chats → Copia de seguridad → Guardar. Que la app esté actualizada.
+2. En **developers.facebook.com**, en tu app:
+   - Agrega el producto **Facebook Login for Business**.
+   - En **Configuraciones**, crea una nueva de tipo **WhatsApp Embedded Signup** y copia su **ID**.
+   - En **Configuración**, agrega `creoqisaac-cloud.github.io` en **Dominios permitidos para el SDK de JavaScript** y activa **Iniciar sesión con el SDK de JavaScript**.
+3. En Sofía (desde el **navegador**, no desde la app instalada): Más → Conexiones → **WhatsApp Business de Mario** → «Antes de conectar». Pega el **ID de la app** (arriba a la izquierda en Meta) y el **ID de la configuración**, y toca **Guardar**.
+4. Con el celular de Mario a la mano, toca **Conectar el WhatsApp Business de Mario**. En la ventana de Meta elige conectar la app de WhatsApp Business que ya existe. Mario confirma en su celular y elige si comparte sus chats.
+5. Al terminar, Sofía hace lo demás sola: guarda la llave, se suscribe a los avisos (mensajes, lo que escribe Mario, historial) y pide el historial y los contactos (Meta da 24 horas para eso).
+
+Lo que dice Meta de esta conexión:
+- Meta la da a apps de **Tech Provider**; sin verificación permite hasta 10 conexiones por semana. Si la ventana de Meta no ofrece conectar la app de WhatsApp Business, toca hacer la verificación del negocio o usar un proveedor (algunos cobran).
+- Se comparten hasta 6 meses de chats individuales; los grupos no.
+- Mario debe abrir su WhatsApp Business por lo menos cada 13 días; si desinstala la app, se desconecta.
+- Lo que Mario manda desde su celular sigue siendo gratis. Lo que manda Sofía cuenta como mensaje de la API; contestar dentro de las 24 horas de que escribió el cliente no se cobra.
+
 ## 4. Facebook e Instagram (15 minutos)
 
 ### 4.1 Página de Facebook
