@@ -1,0 +1,346 @@
+// Más → Conexiones: Google (gratis: datos, Gmail, Calendar, lector), servidor/conector, WhatsApp Business,
+// Facebook/Instagram e IA opcional, cada uno con su estado verdadero.
+import { h, toast, fmtWhen, modal } from "./util.js";
+import { state, save, serverPeek, serverPull, serverBase, isAppsScript } from "./store.js";
+import { header, section, btn, rerender, field, input, select, chip, go } from "./ui.js";
+import { MODELS, testConnection, aiReady } from "./ai.js";
+import { connectorReady, refreshStatus, lastStatus, sendMessage, waTemplates, getConnection, saveConnection, connectCoexistence } from "./connector.js";
+import { cargarFacebook, registrarWhatsApp } from "./meta-registro.js";
+import { googleReady, googleStatus, lastGoogleStatus, setEmailConfig, saveEvent, deleteEvent } from "./google.js";
+
+const GUIDE = "https://github.com/creoqisaac-cloud/Sofia/blob/claude/focused-gauss-q4hxvr/prueba/CONEXIONES.md";
+const GOOGLE_GUIDE = "https://github.com/creoqisaac-cloud/Sofia/blob/claude/focused-gauss-q4hxvr/prueba/servidor/google/LEEME.md";
+const pill = (ok, okText, noText) => h("div", {}, chip(ok ? `● ${okText}` : `○ ${noText}`, ok ? "ok" : "off"));
+
+export function renderConnections(root) {
+  root.append(
+    header("Conexiones", { back: "/mas" }),
+    h("div", { class: "page" },
+      h("p", { class: "muted" }, "Sofía funciona sin nada de esto. Todo lo de abajo es GRATIS excepto la IA, que es un extra opcional."),
+      googleCard(),
+      serverCard(),
+      coexCard(),
+      waCard(),
+      fbCard(),
+      aiCard(),
+      h("p", { class: "muted small" }, "Guía paso a paso (cuentas de Meta, tokens y servidor gratis): ", h("a", { href: GUIDE, target: "_blank", rel: "noopener" }, "CONEXIONES.md"))));
+}
+
+// ───────── Google (gratis) ─────────
+
+function googleCard() {
+  const g = state.settings.google; // solo para mostrar: al conectar se escribe en state.settings.google
+  const st = lastGoogleStatus();
+  const url = input({ type: "url", placeholder: "https://script.google.com/macros/s/…/exec", value: g.url ?? "" });
+  const token = input({ type: "password", autocomplete: "off", value: g.token ?? "" });
+  const out = h("p", { class: "small", role: "status" });
+  const correo = st?.correo ?? {};
+  const auto = h("input", { type: "checkbox", checked: Boolean(correo.seguimientoAuto) });
+  const dias = input({ type: "number", min: "1", max: "30", value: correo.dias ?? 3, style: "max-width:90px" });
+  const connect = async (e) => {
+    const b = e.currentTarget;
+    state.settings.google = { ...state.settings.google, url: url.value.trim(), token: token.value.trim() };
+    save();
+    b.disabled = true;
+    out.className = "small";
+    out.textContent = "Probando tu cuenta de Google…";
+    try {
+      const primera = !st;
+      const r = await googleStatus();
+      toast(`Google conectado: ${r.cuenta ?? "tu cuenta"}`);
+      // Sin conector, Google guarda el respaldo: se enciende solo la primera vez (luego manda el interruptor).
+      // Si tu Drive ya tiene datos (otro teléfono), primero se ofrece traerlos para no taparlos con este.
+      if (primera && !serverBase()) {
+        const m = await serverPeek().catch(() => ({}));
+        if (m.updatedAt && !state.settings.server.lastSync) {
+          modal("Ya hay datos en tu Drive", h("p", {}, `Hay un respaldo del ${fmtWhen(m.updatedAt)}. ¿Traerlo a este dispositivo? Si no, el respaldo automático queda apagado para no taparlo.`), [
+            { label: "Ahora no" },
+            { label: "Traer", kind: "primary", onClick: async () => { try { await serverPull(); state.settings.server.auto = true; save(); toast("Datos traídos de tu Drive"); rerender(); } catch (err) { toast(err.message, 6000); return false; } } },
+          ]);
+        } else { state.settings.server.auto = true; save(); }
+      }
+      rerender();
+    } catch (err) { out.className = "small warn"; out.textContent = err.message; }
+    finally { b.disabled = false; }
+  };
+  const testCalendar = async () => {
+    try {
+      const id = await saveEvent({ title: "Prueba de Sofía", description: "Si te llegó el aviso, los recordatorios funcionan. Puedes borrarlo.", at: new Date(Date.now() + 10 * 60000).toISOString(), alerts: [5] });
+      toast("Listo: en 5 minutos te debe sonar el aviso de Google Calendar.", 6000);
+      setTimeout(() => deleteEvent(id).catch(() => {}), 20 * 60000);
+    } catch (err) { toast(err.message, 6000); }
+  };
+  return section("Google (gratis): datos, correo, recordatorios y lector",
+    h("div", { class: "stack-s" }, pill(googleReady() && Boolean(st), st?.cuenta ?? "Conectado", googleReady() ? "Sin probar" : "Sin conectar"),
+      h("span", { class: "muted small" }, "Tu propia cuenta de Google hace de servidor, sin pagar nada: respaldo en Drive, el agente de correo de placas envía desde tu Gmail y da seguimiento solo, los recordatorios suenan en tu iPhone con Google Calendar y Google Drive lee las INE como segunda opinión.")),
+    field("Dirección del script (…/exec)", url, h("span", {}, "Cómo crearlo en 10 minutos: ", h("a", { href: GOOGLE_GUIDE, target: "_blank", rel: "noopener" }, "guía de Google"))),
+    field("Clave", token),
+    h("div", { class: "row wrap gap-s" },
+      btn(googleReady() && st ? "Volver a probar" : "Conectar y probar", connect, "primary"),
+      googleReady() && st ? btn("Probar recordatorio", testCalendar, "ghost") : null),
+    out,
+    st ? h("ul", { class: "checks" },
+      h("li", { class: "ok" }, `Cuenta: ${st.cuenta ?? "—"}`),
+      h("li", { class: st.servicios?.correo === false ? "bad" : "ok" }, `Gmail${correo.cuotaRestante !== undefined ? ` · te quedan ${correo.cuotaRestante} correos hoy` : ""}`),
+      h("li", { class: st.servicios?.calendario === false ? "bad" : "ok" }, "Google Calendar (calendario «Sofía»)"),
+      h("li", { class: st.servicios?.ocr === false ? "bad" : "ok" }, st.servicios?.ocr === false ? "Lector de Google Drive: falta activar el servicio «Drive API» en el script (ver guía)" : "Lector de Google Drive para INE"),
+      h("li", { class: "info" }, `Revisado ${fmtWhen(st.at)}${st.version ? ` · ${st.version}` : ""}`)) : null,
+    st && !serverBase() ? h("label", { class: "row gap-s small" },
+      h("input", { type: "checkbox", checked: state.settings.server.auto, onchange: (e) => { state.settings.server.auto = e.target.checked; save(); } }),
+      h("span", {}, "Respaldar automáticamente en tu Drive al salir de la app")) : null,
+    st ? h("div", { class: "stack-s" },
+      h("h3", {}, "Agente de correo (placas)"),
+      h("label", { class: "row gap-s small" }, auto, h("span", {}, "Si la gestoría no contesta, mandar seguimiento automático después de")), h("div", { class: "row gap-s" }, dias, h("span", { class: "small muted" }, "días")),
+      btn("Guardar agente de correo", async () => {
+        try { await setEmailConfig({ seguimientoAuto: auto.checked, dias: Number(dias.value) || 3 }); await googleStatus(); toast(auto.checked ? "Agente de correo activo: revisa cada hora aunque Sofía esté cerrada." : "Seguimiento automático apagado"); rerender(); }
+        catch (err) { toast(err.message, 6000); }
+      }, "small")) : null);
+}
+
+// ───────── IA ─────────
+
+function aiCard() {
+  const ai = state.settings.ai;
+  const key = input({ type: "password", autocomplete: "off", placeholder: "sk-ant-…", value: ai.apiKey ?? "" });
+  const model = select(MODELS, ai.model || MODELS[0][0]);
+  const out = h("p", { class: "small", role: "status" });
+  const connect = async (e) => {
+    const b = e.currentTarget;
+    if (!key.value.trim()) { out.textContent = "Pega tu llave de API."; return; }
+    b.disabled = true;
+    out.textContent = "Probando conexión con Anthropic…";
+    try {
+      const r = await testConnection(key.value.trim(), model.value);
+      Object.assign(ai, { apiKey: key.value.trim(), model: model.value, enabled: true, connectedAt: new Date().toISOString(), modelName: r.name });
+      save();
+      toast(`IA conectada: ${r.name}`);
+      rerender();
+    } catch (err) {
+      out.textContent = err.message;
+      out.className = "small warn";
+    } finally { b.disabled = false; }
+  };
+  const ineToggle = h("input", { type: "checkbox", checked: ai.ine !== false, onchange: (e) => { ai.ine = e.target.checked; save(); } });
+  return section("Inteligencia artificial (opcional, de pago)",
+    h("div", { class: "stack-s" }, pill(aiReady(), `Conectada${ai.modelName ? ` · ${ai.modelName}` : ""}`, "Sin conectar"), h("span", { class: "muted small" }, "Lee INE con precisión, aprende tu estilo, redacta respuestas, plantillas por cliente y publicaciones.")),
+    field("Llave de API de Anthropic", key, h("span", {}, "Créala en ", h("a", { href: "https://console.anthropic.com/settings/keys", target: "_blank", rel: "noopener" }, "console.anthropic.com → API keys"), ". Se guarda solo en este dispositivo.")),
+    field("Calidad", model),
+    h("div", { class: "row wrap gap-s" },
+      btn(aiReady() ? "Guardar y volver a probar" : "Conectar y probar", connect, "primary"),
+      aiReady() ? btn("Desconectar", () => { Object.assign(ai, { enabled: false, apiKey: "", connectedAt: null }); save(); rerender(); }, "ghost") : null),
+    out,
+    aiReady() ? h("label", { class: "row gap-s small" }, ineToggle, h("span", {}, "Usar IA para leer INE (la foto se envía a Anthropic solo para leerla)")) : null,
+    aiReady() && connectorReady() ? h("div", { class: "row wrap gap-s" }, btn("Usar esta llave también en mi servidor (vendedora)", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        await saveConnection({ ANTHROPIC_API_KEY: ai.apiKey, ANTHROPIC_MODEL: ai.model });
+        await refreshStatus().catch(() => {});
+        toast("Listo: tu servidor ya tiene la llave. Activa «Con IA» en WhatsApp → Automático.", 6000);
+      } catch (err) { toast(err.message, 6000); }
+      finally { b.disabled = false; }
+    }, "small ghost")) : null,
+    ai.usedAt ? h("p", { class: "muted small" }, `Último uso: ${fmtWhen(ai.usedAt)}`) : null);
+}
+
+// ───────── Servidor / conector ─────────
+
+function serverCard() {
+  const sv = state.settings.server;
+  const url = input({ type: "url", placeholder: "https://sofia-conector.tu-cuenta.workers.dev", value: serverBase() });
+  const token = input({ type: "password", autocomplete: "off", value: sv.token ?? "" });
+  const auto = h("input", { type: "checkbox", checked: sv.auto, onchange: (e) => { sv.auto = e.target.checked; save(); } });
+  const out = h("p", { class: "small", role: "status" });
+  const st = lastStatus();
+  return section("Servidor (conector)",
+    h("div", { class: "stack-s" }, pill(Boolean(connectorReady() && st), "Conectado", serverBase() ? (isAppsScript() ? "Es Google: ponlo en la tarjeta de Google" : "Sin probar") : "Sin conectar"), h("span", { class: "muted small" }, "Necesario solo para WhatsApp Business, Messenger, Facebook e Instagram (Meta exige un servidor HTTPS para avisar de mensajes). Gratis en Cloudflare, o tu computadora/hosting. Aquí corren los agentes automáticos aunque Sofía esté cerrada.")),
+    field("Dirección", url),
+    field("Clave", token),
+    h("label", { class: "row gap-s small" }, auto, h("span", {}, "Respaldar automáticamente al salir de la app")),
+    h("div", { class: "row wrap gap-s" },
+      btn("Conectar y probar", async (e) => {
+        const b = e.currentTarget;
+        sv.url = url.value.trim();
+        sv.token = token.value.trim();
+        save();
+        b.disabled = true;
+        out.className = "small";
+        out.textContent = "Probando…";
+        try {
+          if (isAppsScript()) {
+            const m = await serverPeek();
+            toast(m.updatedAt ? `Conectado (Google). Datos del ${fmtWhen(m.updatedAt)}` : "Conectado a Google. Aún sin datos.");
+          } else {
+            const s = await refreshStatus();
+            toast(`Conectado · WhatsApp ${s.whatsapp.ok ? "✓" : "—"} · Facebook ${s.facebook.ok ? "✓" : "—"}`);
+          }
+          rerender();
+        } catch (err) { out.className = "small warn"; out.textContent = err.message; }
+        finally { b.disabled = false; }
+      }, "primary"),
+      btn("Respaldo y restauración", () => go("/ajustes"), "ghost")),
+    out,
+    st?.at ? h("p", { class: "muted small" }, `Revisado ${fmtWhen(st.at)} · ${st.version ?? ""}`) : null);
+}
+
+// ───────── Datos de Meta en el servidor (se capturan aquí, no en Cloudflare) ─────────
+
+/**
+ * Formulario para guardar en el servidor los datos de Meta (o de la IA). Los secretos nunca se vuelven a mostrar:
+ * si ya están, el campo dice «guardado» y vacío los conserva.
+ */
+function serverForm(campos, { boton, alGuardar }) {
+  const box = h("div", { class: "stack-s" }, h("p", { class: "muted small" }, "Cargando lo que tiene tu servidor…"));
+  getConnection().then((con) => {
+    const inputs = campos.map(([clave, etiqueta, ayuda, secreto]) => {
+      const hay = con.configurado?.[clave];
+      const el = input({ type: secreto ? "password" : "text", autocomplete: "off", value: secreto ? "" : con.valores?.[clave] ?? "",
+        placeholder: secreto && hay ? "✓ guardado (escribe solo para cambiarlo)" : ayuda, "aria-label": etiqueta });
+      return { clave, secreto, el, inicial: el.value, campo: field(etiqueta, el, hay === "servidor" ? "Viene de las variables del servidor; lo que escribas aquí manda." : null) };
+    });
+    const out = h("p", { class: "small", role: "status" });
+    box.replaceChildren(...inputs.map((x) => x.campo), h("div", { class: "row wrap gap-s" }, btn(boton, async (e) => {
+      const b = e.currentTarget;
+      const datos = {};
+      // Solo lo que cambió: un secreto vacío se conserva, y lo que ya estaba igual no se toca.
+      for (const x of inputs) { const v = x.el.value.trim(); if (x.secreto ? v : v !== x.inicial) datos[x.clave] = v; }
+      b.disabled = true;
+      out.className = "small";
+      out.textContent = "Guardando en tu servidor y probando con Meta…";
+      try {
+        const r = await saveConnection(datos);
+        await refreshStatus().catch(() => {});
+        alGuardar?.(r);
+        rerender();
+      } catch (err) { out.className = "small warn"; out.textContent = err.message; b.disabled = false; }
+    }, "primary")), out);
+  }).catch((e) => box.replaceChildren(h("p", { class: "warn small" }, e.message)));
+  return box;
+}
+
+/** Lo que hay que pegar en Meta → WhatsApp → Configuración → Webhook. */
+function webhookBox() {
+  const box = h("div", { class: "reading" });
+  getConnection().then(({ webhook }) => {
+    if (!webhook?.verifyToken) { box.replaceChildren(h("p", { class: "muted small" }, "Guarda primero los datos de arriba para obtener el token de verificación.")); return; }
+    const fila = (k, v) => h("div", { class: "copy-row" }, h("div", { class: "grow" }, h("span", { class: "muted small" }, k), h("div", { class: "pre" }, v)),
+      btn("Copiar", async () => { await navigator.clipboard?.writeText(v); toast(`${k} copiado`); }, "small ghost"));
+    box.replaceChildren(
+      h("p", { class: "small" }, "En Meta → tu app → WhatsApp → Configuración → Webhook, pega esto, toca «Verificar y guardar» y suscríbete al campo «messages» (en Messenger, lo mismo):"),
+      fila("URL de devolución", webhook.url), fila("Token de verificación", webhook.verifyToken),
+      webhook.url.startsWith("https://") ? null : h("p", { class: "warn small" }, "Meta solo acepta direcciones HTTPS: usa la de Cloudflare o un túnel."));
+  }).catch(() => box.replaceChildren());
+  return box;
+}
+
+// ───────── WhatsApp Business del asesor (coexistencia: mismo número, él sigue con su app) ─────────
+
+function coexCard() {
+  const co = lastStatus()?.coexistencia;
+  const conectado = co?.estado === "conectado";
+  const box = h("div", { class: "stack-s" });
+  const out = h("p", { class: "small", role: "status" });
+  const lineas = (r) => (r?.pasos ?? []).map((x) => h("div", { class: `small ${x.ok ? "" : "warn"}` }, `${x.ok ? "✓" : "✗"} ${x.paso}${x.error ? `: ${x.error}` : ""}`));
+  const hist = co?.historial;
+  const card = section("WhatsApp Business de Mario (mismo número)",
+    h("div", { class: "stack-s" },
+      pill(conectado, `Conectado: ${co?.numero || "listo"}`, co?.estado === "desconectado" ? "Se desconectó desde su celular" : "Sin conectar"),
+      h("span", { class: "muted small" }, "Mario sigue usando su WhatsApp Business normal, con sus clientes y sus chats. Sofía contesta desde ese mismo número y se calla en cuanto él escribe en un chat.")),
+    conectado && !co.coexistencia ? h("p", { class: "warn small" }, "Meta conectó el número como cuenta nueva de la API (no como el WhatsApp Business del celular).") : null,
+    hist ? h("p", { class: "small" }, hist.error ? `Historial: ${hist.error}` : `Historial: ${hist.mensajes} mensajes de ${hist.chats} chats${hist.progreso < 100 ? ` (llegando, ${hist.progreso}%)` : ""} · Sofía aprendió de ${co.aprendidos} mensajes de Mario.`) : null,
+    ...(conectado ? lineas(co) : []),
+    connectorReady() ? box : h("p", { class: "muted small" }, "Primero conecta el servidor."));
+  if (!connectorReady()) return card;
+  getConnection().then((con) => {
+    const appId = con.valores?.META_APP_ID;
+    const configId = con.valores?.META_ES_CONFIG_ID;
+    if (appId && configId) cargarFacebook(appId).catch((e) => { out.className = "small warn"; out.textContent = e.message; });
+    const conectar = btn(conectado ? "Volver a conectar" : "Conectar el WhatsApp Business de Mario", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      out.className = "small";
+      out.textContent = "Sigue los pasos en la ventana de Meta (Mario confirma en su celular)…";
+      try {
+        const datos = await registrarWhatsApp(configId); // en el mismo clic: si no, el navegador bloquea la ventana
+        out.textContent = "Terminando la conexión en tu servidor…";
+        const r = await connectCoexistence(datos);
+        await refreshStatus().catch(() => {});
+        out.replaceChildren(h("strong", {}, `Listo: ${r.numero}${r.nombre ? ` (${r.nombre})` : ""} conectado.`), ...lineas(r));
+        toast("WhatsApp Business de Mario conectado. Sofía ya contesta desde su número.", 7000);
+      } catch (err) { out.className = "small warn"; out.textContent = err.message; }
+      b.disabled = false;
+    }, conectado ? "ghost" : "primary");
+    conectar.disabled = !(appId && configId);
+    box.replaceChildren(
+      h("details", { class: "stack-s", open: !conectado && !(appId && configId) },
+        h("summary", {}, "Antes de conectar (una sola vez)"),
+        h("ol", { class: "small stack-s" },
+          h("li", {}, "En el celular de Mario: WhatsApp Business → Ajustes → Chats → Copia de seguridad → Guardar. Que tenga la app actualizada."),
+          h("li", {}, "En developers.facebook.com, en tu app: agrega el producto «Facebook Login for Business». En «Configuraciones» crea una nueva de tipo «WhatsApp Embedded Signup» y copia su ID."),
+          h("li", {}, `Ahí mismo, en «Configuración», agrega ${location.hostname} en «Dominios permitidos para el SDK de JavaScript» y activa «Iniciar sesión con el SDK de JavaScript».`),
+          h("li", {}, "No registres el número de Mario en el «Paso 2» de Meta: eso lo sacaría de su app."),
+          h("li", {}, "Pega aquí abajo el ID de la app (arriba a la izquierda en Meta) y el de la configuración.")),
+        serverForm([
+          ["META_APP_ID", "ID de la app de Meta", "Solo números"],
+          ["META_ES_CONFIG_ID", "ID de la configuración (WhatsApp Embedded Signup)", "Solo números"],
+          ["META_APP_SECRET", "Clave secreta de la app", "32 letras y números, de «Configuración de la app → Básica»", true],
+        ], { boton: "Guardar", alGuardar: () => toast("Guardado. Ya puedes conectar el WhatsApp Business de Mario.", 5000) })),
+      h("p", { class: "muted small" }, "Hazlo desde el navegador (no desde la app instalada) y con el celular de Mario a la mano: Meta le pide confirmar en su WhatsApp Business y compartir sus chats."),
+      h("div", { class: "row wrap gap-s" }, conectar),
+      out);
+  }).catch((e) => box.replaceChildren(h("p", { class: "warn small" }, e.message)));
+  return card;
+}
+
+// ───────── WhatsApp ─────────
+
+function waCard() {
+  const st = lastStatus()?.whatsapp;
+  const hook = lastStatus()?.webhook;
+  const to = input({ type: "tel", placeholder: "Tu celular para la prueba (10 dígitos)" });
+  return section("WhatsApp Business (API oficial de Meta)",
+    h("div", { class: "stack-s" }, pill(Boolean(st?.ok), st?.phone ? `${st.phone}` : "Conectado", st?.configured ? "Token con error" : "Sin configurar"), h("span", { class: "muted small" }, "Recibir y contestar mensajes desde Sofía, con borradores de IA en tu estilo.")),
+    st?.error ? h("p", { class: "warn small" }, `Meta dice: ${st.error}`) : null,
+    st?.ok ? h("p", { class: "small" }, `Número: ${st.phone} · Nombre: ${st.name ?? "—"}${st.quality ? ` · Calidad: ${st.quality}` : ""}`) : null,
+    hook ? h("p", { class: "muted small" }, hook.last ? `Último aviso de Meta recibido ${fmtWhen(hook.last.at)}` : hook.secret && hook.verifyToken ? "Webhook listo; aún no llega ningún mensaje." : "Falta la clave secreta de la app de Meta (abajo).") : null,
+    st?.ok ? h("div", { class: "row gap-s" }, to, btn("Enviar prueba", async () => {
+      try {
+        // hello_world existe en toda cuenta nueva; sirve aunque no haya conversación abierta.
+        const tpl = (await waTemplates().catch(() => [])).find((t) => t.name === "hello_world");
+        await sendMessage({ channel: "wa", to: `52${to.value.replace(/\D/g, "").slice(-10)}`, template: { name: "hello_world", lang: tpl?.language ?? "en_US", preview: "Plantilla de prueba hello_world" } });
+        toast("Enviado. Revisa tu WhatsApp.");
+      } catch (e) { toast(e.message, 6000); }
+    }, "small")) : null,
+    connectorReady() ? h("details", { class: "stack-s", open: !st?.ok },
+      h("summary", {}, st?.ok ? "Datos de Meta" : "Datos de Meta (cópialos de tu app en developers.facebook.com)"),
+      serverForm([
+        ["WA_TOKEN", "Token permanente", "Empieza con EAA… (usuario del sistema)", true],
+        ["WA_PHONE_NUMBER_ID", "Identificador del número de teléfono", "Solo números, de «Configuración de la API»"],
+        ["WA_WABA_ID", "Identificador de la cuenta de WhatsApp Business", "Solo números"],
+        ["META_APP_SECRET", "Clave secreta de la app", "32 letras y números, de «Configuración de la app → Básica»", true],
+        ["ASESOR_WHATSAPP", "WhatsApp del asesor (para avisarle de cada cita)", "10 dígitos, ej. 8112345678"],
+      ], { boton: "Guardar en mi servidor y probar", alGuardar: () => toast(lastStatus()?.whatsapp?.ok ? `WhatsApp conectado: ${lastStatus().whatsapp.phone}` : `Guardado. ${lastStatus()?.whatsapp?.error ? `Meta dice: ${lastStatus().whatsapp.error}` : "Revisa los datos."}`, 7000) }),
+      webhookBox()) : h("p", { class: "muted small" }, "Primero conecta el servidor."));
+}
+
+// ───────── Facebook ─────────
+
+function fbCard() {
+  const st = lastStatus()?.facebook;
+  const ig = lastStatus()?.instagram;
+  const prog = lastStatus()?.programadas;
+  return section("Facebook e Instagram",
+    h("div", { class: "stack-s" }, pill(Boolean(st?.ok), st?.name ?? "Conectada", st?.configured ? "Token con error" : "Sin configurar"), h("span", { class: "muted small" }, "Publicar (o programar) en tu página e Instagram, contestar Messenger y preparar anuncios.")),
+    st?.error ? h("p", { class: "warn small" }, `Meta dice: ${st.error}`) : null,
+    h("p", { class: "small" }, "Instagram: ", ig?.ok ? `@${ig.username ?? ig.name ?? "conectado"}` : ig?.configured ? `con error${ig.error ? ` (${ig.error})` : ""}` : "sin configurar (IG_USER_ID)"),
+    prog ? h("p", { class: "muted small" }, `Publicaciones programadas: ${prog.pendientes ?? 0} pendientes${prog.conError ? ` · ${prog.conError} con error` : ""}`) : null,
+    st?.ok ? btn("Ir a Redes", () => go("/redes"), "small") : null,
+    connectorReady() ? h("details", { class: "stack-s", open: !st?.ok && Boolean(lastStatus()?.whatsapp?.ok) },
+      h("summary", {}, "Datos de la página e Instagram"),
+      serverForm([
+        ["FB_PAGE_ID", "ID de la página", "Solo números"],
+        ["FB_PAGE_TOKEN", "Token de la página", "De GET /{ID de la página}?fields=access_token", true],
+        ["IG_USER_ID", "ID de Instagram (opcional)", "De GET /{ID de la página}?fields=instagram_business_account"],
+        ["PUBLIC_URL", "Dirección pública del servidor (para Instagram)", "https://sofia-conector.tu-cuenta.workers.dev"],
+      ], { boton: "Guardar en mi servidor y probar", alGuardar: () => toast(lastStatus()?.facebook?.ok ? `Página conectada: ${lastStatus().facebook.name}` : "Guardado. Revisa el estado arriba.", 6000) })) : null);
+}
