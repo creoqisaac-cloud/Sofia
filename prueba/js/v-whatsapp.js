@@ -8,6 +8,7 @@ import { aiReady, draftMessage, personalizeTemplates, extractLead } from "./ai.j
 import { connectorReady, inbox, conversation, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus, refreshStatus, getAgentConfig, setAgentConfig, listLeads, markLeads } from "./connector.js";
 import { applyIneImage, ensureCredit } from "./v-credit.js";
 import { waFormat } from "./v-inventory.js";
+import { asesorCon } from "./vendedor.js";
 
 const TABS = [["bandeja", "Bandeja"], ["auto", "Automático"], ["escribir", "Escribir"], ["responder", "Responder"], ["pendientes", "Pendientes"], ["plantillas", "Plantillas"]];
 let poll = null;
@@ -244,8 +245,8 @@ const ZONAS = [["America/Monterrey", "Monterrey / Centro"], ["America/Mexico_Cit
 
 function autoTab(root) {
   const disponibles = state.inventory.filter((a) => a.disponible !== false).length;
-  const vendedora = section("Sofía vendedora (gratis, sin IA)",
-    h("p", {}, "Contesta en segundos, a cualquier hora: muestra tus autos con foto y precio, cotiza a crédito, agenda pruebas de manejo y te pasa al cliente cuando pide hablar contigo. Todo queda anotado en Prospectos."),
+  const vendedora = section("Sofía vendedora",
+    h("p", {}, "Contesta en segundos, a cualquier hora y en nombre del asesor: ofrece la corrida, pregunta el enganche, agenda la cita y le pasa el cliente con todo su contexto. Todo queda anotado en Prospectos."),
     h("div", { class: "row wrap gap-s" },
       btn(`Inventario (${disponibles} auto${disponibles === 1 ? "" : "s"})`, () => go("/inventario"), disponibles ? "" : "primary"),
       btn("Probar a Sofía", () => go("/probar"), disponibles ? "primary" : "")));
@@ -256,20 +257,41 @@ function autoTab(root) {
   }
   const leadsBox = h("div", { class: "list" }, h("p", { class: "muted" }, "Cargando prospectos…"));
   const form = h("div", { class: "stack-s" }, h("p", { class: "muted" }, "Cargando configuración…"));
+  const corridas = h("div", { class: "stack-s" }, h("p", { class: "muted" }, "Cargando…"));
   root.append(section("Prospectos nuevos", h("p", { class: "muted small" }, "Quien te escribió y lo que Sofía le anotó. 🔥 = pidió cita o hablar contigo."), leadsBox),
     vendedora,
+    section("Corridas", corridas),
     section("Configuración del asistente", form));
   drawLeads(leadsBox);
-  getAgentConfig().then((cfg) => drawAgentForm(form, cfg)).catch((e) => form.replaceChildren(h("p", { class: "warn" }, e.message)));
+  getAgentConfig().then((cfg) => { drawCorridas(corridas, cfg); drawAgentForm(form, cfg); })
+    .catch((e) => { form.replaceChildren(h("p", { class: "warn" }, e.message)); corridas.replaceChildren(); });
 }
 
 const caliente = (l) => Boolean(l.cita || l.quiereAsesor);
+
+/** Las corridas del asesor, pegadas tal cual: con IA son las únicas cifras de crédito que da Sofía. */
+function drawCorridas(box, cfg) {
+  const de = asesorCon(cfg.asesor || "el asesor", "de");
+  const texto = textarea({ rows: 8, "aria-label": "Corridas", placeholder: "Por ejemplo:\nCivic Touring 2026 · precio $000,000\n20% de enganche ($00,000): 48 meses $0,000 · 60 meses $0,000\n30% de enganche ($00,000): 48 meses $0,000 · 60 meses $0,000\n40%… 50%…\n\nCR-V Turbo 2026 · …" }, cfg.corridas ?? "");
+  box.replaceChildren(
+    h("p", { class: "muted small" }, `Pega aquí las corridas ${de} (modelo, versión, enganche de 20, 30, 40 o 50%, plazo y mensualidad), como texto. Sofía da solo estas cifras y tal cual; si el cliente pregunta por un modelo que no está aquí, no da números y le pasa la corrida al asesor.`),
+    texto,
+    h("div", { class: "row" }, btn("Guardar corridas", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        await setAgentConfig({ corridas: texto.value });
+        toast(texto.value.trim() ? "Corridas guardadas: Sofía ya las usa." : "Corridas borradas: Sofía no da cifras.", 5000);
+      } catch (err) { toast(err.message, 6000); }
+      b.disabled = false;
+    }, "primary")));
+}
 
 /** Lo que Sofía le anotó al prospecto, en renglones cortos. */
 function leadLines(l) {
   return [
     l.interes && `Interés: ${l.interes}${l.precio ? ` (${money(l.precio)})` : ""}`,
-    l.formaPago === "credito" ? `Crédito${l.enganche ? ` · enganche ${money(l.enganche)}` : ""}${l.mensualidad ? ` · ~${money(l.mensualidad)} a ${l.plazo} meses` : ""}` : l.formaPago === "contado" ? "De contado" : "",
+    l.formaPago === "credito" ? `Crédito${l.enganche ? ` · enganche ${money(l.enganche)}` : l.enganchePct ? ` · enganche ${l.enganchePct}%` : ""}${l.mensualidad ? ` · ~${money(l.mensualidad)} a ${l.plazo} meses` : ""}` : l.formaPago === "contado" ? "De contado" : "",
     l.cita && `Cita: ${l.cita}`,
     l.resumen && `Resumen de Sofía: ${l.resumen}`,
     l.pideBorrar ? "⚠️ Pidió BORRAR SUS DATOS (aviso de privacidad: confírmalo y bórralo en máximo 15 días hábiles)" : l.quiereAsesor && "Pidió hablar contigo",
@@ -343,7 +365,7 @@ function drawAgentForm(box, cfg) {
     { palabras: "ubicación, ubicacion, dirección, direccion, dónde están, donde estan", respuesta: `${agencia.value.trim() ? "Estamos en {agencia}. " : ""}Te comparto la ubicación y con gusto te espero; ¿qué día te acomoda?` });
   const v = cfg.ventas ?? {};
   const ventas = h("input", { type: "checkbox", checked: v.activo !== false });
-  const presentacion = textarea({ rows: 2, placeholder: "¡Hola {nombre}! 👋 Soy Sofía, asistente de {asesor} en {agencia}." }, v.presentacion ?? "");
+  const presentacion = textarea({ rows: 2, placeholder: "¡Hola {nombre}! 👋 Te escribo de parte del {asesor}, de {agencia}." }, v.presentacion ?? "");
   const tasa = input({ type: "number", min: "0", max: "80", step: "0.1", value: v.tasaAnual ?? 15.9 });
   const enganche = input({ type: "number", min: "0", max: "90", value: v.engancheMinimo ?? 20 });
   const plazos = input({ value: (v.plazos ?? [24, 36, 48, 60]).join(", "), inputmode: "numeric" });
@@ -373,7 +395,7 @@ function drawAgentForm(box, cfg) {
     field("Zona horaria", zona),
     h("h3", {}, "Vendedora"),
     h("label", { class: "row gap-s" }, ventas, h("span", {}, "Vender autos: menú, inventario con foto, crédito, citas y pase contigo")),
-    field("Cómo se presenta (opcional)", presentacion, "Va al inicio del primer mensaje. Vacío: «Soy Sofía, asistente de…»."),
+    field("Cómo se presenta (opcional)", presentacion, "Va al inicio del primer mensaje. Vacío: «Te escribo de parte del…»."),
     h("div", { class: "grid2" }, field("Tasa anual de referencia (%)", tasa, "Solo para estimar; Sofía aclara que está sujeta a aprobación."), field("Enganche mínimo (%)", enganche)),
     h("div", { class: "grid2" }, field("Plazos (meses)", plazos), field("Al pedirte, Sofía se calla (horas)", conAsesor)),
     h("label", { class: "row gap-s" }, conIa, h("span", {}, "Con IA: contesta lo que el menú no entiende y platica como vendedora (opcional, de pago)")),

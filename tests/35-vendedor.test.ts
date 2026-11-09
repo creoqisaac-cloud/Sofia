@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 // @ts-expect-error módulo JS sin tipos
-import { decidir, leerEnganche, buscarAutos, mensualidad, textoHorario, MAX_POR_HORA, promptIA, aplicarIA, horariosLibres } from "../prueba/js/vendedor.js";
+import { decidir, leerEnganche, buscarAutos, mensualidad, textoHorario, MAX_POR_HORA, promptIA, aplicarIA, horariosLibres, textoCita, asesorCon, cifras } from "../prueba/js/vendedor.js";
 
 type Respuesta = { texto: string; foto?: string };
 type Resultado = { respuestas: Respuesta[]; conv: Record<string, unknown>; lead: Record<string, unknown>; motivo: string; reserva?: { id: string; texto: string } };
@@ -40,7 +40,7 @@ describe("vendedora · conversación", () => {
   it("se presenta con el nombre del cliente y muestra el menú", () => {
     const { ultimo, texto } = charla(["Hola, buenas tardes"]);
     expect(ultimo.motivo).toBe("menu");
-    expect(texto).toMatch(/^¡Hola Ana! 👋 Soy Sofía, asistente de Pedro en Honda Ejemplo\./);
+    expect(texto).toMatch(/^¡Hola Ana! 👋 Te escribo de parte de Pedro, de Honda Ejemplo\./);
     expect(texto).toContain("1️⃣ Ver autos disponibles");
     expect(texto).toContain("4️⃣ Hablar con Pedro");
   });
@@ -133,18 +133,50 @@ describe("vendedora · conversación", () => {
     expect(r.lead).toMatchObject({ cita: "cuando ustedes digan" });
   });
 
-  it("sin inventario no inventa precios: reconoce el modelo Honda y lo lleva a la cita con horarios reales", () => {
-    const libres = [{ id: "2026-11-10T17:00:00.000Z", texto: "mañana martes a las 11:00 a.m." }, { id: "2026-11-11T22:00:00.000Z", texto: "el miércoles 11 a las 4:00 p.m." }];
-    const r: Resultado = decidir({ cfg: { ...CFG, agencia: "Honda" }, inventario: [], conv: {}, msg: { texto: "Hola, ¿qué precio tiene la CR-V?", nombre: "Luis", primero: true, enHorario: true }, ahora: new Date(T0), libres });
-    expect(r.motivo).toBe("cita");
-    const t = r.respuestas[0]!.texto;
-    expect(t).toContain("Pedro te da el precio exacto en la agencia");
-    expect(t).toContain("1️⃣ mañana martes a las 11:00 a.m.");
-    expect(t).not.toMatch(/\$\d/);
+  it("sin inventario no inventa precios: ofrece la corrida, pregunta el enganche y lleva a la cita con horarios reales", () => {
+    const libres = [{ id: "2026-11-10T17:00:00.000Z", texto: "mañana martes a las 11 am" }, { id: "2026-11-11T22:00:00.000Z", texto: "el miércoles 11 a las 4 pm" }];
+    const cfg = { ...CFG, asesor: "Lic. Mario Abarca", agencia: "Honda" };
+    const di = (texto: string, conv: Record<string, unknown>, i: number, primero = false): Resultado =>
+      decidir({ cfg, inventario: [], conv, msg: { texto, nombre: "Luis", primero, enHorario: true }, ahora: new Date(T0 + i * 60_000), libres });
+    const r = di("Hola, ¿qué precio tiene la CR-V?", {}, 0, true);
+    expect(r.motivo).toBe("corrida");
+    expect(r.respuestas[0]!.texto).toBe("¡Hola Luis! 👋 Te escribo de parte del Lic. Mario Abarca, de Honda.\n\nCon gusto te doy una corrida de la CR-V. ¿Más o menos cuánto tienes pensado dar de enganche?");
     expect(r.lead).toMatchObject({ interes: "Honda CR-V" });
-    const apartada: Resultado = decidir({ cfg: CFG, inventario: [], conv: r.conv, msg: { texto: "2", enHorario: true }, ahora: new Date(T0 + 60_000), libres });
+    const eng = di("como 80 mil", r.conv, 1);
+    expect(eng.motivo).toBe("corrida");
+    expect(eng.lead).toMatchObject({ formaPago: "credito", enganche: 80000 });
+    const t = eng.respuestas[0]!.texto;
+    expect(t).toMatch(/^Va, con \$80,000 de enganche el Lic\. Mario Abarca te prepara la corrida exacta con la promoción del mes\.\n¿Te aparto cita para que veas la \*CR-V\*\? Tengo libre:\n1️⃣ mañana martes a las 11 am\n2️⃣ el miércoles 11 a las 4 pm/);
+    expect(cifras(t)).toEqual([80000]); // ninguna cifra inventada: solo la que dijo el cliente
+    const apartada = di("2", eng.conv, 2);
     expect(apartada.reserva).toMatchObject(libres[1]!);
-    expect(apartada.lead).toMatchObject({ cita: "el miércoles 11 a las 4:00 p.m.", citaConfirmada: true });
+    expect(apartada.respuestas[0]!.texto).toBe("Listo ✅ quedó tu cita el miércoles 11 a las 4 pm con el Lic. Mario Abarca en Honda. ¿A nombre de quién la aparto?");
+    const nombre = di("Luis Treviño", apartada.conv, 3);
+    expect(nombre.respuestas[0]!.texto).toBe("Gracias, Luis. El Lic. Mario Abarca te atiende personalmente en la agencia; cualquier cambio me escribes por aquí.");
+    expect(nombre.lead).toMatchObject({ nombreCliente: "Luis Treviño", quiereAsesor: true });
+  });
+
+  it("corrida sin inventario: «no sé» o un porcentaje también sirven; si no se entiende, pregunta una vez más", () => {
+    const cfg = { ...CFG, asesor: "Lic. Mario Abarca" };
+    const charlaSin = (m: string[]) => charla(m, { cfg, inventario: [] });
+    const noSabe = charlaSin(["Hola, quiero un crédito para el Civic", "no sé la verdad"]);
+    expect(noSabe.txt(0)).toContain("Con gusto te doy una corrida del Civic.");
+    expect(noSabe.texto).toMatch(/^Sin problema, el Lic\. Mario Abarca te muestra ejemplos con 20, 30, 40 y 50% de enganche/);
+    expect(noSabe.ultimo.motivo).toBe("corrida");
+    expect(charlaSin(["cuánto cuesta el City", "el 30%"]).lead).toMatchObject({ formaPago: "credito", enganchePct: 30, interes: "Honda City" });
+    const duda = charlaSin(["precio del accord", "mmm déjame ver"]);
+    expect(duda.ultimo.motivo).toBe("no-entendi");
+    expect(duda.texto).toContain("¿Más o menos cuánto podrías dar de enganche?");
+    expect(charlaSin(["precio del accord", "mmm déjame ver", "pues ok"]).ultimo.motivo).toBe("corrida"); // a la segunda, a la cita
+    const contado = charlaSin(["Hola", "lo quiero de contado"]);
+    expect(contado.texto).toContain("De contado el Lic. Mario Abarca te da el precio exacto con la promoción del mes.");
+    expect(contado.lead).toMatchObject({ formaPago: "contado" });
+  });
+
+  it("el asesor con título se nombra con artículo; sin título, solo el nombre", () => {
+    expect([asesorCon("Lic. Mario Abarca"), asesorCon("Lic. Mario Abarca", "a"), asesorCon("Lic. Mario Abarca", "de")]).toEqual(["el Lic. Mario Abarca", "al Lic. Mario Abarca", "del Lic. Mario Abarca"]);
+    expect([asesorCon("Licenciada Ana Ruiz", "a"), asesorCon("Pedro", "de"), asesorCon("Pedro")]).toEqual(["a la Licenciada Ana Ruiz", "de Pedro", "Pedro"]);
+    expect(charla(["Hola", "2"], { cfg: { ...CFG, asesor: "Lic. Mario Abarca" }, inventario: [] }).texto).toContain("Le aviso al Lic. Mario Abarca para que te escriba");
   });
 
   it("freno: con otro bot del otro lado no contesta más de MAX_POR_HORA veces por hora", () => {
@@ -201,8 +233,10 @@ describe("vendedora · IA opcional", () => {
     expect(system).toContain("Honda CR-V Touring 2026");
     expect(system).not.toContain("CX-5"); // vendido
     expect(system).toContain("Estamos en Av. Ejemplo 123.");
-    expect(system).toContain("AGENDE UNA CITA");
-    expect(system).toContain("Nunca inventes precios");
+    expect(system).toContain("Contestas el WhatsApp de ventas de Pedro");
+    expect(system).toContain("con gusto le das una corrida");
+    expect(system).toContain("Nunca inventes cifras");
+    expect(system).toContain("Todavía no tienes corridas con cifras: no des números.");
     expect(messages).toEqual([{ role: "user", content: "hola" }, { role: "assistant", content: "¿En qué te ayudo?" }, { role: "user", content: "¿aceptan mi auto a cuenta?" }]);
   });
 
@@ -217,6 +251,32 @@ describe("vendedora · IA opcional", () => {
     expect(asesor.lead).toMatchObject({ quiereAsesor: true, autoId: "crv", interes: "Honda CR-V Touring 2026" });
     expect(asesor.conv).toMatchObject({ paso: "asesor" });
     expect(aplicarIA(menu, { respuesta: "  " }, { antes })).toBe(menu); // vacía: se queda la del menú
+  });
+
+  it("habla en nombre del Lic. y usa las corridas pegadas como las únicas cifras de crédito", () => {
+    const corridas = "Civic Touring 2026 · precio $599,900\n20% de enganche ($119,980): 48 meses $12,450 · 60 meses $10,980";
+    const cfg = { ...CFG, asesor: "Lic. Mario Abarca", agencia: "Honda", marca: "Honda", corridas };
+    const { system } = promptIA({ cfg, historial: [{ dir: "in", text: "precio civic" }] });
+    expect(system).toContain("Contestas el WhatsApp de ventas del Lic. Mario Abarca, asesor de Honda");
+    expect(system).toContain("di «el Lic. Mario Abarca» o «el licenciado»; nunca solo «Mario» ni «Mario te dice».");
+    expect(system).toContain("si quiere, el licenciado le escribe directo.");
+    expect(promptIA({ cfg: CFG }).system).toContain("di «Pedro». Por ejemplo: «En agencia te atiende personalmente Pedro».");
+    expect(system).toContain(`CORRIDAS DEL LIC. MARIO ABARCA (las únicas cifras de crédito que puedes dar; tal cual):\n${corridas}`);
+    expect(system).not.toContain("Todavía no tienes corridas");
+    const historial = [{ dir: "in", text: "precio civic" }, { dir: "out", text: "¿Cuánto darías de enganche?" }, { dir: "in", text: "como 120 mil" }];
+    const menu: Resultado = decidir({ cfg, inventario: [], conv: {}, msg: { texto: "como 120 mil", enHorario: true }, ahora: new Date(T0) });
+    const bien = aplicarIA(menu, { respuesta: "Con 20% ($119,980) a 60 meses te queda en $10,980 al mes; con tus 120 mil andas ahí. ¿Te la presenta el Lic. Mario Abarca mañana a las 10?" }, { cfg, historial, ahora: new Date(T0) });
+    expect(bien.motivo).toBe("ia");
+    expect(() => aplicarIA(menu, { respuesta: "Te quedaría en $9,900 al mes" }, { cfg, historial, ahora: new Date(T0) })).toThrow("dio una cifra que no está en las corridas ($9,900)");
+    expect(() => aplicarIA(menu, { respuesta: "Con 35% bajas la mensualidad" }, { cfg, historial, ahora: new Date(T0) })).toThrow("(35%)");
+    expect(aplicarIA(menu, { respuesta: "Te puedo mostrar ejemplos con 20, 30, 40 o 50% de enganche. ¿El Civic 2026?" }, { cfg, historial, ahora: new Date(T0) }).motivo).toBe("ia");
+    const conDireccion = { ...cfg, reglas: [{ palabras: ["ubicación"], respuesta: "Estamos en Av. Constitución 1500, Monterrey." }] };
+    expect(aplicarIA(menu, { respuesta: "Estamos en Av. Constitución 1500, te espero." }, { cfg: conDireccion, historial, ahora: new Date(T0) }).motivo).toBe("ia");
+  });
+
+  it("cifras: dinero y porcentajes se comparan sin importar cómo se escribieron; horas, plazos y años no cuentan", () => {
+    expect(cifras("Con $80,000 a 48 meses quedan $8,450.50; 1.5 millones, 300k, 80 mil, 20 %")).toEqual([80000, 8451, 1500000, 300000, 80000, "20%"]);
+    expect(cifras("mañana a las 10:00, el 12, 48 meses, modelo 2026")).toEqual([]);
   });
 });
 
@@ -237,9 +297,17 @@ describe("vendedora · agenda", () => {
   it("horarios libres: cada hora dentro del horario de Monterrey, con anticipación y sin los apartados", () => {
     const ahora = new Date("2026-11-09T22:30:00Z"); // lunes 4:30 p.m. en Monterrey
     const libres = horariosLibres({ horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, ahora, ocupadas: ["2026-11-10T16:00:00.000Z"] });
-    expect(libres[0]).toMatchObject({ id: "2026-11-10T00:00:00.000Z", texto: "hoy a las 6:00 p.m.", fecha: "2026-11-09" }); // 1.5 h después, última cita (18:00-19:00)
-    expect(libres[1]).toMatchObject({ id: "2026-11-10T15:00:00.000Z", texto: "mañana martes a las 9:00 a.m.", fecha: "2026-11-10" });
+    expect(libres[0]).toMatchObject({ id: "2026-11-10T00:00:00.000Z", texto: "hoy a las 6 pm", fecha: "2026-11-09" }); // 1.5 h después, última cita (18:00-19:00)
+    expect(libres[1]).toMatchObject({ id: "2026-11-10T15:00:00.000Z", texto: "mañana martes a las 9 am", fecha: "2026-11-10" });
     expect(libres.map((x: { id: string }) => x.id)).not.toContain("2026-11-10T16:00:00.000Z"); // martes 10:00 ya apartado
     expect(libres.some((x: { texto: string }) => x.texto.includes("domingo"))).toBe(false);
+  });
+
+  it("las horas se dicen como en WhatsApp: «a las 4 pm», «a la 1 pm», «a las 4:30 pm»", () => {
+    const ahora = new Date("2026-11-09T16:00:00Z"); // lunes 10 a.m. en Monterrey
+    expect(textoCita("2026-11-09T22:00:00Z", "America/Monterrey", ahora)).toBe("hoy a las 4 pm");
+    expect(textoCita("2026-11-10T19:00:00Z", "America/Monterrey", ahora)).toBe("mañana martes a la 1 pm");
+    expect(textoCita("2026-11-12T22:30:00Z", "America/Monterrey", ahora)).toBe("el jueves 12 a las 4:30 pm");
+    expect(textoCita("2026-11-12T15:00:00Z", "America/Monterrey", ahora)).toBe("el jueves 12 a las 9 am");
   });
 });

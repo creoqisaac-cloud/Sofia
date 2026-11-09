@@ -21,7 +21,7 @@
 // PUBLIC_URL (dirección pública del conector, para que Instagram descargue las fotos) · META_GRAPH_URL (opcional) ·
 // ANTHROPIC_API_KEY y ANTHROPIC_MODEL (opcionales: la IA de la vendedora, solo para lo que el menú no entiende).
 
-import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres } from "../js/vendedor.js";
+import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres, pesos } from "../js/vendedor.js";
 
 export const VERSION = "conector-1.2";
 const MAX_MSGS = 500;
@@ -189,8 +189,10 @@ function waText(m) {
 // mandado a ese contacto en las últimas esperaHoras: bienvenida (primer contacto) → fuera de horario →
 // reglas por palabra. Nunca más de una respuesta automática por mensaje.
 
-// De fábrica: la Sofía de Mario en Honda, contestando sola y con IA (gratis de Cloudflare) sin configurar nada.
+// De fábrica: contesta en nombre del Lic. Mario Abarca (Honda), sola y con IA (gratis de Cloudflare), sin configurar nada.
+const PERFIL = 2; // sube cuando cambia lo de fábrica y hay que pasar las configuraciones guardadas a la nueva forma
 const AGENTE_BASE = {
+  perfil: PERFIL,
   activo: true,
   zonaHoraria: "America/Monterrey",
   horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, // 0 = domingo, 1 = lunes … 6 = sábado
@@ -199,12 +201,14 @@ const AGENTE_BASE = {
   reglas: [], // [ { palabras: ["precio", "cuánto cuesta"], respuesta: "…" } ]
   esperaHoras: 12, // no repetir la misma respuesta automática al mismo contacto antes de N horas
   pausaMinutos: 30, // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
-  asesor: "Mario",
+  asesor: "Lic. Mario Abarca",
   agencia: "Honda",
   marca: "Honda",
   ventas: { ...VENTAS_BASE, ia: true }, // vendedora (agenda citas); apagada = solo lo de arriba
   estilo: { ejemplos: [], notas: "" }, // cómo escribe el asesor: con IA, Sofía habla como él
+  corridas: "", // corridas del asesor (enganche 20/30/40/50 %), tal cual: con IA son las únicas cifras de crédito que da
 };
+const MAX_CORRIDAS = 12000;
 const MAX_REGLAS = 50;
 const MAX_TEXTO_AUTO = 1000;
 // Con 0 horas, dos contestadores automáticos (el nuestro y el de otro negocio) se responderían sin fin.
@@ -261,7 +265,15 @@ function normalizarConfig(c) {
     marca: String(c.marca ?? AGENTE_BASE.marca).trim().slice(0, 40) || AGENTE_BASE.marca,
     ventas: normalizarVentas(c.ventas),
     estilo: normalizarEstilo(c.estilo),
+    corridas: textoCorridas(c.corridas),
+    perfil: PERFIL,
   };
+}
+
+function textoCorridas(v) {
+  const t = String(v ?? "").replace(/\r\n?/g, "\n").trim();
+  if (t.length > MAX_CORRIDAS) throw invalido(`Corridas: máximo ${MAX_CORRIDAS} caracteres`);
+  return t;
 }
 
 /** Cómo escribe el asesor (mensajes reales suyos de «Mi estilo de venta»), para que Sofía hable como él. */
@@ -290,6 +302,11 @@ async function leerConfig(store) {
   // Configuración guardada antes de la Sofía de Mario en Honda (no trae «marca»): pasa a la nueva forma de trabajar,
   // contestando sola y con IA, con Mario y Honda donde estaba vacío.
   if (c && !c.marca) c = { ...c, activo: true, asesor: c.asesor || AGENTE_BASE.asesor, agencia: c.agencia || AGENTE_BASE.agencia, marca: AGENTE_BASE.marca, ventas: { ...(c.ventas ?? {}), activo: true, ia: true } };
+  // Antes del perfil 2 lo de fábrica era «Mario» y «Soy Sofía, asistente de…»: ahora contesta en nombre del Lic. Mario Abarca.
+  if (c && (c.perfil ?? 1) < 2) {
+    c = { ...c, perfil: PERFIL, asesor: !c.asesor || c.asesor === "Mario" ? AGENTE_BASE.asesor : c.asesor };
+    if (/Soy Sofía/i.test(c.ventas?.presentacion ?? "")) c.ventas = { ...c.ventas, presentacion: "" };
+  }
   return { ...AGENTE_BASE, ...(c ?? {}), horario: { ...AGENTE_BASE.horario, ...(c?.horario ?? {}) }, ventas: { ...AGENTE_BASE.ventas, ...(c?.ventas ?? {}) } };
 }
 
@@ -425,20 +442,40 @@ async function apartarCita(env, store, cfg, e, r, ahora) {
 async function avisarSiToca(env, store, cfg, e, r, ahora) {
   const citas = (await store.get("agenda:citas")) ?? [];
   const cita = citas.find((x) => x.canal === e.canal && x.cliente === e.id && x.estado === "apartada" && !x.avisada);
-  if (!cita) return;
   const lead = ((await store.get("leads:index")) ?? {})[`${e.canal}:${e.id}`] ?? {};
+  if (!cita) {
+    // Sin cita pero pidió que lo atienda el asesor (su corrida por aquí, negociar…): también le llega, una vez cada 12 h.
+    if (!r.lead.quiereAsesor) return;
+    const clave = `aviso:${e.canal}:${e.id}`;
+    const antes = await store.get(clave);
+    if (antes && ahora - new Date(antes) < 12 * 3600 * 1000) return;
+    await store.put(clave, ahora.toISOString());
+    await avisarAsesor(env, store, cfg, e, null, ahora, lead);
+    return;
+  }
   if (!lead.nombreCliente && !r.lead.quiereAsesor) return;
   Object.assign(cita, { nombre: lead.nombreCliente || cita.nombre, interes: lead.interes || cita.interes, resumen: lead.resumen || cita.resumen, avisada: true });
   await store.put("agenda:citas", citas);
-  await avisarAsesor(env, store, cfg, e, cita, ahora);
+  await avisarAsesor(env, store, cfg, e, cita, ahora, lead);
 }
 
 /** WhatsApp al asesor con el contexto del cliente (ASESOR_WHATSAPP en Conexiones). Si Meta no lo deja, queda en errores. */
-async function avisarAsesor(env, store, cfg, e, cita, ahora) {
+async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
   const numero = String(env.ASESOR_WHATSAPP ?? "").replace(/\D/g, "");
   if (!numero || !waReady(env)) return;
-  const tel = e.canal === "wa" ? `\nWhatsApp: https://wa.me/${e.id}` : "";
-  const texto = `📅 Sofía te agendó una cita\n${cita.nombre || "Cliente"} · ${cita.texto}${cita.interes ? `\nLe interesa: ${cita.interes}` : ""}${cita.resumen ? `\n${cita.resumen}` : ""}${tel}`;
+  const nombre = cita?.nombre || lead.nombreCliente || e.nombre || "Cliente";
+  const interes = cita?.interes || lead.interes;
+  const resumen = cita?.resumen || lead.resumen;
+  const pago = lead.formaPago === "contado" ? "De contado"
+    : lead.formaPago === "credito" ? `Crédito${lead.enganche ? ` · enganche ${pesos(lead.enganche)}` : lead.enganchePct ? ` · enganche ${lead.enganchePct}%` : ""}` : "";
+  const renglones = [
+    cita ? `📅 Cita nueva: ${nombre} · ${cita.texto}` : `🙋 ${nombre} quiere que lo atiendas`,
+    interes && `Le interesa: ${interes}`,
+    pago,
+    resumen,
+    e.canal === "wa" ? `WhatsApp: https://wa.me/${e.id}` : "Por Messenger",
+  ];
+  const texto = renglones.filter(Boolean).join("\n");
   try {
     await sendMessage(env, store, { channel: "wa", to: numero.length === 10 ? `52${numero}` : numero, text: texto }, { ahora });
   } catch (err) {
@@ -458,7 +495,8 @@ async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora, l
   const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora, libres });
   if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !motorIA(env)) return r;
   try {
-    return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial(), libres })), { inventario, antes, ahora, libres });
+    const h = await historial();
+    return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: h, libres })), { inventario, antes, ahora, libres, cfg, historial: h });
   } catch (err) {
     return { ...r, errorIA: err.message ?? String(err) };
   }

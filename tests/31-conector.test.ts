@@ -239,7 +239,7 @@ describe("conector · agente sin IA (respuestas automáticas)", () => {
   it("configuración: valores por defecto, guardado parcial y validación", async () => {
     const store = memStore();
     const def = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
-    expect(def).toMatchObject({ activo: true, asesor: "Mario", agencia: "Honda", marca: "Honda", zonaHoraria: "America/Monterrey", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, reglas: [], esperaHoras: 12 });
+    expect(def).toMatchObject({ activo: true, asesor: "Lic. Mario Abarca", agencia: "Honda", marca: "Honda", zonaHoraria: "America/Monterrey", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, reglas: [], esperaHoras: 12 });
     const r = await (await configurar(store, { activo: true, horario: { inicio: "10:00" }, reglas: [{ palabras: "precio, enganche", respuesta: "Con gusto" }] })).json();
     expect(r.config).toMatchObject({ activo: true, horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "10:00", fin: "19:00" }, reglas: [{ palabras: ["precio", "enganche"], respuesta: "Con gusto" }] });
     const r2 = await (await configurar(store, { asesor: "Pedro" })).json();
@@ -696,7 +696,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     await handle(signed(waMsg("wamid.V1", "Hola, ¿cuánto cuesta la crv?", LUNES_10)), env(), store, { ahora: LUNES_10 });
     const [ficha] = calls.filter((c) => c.path === "/v/111/messages").map((c) => JSON.parse(c.body));
     expect(ficha).toMatchObject({ to: CLIENTA, type: "image", image: { link: `https://conector.test/media/${fotoId}` } });
-    expect(ficha.image.caption).toMatch(/^¡Hola Lucía! 👋 Soy Sofía, asistente de Pedro en Honda Ejemplo\./);
+    expect(ficha.image.caption).toMatch(/^¡Hola Lucía! 👋 Te escribo de parte de Pedro, de Honda Ejemplo\./);
     expect(ficha.image.caption).toContain("💵 *$689,900* de contado");
     expect(await leadDe(store)).toMatchObject({ interes: "Honda CR-V Touring 2026", autoId: "crv", calor: "tibio", importado: false });
     const msgs = await charla(store);
@@ -730,19 +730,19 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     // Agenda real: horarios libres dentro del horario (lunes 10:00 en Monterrey + 1.5 h → desde las 12:00)
     const opciones = await decir("wamid.L6", "1", 5);
     expect(opciones).toContain("Va, te aparto cita con Pedro para que veas la *Nissan Versa 2022*. Tengo libre:");
-    expect(opciones).toContain("1️⃣ hoy a las 12:00 p.m.");
+    expect(opciones).toContain("1️⃣ hoy a las 12 pm");
     expect(opciones).toContain("4️⃣ Otro día u hora");
-    expect(await decir("wamid.L7", "1", 6)).toBe("Listo ✅ quedó tu cita hoy a las 12:00 p.m. con Pedro en Honda Ejemplo. ¿A nombre de quién la aparto?");
-    expect(await decir("wamid.L8", "Lucía Pérez", 7)).toBe("Gracias, Lucía. Pedro te espera; cualquier cambio me escribes por aquí.");
-    expect(await leadDe(store)).toMatchObject({ autoId: "versa", formaPago: "credito", enganche: 80000, cita: "hoy a las 12:00 p.m.", citaConfirmada: true, nombreCliente: "Lucía Pérez", quiereAsesor: true });
+    expect(await decir("wamid.L7", "1", 6)).toBe("Listo ✅ quedó tu cita hoy a las 12 pm con Pedro en Honda Ejemplo. ¿A nombre de quién la aparto?");
+    expect(await decir("wamid.L8", "Lucía Pérez", 7)).toBe("Gracias, Lucía. Pedro te atiende personalmente en la agencia; cualquier cambio me escribes por aquí.");
+    expect(await leadDe(store)).toMatchObject({ autoId: "versa", formaPago: "credito", enganche: 80000, cita: "hoy a las 12 pm", citaConfirmada: true, nombreCliente: "Lucía Pérez", quiereAsesor: true });
     const { citas } = await (await handle(req("/api/agenda?token=clave"), env(), store, { ahora: mas(LUNES_10, 8) })).json();
-    expect(citas).toEqual([expect.objectContaining({ id: "2026-10-12T18:00:00.000Z", texto: "hoy a las 12:00 p.m.", cliente: CLIENTA, nombre: "Lucía Pérez", interes: "Nissan Versa 2022", estado: "apartada" })]);
+    expect(citas).toEqual([expect.objectContaining({ id: "2026-10-12T18:00:00.000Z", texto: "hoy a las 12 pm", cliente: CLIENTA, nombre: "Lucía Pérez", interes: "Nissan Versa 2022", estado: "apartada" })]);
     // Ese horario ya no se le ofrece a otro cliente.
     calls.length = 0;
     await handle(signed(waMsg("wamid.O1", "quiero agendar una prueba de manejo", mas(LUNES_10, 9), { from: "5218155555555" })), env(), store, { ahora: mas(LUNES_10, 9) });
     const otro = waEnvios().map((m) => m.text.body).join("\n");
     expect(otro).toContain("Tengo libre:");
-    expect(otro).not.toContain("hoy a las 12:00 p.m.");
+    expect(otro).not.toContain("hoy a las 12 pm");
   });
 
   it("si el asesor acaba de contestar a mano, la vendedora no interrumpe", async () => {
@@ -831,7 +831,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect(corridas[0]!.entrada.response_format.type).toBe("json_schema");
     const sistema = corridas[0]!.entrada.messages[0]!;
     expect(sistema.role).toBe("system");
-    expect(sistema.content).toContain("Habla como Pedro");
+    expect(sistema.content).toContain("Así escribe Pedro en sus chats reales");
     expect(sistema.content).toContain("va, te espero el sábado");
     expect(sistema.content).toContain("Nunca hables de usted");
     expect(waEnvios().at(-1)!.text.body).toBe("va, la Versa está bien para empezar. ¿la quieres a crédito?");
@@ -846,16 +846,33 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect((await (await handle(req("/api/estado?token=clave"), { ...e, ANTHROPIC_API_KEY: "sk-ant-x" }, store)).json()).agente.ventas.ia.motor).toBe("claude");
   });
 
-  it("una configuración guardada antes (sin marca) pasa a la Sofía de Mario en Honda, con IA y contestando", async () => {
+  it("una configuración guardada antes pasa a contestar en nombre del Lic. Mario Abarca en Honda, con IA", async () => {
     const store = memStore();
     await store.put("agente:config", { activo: false, asesor: "", agencia: "", reglas: [], ventas: { activo: true, ia: false } });
     const cfg = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
-    expect(cfg).toMatchObject({ activo: true, asesor: "Mario", agencia: "Honda", marca: "Honda", ventas: { activo: true, ia: true } });
+    expect(cfg).toMatchObject({ activo: true, asesor: "Lic. Mario Abarca", agencia: "Honda", marca: "Honda", ventas: { activo: true, ia: true }, perfil: 2 });
     await store.put("agente:config", { ...cfg, ventas: { ...cfg.ventas, ia: false } }); // ya con marca: se respeta lo que elija
     expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config.ventas.ia).toBe(false);
+    // La de «Mario» (perfil 1, con la presentación «Soy Sofía…»): pasa al Lic. Mario Abarca; otro asesor se respeta.
+    await store.put("agente:config", { ...cfg, perfil: undefined, asesor: "Mario", ventas: { ...cfg.ventas, presentacion: "¡Hola! Soy Sofía, asistente de {asesor}." } });
+    const mario = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
+    expect(mario).toMatchObject({ asesor: "Lic. Mario Abarca", ventas: { presentacion: "" } });
+    await store.put("agente:config", { ...cfg, perfil: undefined, asesor: "Pedro" });
+    expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config.asesor).toBe("Pedro");
+    // Al guardar desde la app ya queda en el perfil nuevo.
+    expect((await (await configurar(store, { agencia: "Honda Valle" })).json()).config).toMatchObject({ perfil: 2, asesor: "Pedro" });
   });
 
-  it("aviso a Mario: al tener el nombre del cliente, le llega por WhatsApp la cita con el contexto (una sola vez)", async () => {
+  it("corridas: se pegan desde la app como texto, se guardan aparte de lo demás y la IA las recibe tal cual", async () => {
+    const store = memStore();
+    const corridas = "Civic Touring 2026 · $599,900\r\n20%: 60 meses $10,980";
+    const r = await (await configurar(store, { corridas })).json();
+    expect(r.config).toMatchObject({ corridas: "Civic Touring 2026 · $599,900\n20%: 60 meses $10,980", asesor: "Lic. Mario Abarca" });
+    expect((await (await configurar(store, { agencia: "Honda Valle" })).json()).config.corridas).toContain("60 meses $10,980"); // guardar lo demás no las borra
+    expect((await configurar(store, { corridas: "x".repeat(12001) })).status).toBe(400);
+  });
+
+  it("aviso al asesor: al tener el nombre del cliente, le llega por WhatsApp la cita con el contexto (una sola vez)", async () => {
     const store = memStore();
     await configurar(store, vendedora({ asesor: "Mario", agencia: "Honda" }));
     const e = { ...env(), ASESOR_WHATSAPP: "8112345678" };
@@ -866,11 +883,29 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     await decir("wamid.M3", "Carlos Ruiz", 2);
     const aMario = waEnvios().filter((m) => m.to === "528112345678");
     expect(aMario).toHaveLength(1);
-    expect(aMario[0]!.text.body).toContain("📅 Sofía te agendó una cita\nCarlos Ruiz · hoy a las 12:00 p.m.");
+    expect(aMario[0]!.text.body).toContain("📅 Cita nueva: Carlos Ruiz · hoy a las 12 pm\nLe interesa: Honda CR-V");
     expect(aMario[0]!.text.body).toContain(`WhatsApp: https://wa.me/${CLIENTA}`);
     calls.length = 0;
     await decir("wamid.M4", "menú", 3);
     expect(waEnvios().filter((m) => m.to === "528112345678")).toHaveLength(0); // ya se le avisó
+  });
+
+  it("aviso al asesor sin cita: pidió que lo atienda él y le llega su corrida pendiente (una vez cada 12 h)", async () => {
+    const store = memStore();
+    await configurar(store, vendedora({ asesor: "Lic. Mario Abarca", agencia: "Honda" }));
+    const e = { ...env(), ASESOR_WHATSAPP: "8112345678" };
+    const decir = async (id: string, texto: string, min: number) => {
+      calls.length = 0;
+      await handle(signed(waMsg(id, texto, mas(LUNES_10, min))), e, store, { ahora: mas(LUNES_10, min) });
+      return { cliente: waEnvios().filter((m) => m.to === CLIENTA).map((m) => m.text.body).join("\n"), asesor: waEnvios().filter((m) => m.to === "528112345678").map((m) => m.text.body) };
+    };
+    expect((await decir("wamid.S1", "Buenas, precio del civic", 0)).cliente).toBe("¡Hola Lucía! 👋 Te escribo de parte del Lic. Mario Abarca, de Honda.\n\nCon gusto te doy una corrida del Civic. ¿Más o menos cuánto tienes pensado dar de enganche?");
+    expect((await decir("wamid.S2", "como 80 mil", 1)).cliente).toContain("Va, con $80,000 de enganche el Lic. Mario Abarca te prepara la corrida exacta");
+    const pide = await decir("wamid.S3", "mejor que me marque el asesor", 2);
+    expect(pide.cliente).toContain("Le aviso al Lic. Mario Abarca para que te escriba en breve");
+    expect(pide.asesor).toEqual([`🙋 LUCÍA Prueba quiere que lo atiendas\nLe interesa: Honda Civic\nCrédito · enganche $80,000\nWhatsApp: https://wa.me/${CLIENTA}`]);
+    await decir("wamid.S4", "menú", 3);
+    expect((await decir("wamid.S5", "2", 4)).asesor).toEqual([]); // ya se le avisó hace poco
   });
 
   it("«Probar a Sofía»: contesta como el servidor (menú + IA) sin guardar nada ni mandar mensajes", async () => {

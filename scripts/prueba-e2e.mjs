@@ -66,7 +66,7 @@ const waIn = (id, msg) => ({ object: "whatsapp_business_account", entry: [{ chan
 const aiCalls = [];
 function aiAnswer(body) {
   const props = body.output_config?.format?.schema?.properties ?? {};
-  aiCalls.push({ model: body.model, keys: Object.keys(props), hasImage: JSON.stringify(body.messages).includes('"type":"image"') });
+  aiCalls.push({ model: body.model, keys: Object.keys(props), hasImage: JSON.stringify(body.messages).includes('"type":"image"'), system: JSON.stringify(body.system ?? "") });
   if (props.es_ine) return { es_ine: true, nombres: "PRUEBA ANA", apellido_paterno: "SINTETICO", apellido_materno: "EJEMPLO", fecha_nacimiento: "1985-05-05", sexo: "M", curp: CURP, clave_elector: "SNEJPR85050509M100", calle: "FALSA", numero_exterior: "123", numero_interior: "4", colonia: "CENTRO", codigo_postal: "06000", municipio: "CUAUHTEMOC", estado: "Ciudad de México", vigencia: "2033", ilegibles: [] };
   if (props.tono) return { resumen: "Cercano y directo, siempre con emoji.", tono: "cercano", trato: "tu", saludo_tipico: "¡Hola! 😃", despedida_tipica: "Quedo atento 👍", emojis: ["😃", "👍"], longitud: "corta", frases_tipicas: ["Con gusto"], como_abre_conversacion: "Saluda por nombre", como_pide_datos: "Pregunta contado o crédito", como_maneja_objeciones: "Ofrece prueba de manejo", como_cierra: "Agenda cita", evita: ["dar precio sin versión"] };
   if (props.auto_interes) return { nombre: "Ana Cliente", auto_interes: "CR-V", presupuesto: "", forma_pago: "credito", enganche: "120 mil", plazo_meses: "", cuando_compra: "este mes", etapa: "credito", resumen: "Quiere CR-V a crédito con 120 mil de enganche.", siguiente_paso: "Pedir documentos", dias_para_seguimiento: 2 };
@@ -451,6 +451,12 @@ await p.goto(BASE + "#/whatsapp?tab=auto");
 await p.getByLabel(/^Con IA:/).check(); // con IA, Sofía lleva toda la plática
 await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
 await p.getByText(/Sofía vende por ti/).waitFor();
+// Corridas del asesor pegadas como texto: la IA las recibe tal cual (y son las únicas cifras de crédito que da).
+await cardOf("Corridas").getByLabel("Corridas").fill("Civic Touring 2026 · precio $599,900\n20% de enganche ($119,980): 60 meses $10,980");
+await cardOf("Corridas").getByRole("button", { name: "Guardar corridas" }).click();
+await p.getByText("Corridas guardadas: Sofía ya las usa.").waitFor();
+const cfgSrv = (await (await fetch(new URL("api/agente/config?token=clave-prueba", BASE))).json()).config;
+if (!cfgSrv.corridas?.includes("60 meses $10,980") || !cfgSrv.ventas?.ia) throw new Error(`Corridas en el servidor: ${JSON.stringify(cfgSrv.corridas)}`);
 await p.goto(BASE + "#/probar");
 await p.getByRole("button", { name: "Reiniciar" }).click();
 for (const t of ["Hola", "¿aceptan mi carro a cuenta?"]) {
@@ -460,7 +466,8 @@ for (const t of ["Hola", "¿aceptan mi carro a cuenta?"]) {
 await p.getByText("✨ Contestó con IA").waitFor();
 await p.getByText("Pidió hablar contigo").waitFor();
 if (!aiCalls.some((c) => c.keys.includes("pasar_a_asesor"))) throw new Error("El simulador no usó la IA");
-step("con IA: Sofía platica como vendedora con tu inventario y te pasa al cliente con su resumen");
+if (!aiCalls.some((c) => c.keys.includes("pasar_a_asesor") && c.system.includes("60 meses $10,980"))) throw new Error("La IA no recibió las corridas");
+step("con IA: Sofía platica como vendedora con las corridas del asesor y le pasa al cliente con su resumen");
 
 // ───── M. Programar publicación (sale sola a la hora) y cancelar ─────
 await p.goto(BASE + "#/redes");

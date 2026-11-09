@@ -4,7 +4,7 @@ import { h, toast, uid, fmtWhen, debounce, blobToDataUrl, shrinkImage, confirmBo
 import { state, save, saveFile, readFile, removeFile } from "./store.js";
 import { header, section, empty, btn, go, rerender, route, field, input, textarea, select, chip } from "./ui.js";
 import { connectorReady, saveInventory, uploadCarPhoto, trySales } from "./connector.js";
-import { decidir, nombreAuto, pesos, VENTAS_BASE, promptIA, aplicarIA, horariosLibres } from "./vendedor.js";
+import { decidir, nombreAuto, pesos, VENTAS_BASE, promptIA, aplicarIA, horariosLibres, asesorCon } from "./vendedor.js";
 import { aiReady, salesReply } from "./ai.js";
 
 const TIPOS = [["nuevo", "Nuevo"], ["seminuevo", "Seminuevo"]];
@@ -186,7 +186,7 @@ export function renderCarForm(root, id) {
 let sim = { conv: {}, lead: {}, mensajes: [] };
 
 /** Lo que Sofía usa sin servidor: tu nombre y agencia de Ajustes, y la configuración de ventas por defecto. */
-const cfgLocal = () => ({ asesor: state.settings.advisorName || "Mario", agencia: state.settings.agency || "Honda", marca: "Honda", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, reglas: [], ventas: { ...VENTAS_BASE, ia: true } });
+const cfgLocal = () => ({ asesor: "Lic. Mario Abarca", agencia: state.settings.agency || "Honda", marca: "Honda", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, reglas: [], ventas: { ...VENTAS_BASE, ia: true } });
 
 /** *negritas* y _cursivas_ de WhatsApp, sin HTML (todo es texto). */
 export function waFormat(texto) {
@@ -220,7 +220,7 @@ export function renderSimulator(root) {
     const l = sim.lead;
     const filas = [
       l.interes && ["Interés", `${l.interes}${l.precio ? ` (${pesos(l.precio)})` : ""}`],
-      l.formaPago && ["Pago", l.formaPago === "credito" ? `Crédito${l.enganche ? ` · enganche ${pesos(l.enganche)}` : ""}${l.mensualidad ? ` · ~${pesos(l.mensualidad)} a ${l.plazo} meses` : ""}` : "Contado"],
+      l.formaPago && ["Pago", l.formaPago === "credito" ? `Crédito${l.enganche ? ` · enganche ${pesos(l.enganche)}` : l.enganchePct ? ` · enganche ${l.enganchePct}%` : ""}${l.mensualidad ? ` · ~${pesos(l.mensualidad)} a ${l.plazo} meses` : ""}` : "Contado"],
       l.nombreCliente && ["Nombre", l.nombreCliente],
       l.cita && ["Cita", `${l.cita}${l.citaConfirmada ? " ✅ apartada" : " (por confirmar)"}`],
       l.resumen && ["Resumen", l.resumen],
@@ -228,7 +228,7 @@ export function renderSimulator(root) {
     ].filter(Boolean);
     tarjeta.replaceChildren(filas.length
       ? h("div", { class: `item col ${l.cita || l.quiereAsesor ? "late" : ""}` },
-        h("strong", {}, `${l.cita || l.quiereAsesor ? "🔥 " : ""}Lo que le llega a ${cfgLocal().asesor}`),
+        h("strong", {}, `${l.cita || l.quiereAsesor ? "🔥 " : ""}Lo que le llega ${asesorCon(cfgLocal().asesor, "a")}`),
         ...filas.map(([k, v]) => h("div", { class: "small" }, h("span", { class: "muted" }, `${k}: `), v)))
       : h("p", { class: "muted small" }, "Aquí verás lo que Sofía anota del cliente (auto, crédito, cita…), igual que en Prospectos."));
   };
@@ -256,7 +256,7 @@ export function renderSimulator(root) {
       const libres = horariosLibres({ horario: cfg.horario, ahora: new Date() });
       r = decidir({ cfg, inventario, conv: antes, msg: { texto: t, nombre: "", primero, enHorario: true }, ahora: new Date(), libres });
       if (aiReady() && !["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"].includes(r.motivo)) { // con IA, ella lleva la plática
-        try { r = aplicarIA(r, await salesReply(promptIA({ cfg, inventario, historial, libres })), { inventario, antes, ahora: new Date(), libres }); } catch (err) { toast(`IA: ${err.message} (va la respuesta del menú)`, 5000); }
+        try { r = aplicarIA(r, await salesReply(promptIA({ cfg, inventario, historial, libres })), { inventario, antes, ahora: new Date(), libres, cfg, historial }); } catch (err) { toast(`IA: ${err.message} (va la respuesta del menú)`, 5000); }
       }
     }
     sim.conv = r.conv;
