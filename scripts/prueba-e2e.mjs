@@ -402,6 +402,12 @@ if ((await fetch(inv.autos[0].foto)).status !== 200) throw new Error("La foto de
 await shot("11-inventario");
 step("inventario: auto con foto y precio, mandado al conector");
 
+// De fábrica Sofía contesta sola y con IA; primero se prueba el menú (sin IA) y luego con IA.
+await p.goto(BASE + "#/whatsapp?tab=auto");
+await p.getByLabel("Contestar automáticamente").check();
+await p.getByLabel(/^Con IA:/).uncheck();
+await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
+await p.getByText(/Sofía vende por ti/).waitFor();
 await p.goto(BASE + "#/probar");
 for (const t of ["Hola", "1", "1", "1", "20%"]) {
   await p.getByPlaceholder("Escribe como cliente…").fill(t);
@@ -413,10 +419,6 @@ await p.getByText("Interés:").waitFor();
 await shot("12-probar-sofia");
 step("simulador: menú → auto con foto → cotización a crédito, y el prospecto se llena");
 
-await p.goto(BASE + "#/whatsapp?tab=auto");
-await p.getByText("Contestar automáticamente").click();
-await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
-await p.getByText(/Sofía vende por ti/).waitFor();
 const before = graphCalls.length;
 await webhook({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { contacts: [{ wa_id: "5218177776666", profile: { name: "Pedro Nuevo" } }], messages: [{ from: "5218177776666", id: "wamid.NUEVO1", timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "Hola, ¿cuánto cuesta el City?" } }] } }] }] });
 await new Promise((r) => setTimeout(r, 800));
@@ -430,7 +432,8 @@ const pedirCita = graphCalls.length;
 await webhook({ object: "whatsapp_business_account", entry: [{ changes: [{ value: { contacts: [{ wa_id: "5218177776666", profile: { name: "Pedro Nuevo" } }], messages: [{ from: "5218177776666", id: "wamid.NUEVO2", timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: "¿Puedo ir a manejarlo el sábado a las 11?" } }] } }] }] });
 await new Promise((r) => setTimeout(r, 800));
 if (!graphCalls.slice(pedirCita).some((c) => c.path === "/v/111/messages" && c.body.includes("Anoté tu visita"))) throw new Error("La vendedora no anotó la cita");
-await p.reload(); // misma dirección: recargar para traer los prospectos nuevos
+await p.goto(BASE + "#/whatsapp?tab=auto");
+await p.reload(); // recargar para traer los prospectos nuevos
 await p.locator(".item strong", { hasText: "🔥 Pedro Nuevo" }).waitFor();
 await p.locator(".item", { hasText: "Pedro Nuevo" }).getByText("Cita: ¿Puedo ir a manejarlo el sábado a las 11?").waitFor();
 await p.locator(".item", { hasText: "Pedro Nuevo" }).getByRole("button", { name: "Agregar como cliente" }).click();
@@ -441,7 +444,7 @@ await p.getByText(/Confirmar visita: ¿Puedo ir a manejarlo el sábado a las 11\
 step("prospecto 🔥 con interés y cita → cliente con recordatorio «Confirmar visita»");
 
 await p.goto(BASE + "#/whatsapp?tab=auto");
-await p.getByText("Con IA: contesta lo que el menú no entiende").click(); // con IA, Sofía lleva toda la plática
+await p.getByLabel(/^Con IA:/).check(); // con IA, Sofía lleva toda la plática
 await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
 await p.getByText(/Sofía vende por ti/).waitFor();
 await p.goto(BASE + "#/probar");

@@ -5,10 +5,10 @@
  */
 import { describe, expect, it } from "vitest";
 // @ts-expect-error módulo JS sin tipos
-import { decidir, leerEnganche, buscarAutos, mensualidad, textoHorario, MAX_POR_HORA, promptIA, aplicarIA } from "../prueba/js/vendedor.js";
+import { decidir, leerEnganche, buscarAutos, mensualidad, textoHorario, MAX_POR_HORA, promptIA, aplicarIA, horariosLibres } from "../prueba/js/vendedor.js";
 
 type Respuesta = { texto: string; foto?: string };
-type Resultado = { respuestas: Respuesta[]; conv: Record<string, unknown>; lead: Record<string, unknown>; motivo: string };
+type Resultado = { respuestas: Respuesta[]; conv: Record<string, unknown>; lead: Record<string, unknown>; motivo: string; reserva?: { id: string; texto: string } };
 
 const INVENTARIO = [
   { id: "crv", marca: "Honda", modelo: "CR-V", version: "Touring", anio: 2026, precio: 689900, tipo: "nuevo", transmision: "Automática", color: "Blanco", foto: "https://x.test/media/crv" },
@@ -133,11 +133,18 @@ describe("vendedora · conversación", () => {
     expect(r.lead).toMatchObject({ cita: "cuando ustedes digan" });
   });
 
-  it("sin inventario no inventa: pasa la pregunta al asesor", () => {
-    const r = charla(["Hola, ¿qué precio tiene la CR-V?"], { inventario: [] });
-    expect(r.ultimo.motivo).toBe("asesor");
-    expect(r.texto).toContain("Pedro te pasa precio y disponibilidad");
-    expect(r.texto).not.toMatch(/\$\d/);
+  it("sin inventario no inventa precios: reconoce el modelo Honda y lo lleva a la cita con horarios reales", () => {
+    const libres = [{ id: "2026-11-10T17:00:00.000Z", texto: "mañana martes a las 11:00 a.m." }, { id: "2026-11-11T22:00:00.000Z", texto: "el miércoles 11 a las 4:00 p.m." }];
+    const r: Resultado = decidir({ cfg: { ...CFG, agencia: "Honda" }, inventario: [], conv: {}, msg: { texto: "Hola, ¿qué precio tiene la CR-V?", nombre: "Luis", primero: true, enHorario: true }, ahora: new Date(T0), libres });
+    expect(r.motivo).toBe("cita");
+    const t = r.respuestas[0]!.texto;
+    expect(t).toContain("Pedro te da el precio exacto en la agencia");
+    expect(t).toContain("1️⃣ mañana martes a las 11:00 a.m.");
+    expect(t).not.toMatch(/\$\d/);
+    expect(r.lead).toMatchObject({ interes: "Honda CR-V" });
+    const apartada: Resultado = decidir({ cfg: CFG, inventario: [], conv: r.conv, msg: { texto: "2", enHorario: true }, ahora: new Date(T0 + 60_000), libres });
+    expect(apartada.reserva).toMatchObject(libres[1]!);
+    expect(apartada.lead).toMatchObject({ cita: "el miércoles 11 a las 4:00 p.m.", citaConfirmada: true });
   });
 
   it("freno: con otro bot del otro lado no contesta más de MAX_POR_HORA veces por hora", () => {
@@ -194,7 +201,7 @@ describe("vendedora · IA opcional", () => {
     expect(system).toContain("Honda CR-V Touring 2026");
     expect(system).not.toContain("CX-5"); // vendido
     expect(system).toContain("Estamos en Av. Ejemplo 123.");
-    expect(system).toContain("13.5% anual");
+    expect(system).toContain("AGENDE UNA CITA");
     expect(system).toContain("Nunca inventes precios");
     expect(messages).toEqual([{ role: "user", content: "hola" }, { role: "assistant", content: "¿En qué te ayudo?" }, { role: "user", content: "¿aceptan mi auto a cuenta?" }]);
   });
@@ -223,5 +230,16 @@ describe("vendedora · aviso de privacidad", () => {
     expect(promo.ultimo.motivo).toBe("sin-promociones");
     expect(promo.lead).toMatchObject({ noPromociones: true });
     expect(charla(["Hola", "¿tienen promociones?"]).ultimo.motivo).not.toBe("sin-promociones");
+  });
+});
+
+describe("vendedora · agenda", () => {
+  it("horarios libres: cada hora dentro del horario de Monterrey, con anticipación y sin los apartados", () => {
+    const ahora = new Date("2026-11-09T22:30:00Z"); // lunes 4:30 p.m. en Monterrey
+    const libres = horariosLibres({ horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, ahora, ocupadas: ["2026-11-10T16:00:00.000Z"] });
+    expect(libres[0]).toMatchObject({ id: "2026-11-10T00:00:00.000Z", texto: "hoy a las 6:00 p.m.", fecha: "2026-11-09" }); // 1.5 h después, última cita (18:00-19:00)
+    expect(libres[1]).toMatchObject({ id: "2026-11-10T15:00:00.000Z", texto: "mañana martes a las 9:00 a.m.", fecha: "2026-11-10" });
+    expect(libres.map((x: { id: string }) => x.id)).not.toContain("2026-11-10T16:00:00.000Z"); // martes 10:00 ya apartado
+    expect(libres.some((x: { texto: string }) => x.texto.includes("domingo"))).toBe(false);
   });
 });

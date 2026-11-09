@@ -21,7 +21,7 @@
 // PUBLIC_URL (dirección pública del conector, para que Instagram descargue las fotos) · META_GRAPH_URL (opcional) ·
 // ANTHROPIC_API_KEY y ANTHROPIC_MODEL (opcionales: la IA de la vendedora, solo para lo que el menú no entiende).
 
-import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA } from "../js/vendedor.js";
+import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres } from "../js/vendedor.js";
 
 export const VERSION = "conector-1.2";
 const MAX_MSGS = 500;
@@ -61,7 +61,7 @@ async function hmacHex(secret, body) {
 const DESDE_APP = {
   WA_TOKEN: /^\S{20,600}$/, WA_PHONE_NUMBER_ID: /^\d{1,25}$/, WA_WABA_ID: /^\d{1,25}$/, META_APP_SECRET: /^[a-f0-9]{16,64}$/i,
   META_VERIFY_TOKEN: /^[\w.-]{6,100}$/, FB_PAGE_ID: /^\d{1,25}$/, FB_PAGE_TOKEN: /^\S{20,600}$/, IG_USER_ID: /^\d{1,25}$/,
-  ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/, ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/, PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/,
+  ASESOR_WHATSAPP: /^\d{10,15}$/, ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/, ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/, PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/,
 };
 const SECRETOS = new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY"]);
 
@@ -189,8 +189,9 @@ function waText(m) {
 // mandado a ese contacto en las últimas esperaHoras: bienvenida (primer contacto) → fuera de horario →
 // reglas por palabra. Nunca más de una respuesta automática por mensaje.
 
+// De fábrica: la Sofía de Mario en Honda, contestando sola y con IA (gratis de Cloudflare) sin configurar nada.
 const AGENTE_BASE = {
-  activo: false,
+  activo: true,
   zonaHoraria: "America/Monterrey",
   horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, // 0 = domingo, 1 = lunes … 6 = sábado
   bienvenida: "¡Hola {nombre}! Gracias por escribir. En un momento te atiendo.",
@@ -198,9 +199,10 @@ const AGENTE_BASE = {
   reglas: [], // [ { palabras: ["precio", "cuánto cuesta"], respuesta: "…" } ]
   esperaHoras: 12, // no repetir la misma respuesta automática al mismo contacto antes de N horas
   pausaMinutos: 30, // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
-  asesor: "",
-  agencia: "",
-  ventas: { ...VENTAS_BASE }, // vendedora de autos (menú, inventario, crédito, citas); apagada = solo lo de arriba
+  asesor: "Mario",
+  agencia: "Honda",
+  marca: "Honda",
+  ventas: { ...VENTAS_BASE, ia: true }, // vendedora (agenda citas); apagada = solo lo de arriba
   estilo: { ejemplos: [], notas: "" }, // cómo escribe el asesor: con IA, Sofía habla como él
 };
 const MAX_REGLAS = 50;
@@ -256,6 +258,7 @@ function normalizarConfig(c) {
     pausaMinutos: numeroEntre(c.pausaMinutos, AGENTE_BASE.pausaMinutos, 0, 1440),
     asesor: String(c.asesor ?? "").trim().slice(0, 80),
     agencia: String(c.agencia ?? "").trim().slice(0, 80),
+    marca: String(c.marca ?? AGENTE_BASE.marca).trim().slice(0, 40) || AGENTE_BASE.marca,
     ventas: normalizarVentas(c.ventas),
     estilo: normalizarEstilo(c.estilo),
   };
@@ -278,12 +281,15 @@ function normalizarVentas(v = {}) {
     plazos: plazos.length ? plazos : b.plazos,
     horasConAsesor: entre(v.horasConAsesor, b.horasConAsesor, 0, 168),
     presentacion: textoAuto(v.presentacion, "Presentación"),
-    ia: Boolean(v.ia),
+    ia: v.ia === undefined ? b.ia : Boolean(v.ia),
   };
 }
 
 async function leerConfig(store) {
-  const c = await store.get("agente:config");
+  let c = await store.get("agente:config");
+  // Configuración guardada antes de la Sofía de Mario en Honda (no trae «marca»): pasa a la nueva forma de trabajar,
+  // contestando sola y con IA, con Mario y Honda donde estaba vacío.
+  if (c && !c.marca) c = { ...c, activo: true, asesor: c.asesor || AGENTE_BASE.asesor, agencia: c.agencia || AGENTE_BASE.agencia, marca: AGENTE_BASE.marca, ventas: { ...(c.ventas ?? {}), activo: true, ia: true } };
   return { ...AGENTE_BASE, ...(c ?? {}), horario: { ...AGENTE_BASE.horario, ...(c?.horario ?? {}) }, ventas: { ...AGENTE_BASE.ventas, ...(c?.ventas ?? {}) } };
 }
 
@@ -362,9 +368,12 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
   if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
   const inventario = await inventarioVendedora(store, publicBase(env, base), true);
   const historial = async () => ((await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
-  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero }, historial, ahora);
+  const libres = await libresDe(store, cfg, ahora);
+  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero }, historial, ahora, libres);
   if (r.errorIA) await anotarError(store, e, `IA: ${r.errorIA}`, ahora);
   if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
+  if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
+  await avisarSiToca(env, store, cfg, e, r, ahora);
   for (const [i, m] of r.respuestas.entries()) {
     try {
       await sendMessage(env, store, { channel: e.canal, to: e.id, text: m.texto, ...(m.foto ? { image: m.foto } : {}) },
@@ -383,6 +392,60 @@ async function inventarioVendedora(store, pub, soloHttps) {
   return ((await store.get("ventas:inventario")) ?? []).map((a) => ({ ...a, foto: a.fotoId && ok ? `${pub}/media/${a.fotoId}` : null }));
 }
 
+// ───────── Agenda de citas ─────────
+// agenda:citas → [ { id (ISO del inicio), canal, cliente, nombre, interes, resumen, creada, estado: "apartada"|"cancelada" } ]
+
+async function citasActivas(store, ahora) {
+  return ((await store.get("agenda:citas")) ?? []).filter((x) => x.estado !== "cancelada" && new Date(x.id) > ahora - 2 * 3600 * 1000);
+}
+
+/** Horarios libres de los próximos días según el horario de la agencia y lo ya apartado. */
+async function libresDe(store, cfg, ahora) {
+  const ocupadas = (await citasActivas(store, ahora)).map((x) => x.id);
+  return horariosLibres({ horario: cfg.horario, zonaHoraria: cfg.zonaHoraria, ocupadas, ahora });
+}
+
+/** Aparta el horario (si nadie lo tomó en el inter) y le avisa al asesor por WhatsApp si dejó su número. */
+async function apartarCita(env, store, cfg, e, r, ahora) {
+  const citas = (await store.get("agenda:citas")) ?? [];
+  if (citas.some((x) => x.id === r.reserva.id && x.estado !== "cancelada")) return false;
+  const lead = ((await store.get("leads:index")) ?? {})[`${e.canal}:${e.id}`] ?? {};
+  const cita = { id: r.reserva.id, texto: r.reserva.texto, canal: e.canal, cliente: e.id, nombre: lead.nombreCliente || e.nombre || "", interes: lead.interes ?? "", resumen: lead.resumen ?? "", creada: ahora.toISOString(), estado: "apartada" };
+  // Se libera el horario que tenía antes este mismo cliente (si cambió la cita).
+  for (const x of citas) if (x.canal === e.canal && x.cliente === e.id && x.estado === "apartada") x.estado = "cancelada";
+  citas.push(cita);
+  await store.put("agenda:citas", citas.filter((x) => new Date(x.id) > ahora - 30 * DIA_MS).slice(-500));
+  return true;
+}
+
+/**
+ * El aviso al asesor sale una vez por cita, cuando ya hay con qué: el nombre del cliente o el pase al asesor.
+ * Lleva lo último que Sofía sabe (modelo, resumen).
+ */
+async function avisarSiToca(env, store, cfg, e, r, ahora) {
+  const citas = (await store.get("agenda:citas")) ?? [];
+  const cita = citas.find((x) => x.canal === e.canal && x.cliente === e.id && x.estado === "apartada" && !x.avisada);
+  if (!cita) return;
+  const lead = ((await store.get("leads:index")) ?? {})[`${e.canal}:${e.id}`] ?? {};
+  if (!lead.nombreCliente && !r.lead.quiereAsesor) return;
+  Object.assign(cita, { nombre: lead.nombreCliente || cita.nombre, interes: lead.interes || cita.interes, resumen: lead.resumen || cita.resumen, avisada: true });
+  await store.put("agenda:citas", citas);
+  await avisarAsesor(env, store, cfg, e, cita, ahora);
+}
+
+/** WhatsApp al asesor con el contexto del cliente (ASESOR_WHATSAPP en Conexiones). Si Meta no lo deja, queda en errores. */
+async function avisarAsesor(env, store, cfg, e, cita, ahora) {
+  const numero = String(env.ASESOR_WHATSAPP ?? "").replace(/\D/g, "");
+  if (!numero || !waReady(env)) return;
+  const tel = e.canal === "wa" ? `\nWhatsApp: https://wa.me/${e.id}` : "";
+  const texto = `📅 Sofía te agendó una cita\n${cita.nombre || "Cliente"} · ${cita.texto}${cita.interes ? `\nLe interesa: ${cita.interes}` : ""}${cita.resumen ? `\n${cita.resumen}` : ""}${tel}`;
+  try {
+    await sendMessage(env, store, { channel: "wa", to: numero.length === 10 ? `52${numero}` : numero, text: texto }, { ahora });
+  } catch (err) {
+    await anotarError(store, e, `Aviso a ${cfg.asesor || "el asesor"}: ${err.message ?? err} (Meta solo deja escribirle si él le mandó un mensaje al número de Sofía en las últimas 24 h)`, ahora);
+  }
+}
+
 // Lo que el menú resuelve siempre él mismo, aun con IA: el freno contra bucles, el silencio mientras atiende el
 // asesor, mensajes sin texto y los derechos del aviso de privacidad.
 const SIN_IA = new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"]);
@@ -391,11 +454,11 @@ const SIN_IA = new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-pro
  * Sin IA, contesta el menú. Con IA, Sofía lleva toda la plática como vendedora (el menú queda de respaldo: si la IA
  * falla, va lo del menú y el error regresa en errorIA). historial: función que trae la conversación.
  */
-async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora) {
-  const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora });
+async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora, libres = []) {
+  const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora, libres });
   if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !motorIA(env)) return r;
   try {
-    return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial() })), { inventario, antes, ahora });
+    return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial(), libres })), { inventario, antes, ahora, libres });
   } catch (err) {
     return { ...r, errorIA: err.message ?? String(err) };
   }
@@ -996,13 +1059,24 @@ export async function handle(req, envBase, store, opciones = {}) {
         return json({ ok: true, fotoId, foto: `${publicBase(env, baseDe(req))}/media/${fotoId}` });
       }
 
+      // Citas que agendó Sofía (la app las muestra en Hoy)
+      case "GET /api/agenda": return json({ ok: true, citas: (await citasActivas(store, ahora)).sort((a, b) => a.id.localeCompare(b.id)) });
+      case "POST /api/agenda/cancelar": {
+        const citas = (await store.get("agenda:citas")) ?? [];
+        const x = citas.find((c) => c.id === body.id && c.cliente === body.cliente && c.estado === "apartada");
+        if (!x) return fail("Esa cita ya no está", 404);
+        x.estado = "cancelada";
+        await store.put("agenda:citas", citas);
+        return json({ ok: true });
+      }
+
       // "Probar a Sofía" desde la app: el mismo camino que un mensaje real (menú + IA del servidor), sin guardar ni enviar nada.
       case "POST /api/vendedora/probar": {
         const cfg = await leerConfig(store);
         const inventario = await inventarioVendedora(store, publicBase(env, baseDe(req)), false);
         const historial = (Array.isArray(body.historial) ? body.historial : []).slice(-30).map((m) => ({ dir: m?.dir === "out" ? "out" : "in", text: String(m?.text ?? "").slice(0, 1500) }));
         const conv = body.conv && typeof body.conv === "object" && !Array.isArray(body.conv) ? body.conv : {};
-        const r = await pensarVenta(env, cfg, inventario, conv, { texto: String(body.texto ?? "").slice(0, 1500), nombre: String(body.nombre ?? "Cliente").slice(0, 60), primero: Boolean(body.primero) }, async () => historial, ahora);
+        const r = await pensarVenta(env, cfg, inventario, conv, { texto: String(body.texto ?? "").slice(0, 1500), nombre: String(body.nombre ?? "").slice(0, 60), primero: Boolean(body.primero) }, async () => historial, ahora, await libresDe(store, cfg, ahora));
         return json({ ok: true, ...r });
       }
 

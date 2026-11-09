@@ -68,6 +68,10 @@ export const saveInventory = async (autos) => (await call("/api/inventario", { m
 /** imagen: data URL JPG/PNG (máx. 5 MB). Devuelve { fotoId, foto (URL pública) }. */
 export const uploadCarPhoto = (imagen) => call("/api/inventario/foto", { method: "POST", body: { imagen } });
 
+/** Citas que agendó Sofía: [{ id (ISO), texto, canal, cliente, nombre, interes, resumen, estado }] de la más próxima a la más lejana. */
+export const getAgenda = async () => (await call("/api/agenda")).citas;
+export const cancelCita = (cita) => call("/api/agenda/cancelar", { method: "POST", body: { id: cita.id, cliente: cita.cliente } });
+
 /** "Probar a Sofía": lo que contestaría tu servidor (menú + su IA), sin guardar ni enviar nada. */
 export const trySales = (body) => call("/api/vendedora/probar", { method: "POST", body });
 

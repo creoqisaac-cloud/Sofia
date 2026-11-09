@@ -257,6 +257,7 @@ function waCard() {
         ["WA_PHONE_NUMBER_ID", "Identificador del número de teléfono", "Solo números, de «Configuración de la API»"],
         ["WA_WABA_ID", "Identificador de la cuenta de WhatsApp Business", "Solo números"],
         ["META_APP_SECRET", "Clave secreta de la app", "32 letras y números, de «Configuración de la app → Básica»", true],
+        ["ASESOR_WHATSAPP", "WhatsApp del asesor (para avisarle de cada cita)", "10 dígitos, ej. 8112345678"],
       ], { boton: "Guardar en mi servidor y probar", alGuardar: () => toast(lastStatus()?.whatsapp?.ok ? `WhatsApp conectado: ${lastStatus().whatsapp.phone}` : `Guardado. ${lastStatus()?.whatsapp?.error ? `Meta dice: ${lastStatus().whatsapp.error}` : "Revisa los datos."}`, 7000) }),
       webhookBox()) : h("p", { class: "muted small" }, "Primero conecta el servidor."));
 }

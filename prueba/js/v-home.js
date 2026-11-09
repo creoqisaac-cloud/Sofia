@@ -2,7 +2,7 @@
 import { h, fmtWhen, todayEnd, inDays, toast } from "./util.js";
 import { state, customer, openReminders, updateReminder, lastContact, plateLabel, setFollowUp } from "./store.js";
 import { header, section, empty, btn, go, rerender, sendWhatsApp, stageChip, chip } from "./ui.js";
-import { connectorReady, lastStatus } from "./connector.js";
+import { connectorReady, lastStatus, getAgenda, cancelCita } from "./connector.js";
 import { googleReady } from "./google.js";
 import { fillTemplate, suggestTemplateId, template } from "./rules.js";
 
@@ -30,6 +30,7 @@ export function renderHome(root) {
         btn("Solicitud de crédito con INE", () => go("/cliente/nuevo?siguiente=credito")),
         btn(connectorReady() ? "Bandeja de WhatsApp" : "Responder WhatsApp", () => go(connectorReady() ? "/whatsapp?tab=bandeja" : "/whatsapp?tab=responder")),
         btn("Recordatorios", () => go("/recordatorios"), "ghost")),
+      connectorReady() ? agendaSection() : null,
       connectorReady() && lastStatus()?.prospectos?.nuevos ? prospectsBanner(lastStatus().prospectos) : null,
       !state.inventory.length ? h("button", { class: "item", onclick: () => go("/inventario") },
         h("div", { class: "grow" }, h("strong", {}, "Carga tus autos para que Sofía los venda"), h("div", { class: "muted small" }, "Con foto y precio, Sofía los ofrece por WhatsApp y cotiza a crédito")),
@@ -87,4 +88,21 @@ function prospectsBanner(p) {
       h("strong", {}, hot ? `🔥 ${hot} prospecto${hot === 1 ? "" : "s"} pide${hot === 1 ? "" : "n"} cita o hablar contigo` : `${n} prospecto${n === 1 ? "" : "s"} nuevo${n === 1 ? "" : "s"} por WhatsApp/Messenger`),
       h("div", { class: "muted small" }, hot && n > hot ? `y ${n - hot} más nuevo${n - hot === 1 ? "" : "s"} · agrégalos como clientes` : "Agrégalos como clientes")),
     h("span", { class: "muted" }, "›"));
+}
+
+/** Citas que Sofía apartó en la agenda, con lo que el asesor necesita para atender al cliente. */
+function agendaSection() {
+  const box = h("div", { class: "list" }, h("p", { class: "muted small" }, "Cargando citas…"));
+  const pintar = () => getAgenda().then((citas) => {
+    if (!citas.length) { box.replaceChildren(empty("Aún no hay citas. Cuando un cliente aparte una por WhatsApp, aparece aquí con su resumen.")); return; }
+    box.replaceChildren(...citas.map((c) => h("div", { class: "item col" },
+      h("div", { class: "row between" }, h("strong", {}, `📅 ${c.texto}`), chip(c.canal === "wa" ? "WhatsApp" : "Messenger")),
+      h("div", {}, c.nombre || "Cliente sin nombre", c.interes ? ` · ${c.interes}` : ""),
+      c.resumen ? h("p", { class: "preview" }, c.resumen) : null,
+      h("div", { class: "row wrap gap-s" },
+        btn("Ver conversación", () => go(`/whatsapp/chat/${encodeURIComponent(`${c.canal}:${c.cliente}`)}`), "small"),
+        btn("Cancelar cita", async () => { try { await cancelCita(c); toast("Cita cancelada: ese horario queda libre"); pintar(); } catch (e) { toast(e.message, 5000); } }, "small ghost")))));
+  }).catch((e) => box.replaceChildren(h("p", { class: "warn small" }, e.message)));
+  pintar();
+  return section("Citas que agendó Sofía", box);
 }

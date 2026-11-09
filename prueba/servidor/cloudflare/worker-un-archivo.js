@@ -4971,9 +4971,56 @@ function buscarAutos(texto, inventario) {
   }
   return hits;
 }
+var DIAS_EN = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+var DIAS_LARGOS = ["domingo", "lunes", "martes", "mi\xE9rcoles", "jueves", "viernes", "s\xE1bado"];
+var aMin = (hhmm) => {
+  const [h2, m] = String(hhmm).split(":").map(Number);
+  return h2 * 60 + (m || 0);
+};
+function local(fecha, zona) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: zona, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(fecha).map((x) => [x.type, x.value]));
+  return { dia: DIAS_EN[p.weekday], fecha: `${p.year}-${p.month}-${p.day}`, min: Number(p.hour) * 60 + Number(p.minute), diaMes: Number(p.day) };
+}
+function textoCita(iso, zona = "America/Monterrey", ahora = /* @__PURE__ */ new Date()) {
+  const t = new Date(iso);
+  const l2 = local(t, zona);
+  const hoy = local(ahora, zona).fecha;
+  const manana = local(new Date(ahora.getTime() + 24 * HORA), zona).fecha;
+  const hora = new Intl.DateTimeFormat("es-MX", { timeZone: zona, hour: "numeric", minute: "2-digit", hour12: true }).format(t).replace(/\s+/g, " ");
+  const dia = l2.fecha === hoy ? "hoy" : l2.fecha === manana ? `ma\xF1ana ${DIAS_LARGOS[l2.dia]}` : `el ${DIAS_LARGOS[l2.dia]} ${l2.diaMes}`;
+  return `${dia} a las ${hora}`;
+}
+function horariosLibres({ horario, zonaHoraria = "America/Monterrey", ocupadas = [], ahora = /* @__PURE__ */ new Date(), dias = 7, duracionMin = 60, anticipacionMin = 90, cuantos = 60 } = {}) {
+  const h2 = horario?.dias?.length ? horario : { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" };
+  const ini = aMin(h2.inicio);
+  const fin = h2.inicio === h2.fin ? 24 * 60 : aMin(h2.fin);
+  const tomadas = new Set(ocupadas.map((x) => new Date(x).toISOString()));
+  const salida = [];
+  let t = Math.ceil((ahora.getTime() + anticipacionMin * 6e4) / HORA) * HORA;
+  const hasta = ahora.getTime() + dias * 24 * HORA;
+  for (; t <= hasta && salida.length < cuantos; t += HORA) {
+    const fecha = new Date(t);
+    const l2 = local(fecha, zonaHoraria);
+    if (!h2.dias.includes(l2.dia) || l2.min < ini || l2.min + duracionMin > fin) continue;
+    const id = fecha.toISOString();
+    if (!tomadas.has(id)) salida.push({ id, texto: textoCita(id, zonaHoraria, ahora), fecha: l2.fecha, min: l2.min });
+  }
+  return salida;
+}
+function tresOpciones(libres) {
+  const elegidas = [];
+  const agregar = (x) => {
+    if (x && !elegidas.includes(x) && elegidas.length < 3) elegidas.push(x);
+  };
+  agregar(libres[0]);
+  agregar(libres.find((x) => x.min >= 15 * 60 && !elegidas.includes(x)));
+  agregar(libres.find((x) => !elegidas.some((e) => e.fecha === x.fecha)));
+  for (const x of libres) agregar(x);
+  return elegidas.sort((a2, b) => a2.id.localeCompare(b.id));
+}
 var DICE = {
   asesor: ["asesor", "asesora", "vendedor", "vendedora", "una persona", "humano", "hablar con alguien", "llamenme", "llamame", "marcame", "me pueden llamar", "me puedes llamar", "una llamada"],
-  cita: ["prueba de manejo", "manejarlo", "manejarla", "probarlo", "probarla", "cita", "agendar", "agenda", "visitarlos", "ir a verlo", "ir a verla", "conocerlo", "conocerla", "puedo ir", "pasar a verlo", "pasar a verla", "visita"],
+  cita: ["prueba de manejo", "manejar", "manejarlo", "manejarla", "probarlo", "probarla", "cita", "agendar", "agenda", "visitarlos", "ir a verlo", "ir a verla", "conocerlo", "conocerla", "puedo ir", "pasar a verlo", "pasar a verla", "visita", "ir a la agencia", "pasar a la agencia"],
   credito: ["credito", "financiamiento", "financiar", "financiado", "mensualidad", "mensualidades", "a meses", "plazos", "enganche", "cotizacion", "cotizar", "cotiza", "cotizame"],
   contado: ["contado", "de contado", "efectivo", "cash"],
   lista: ["catalogo", "inventario", "autos", "carros", "coches", "camionetas", "disponibles", "que tienen", "que tienes", "modelos", "unidades", "seminuevos", "nuevos"],
@@ -4982,6 +5029,11 @@ var DICE = {
   gracias: ["gracias", "muchas gracias", "mil gracias"]
 };
 var MENU = ["menu", "inicio", "opciones", "regresar", "volver"];
+var MODELOS_HONDA = [["city", "City"], ["civic", "Civic"], ["accord", "Accord"], ["hrv", "HR-V"], ["brv", "BR-V"], ["crv", "CR-V"], ["pilot", "Pilot"], ["odyssey", "Odyssey"]];
+var modeloMencionado = (texto) => {
+  const t = compacto(texto);
+  return MODELOS_HONDA.find(([k]) => contienePalabra(t, k))?.[1] ?? null;
+};
 var NUMEROS = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
 function numeroElegido(texto) {
   const t = sinAcentos(texto).replace(/[^\p{L}\p{N}#\s]/gu, " ").trim();
@@ -4994,7 +5046,7 @@ var pareceFecha = (t) => /\b(lunes|martes|miercoles|jueves|viernes|sabado|doming
 var OPCIONES_MENU = ["lista", "credito", "cita", "asesor"];
 var emojiNum = (i) => ["1\uFE0F\u20E3", "2\uFE0F\u20E3", "3\uFE0F\u20E3", "4\uFE0F\u20E3", "5\uFE0F\u20E3", "6\uFE0F\u20E3", "7\uFE0F\u20E3", "8\uFE0F\u20E3", "9\uFE0F\u20E3", "\u{1F51F}"][i] ?? `${i + 1}.`;
 var enumerar = (lineas) => lineas.map((l2, i) => `${emojiNum(i)} ${l2}`).join("\n");
-function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @__PURE__ */ new Date() }) {
+function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @__PURE__ */ new Date(), libres = [] }) {
   const v = { ...VENTAS_BASE, ...cfg.ventas ?? {} };
   const now = ahora instanceof Date ? ahora : new Date(ahora);
   const c = { ...conv, autos: (conv.autos ?? []).filter((x) => now - new Date(x) < HORA), fallos: conv.fallos ?? 0 };
@@ -5024,6 +5076,7 @@ function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @_
   if (!texto.trim()) return quedar("vacio");
   const resp = [];
   let motivo = "";
+  let reserva = null;
   const decir = (txt, foto) => resp.push(foto ? { texto: txt, foto } : { texto: txt });
   const ir2 = (paso, opciones = null) => {
     c.paso = paso;
@@ -5054,6 +5107,13 @@ function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @_
 Ahorita estamos fuera de horario${horario ? ` (${horario})` : ""}, pero yo te ayudo con lo que necesites \u{1F609}` : intro;
   };
   const menu = (encabezado = "\xBFEn qu\xE9 te ayudo?") => {
+    if (!autos.length) {
+      ir2("menu", ["cita", "asesor"]);
+      return `${encabezado}
+${enumerar(["Agendar cita para verlo o manejarlo", `Hablar con ${asesor}`])}
+
+O dime qu\xE9 modelo te interesa (ej. \xABCR-V\xBB).`;
+    }
     ir2("menu", OPCIONES_MENU);
     return `${encabezado}
 ${enumerar(["Ver autos disponibles", "Cotizar a cr\xE9dito", "Agendar prueba de manejo", `Hablar con ${asesor}`])}
@@ -5140,12 +5200,30 @@ ${enumerar(["Agendar visita / prueba de manejo", "Ver otros autos", `Hablar con 
 
 ${enumerar(["Agendar visita / prueba de manejo", "Ver otros autos", `Hablar con ${asesor}`])}`;
   };
-  const pedirCita = () => {
+  const pedirCita = (intro = "") => {
     calentar("caliente");
+    const a2 = porId(c.autoId) ?? (c.modelo ? { marca: cfg.marca || "Honda", modelo: c.modelo } : null);
+    if (intro) return `${intro}
+${pedirCita()}`;
+    const ops = tresOpciones(libres);
+    if (ops.length) {
+      ir2("cita", [...ops.map((x) => `slot:${x.id}`), "otra-hora"]);
+      return `Va, te aparto cita con ${asesor}${a2 ? ` para que veas la *${nombreAuto(a2)}*` : ""}. Tengo libre:
+${enumerar([...ops.map((x) => x.texto), "Otro d\xEDa u hora"])}
+\xBFCu\xE1l te queda?`;
+    }
     ir2("cita");
-    const a2 = porId(c.autoId);
     return `\xA1Con gusto! \u{1F64C} \xBFQu\xE9 d\xEDa y a qu\xE9 hora te acomoda venir${a2 ? ` a manejar la *${nombreAuto(a2)}*` : ""}? (por ejemplo \xABs\xE1bado 11 am\xBB)${horario ? `
 Nuestro horario: ${horario}.` : ""}`;
+  };
+  const apartar = (id) => {
+    const x = libres.find((l2) => l2.id === id);
+    if (!x) return pedirCita();
+    reserva = { id: x.id, texto: x.texto };
+    Object.assign(lead, { cita: x.texto, citaId: x.id, citaConfirmada: true });
+    calentar("caliente");
+    ir2("nombre");
+    return `Listo \u2705 qued\xF3 tu cita ${x.texto} con ${asesor}${cfg.agencia ? ` en ${cfg.agencia}` : ""}. \xBFA nombre de qui\xE9n la aparto?`;
   };
   const anotarCita = (cuando) => {
     const a2 = porId(c.autoId);
@@ -5164,6 +5242,11 @@ Nuestro horario: ${horario}.` : ""}`;
 ` : ""}\xA1Claro! Le aviso a ${asesor} para que te escriba${cuando} \u{1F64C}. Si quieres, d\xE9jame aqu\xED tu duda y se la paso.`;
   }
   const accion = (a2) => {
+    if (a2.startsWith("slot:")) return apartar(a2.slice(5));
+    if (a2 === "otra-hora") {
+      ir2("cita");
+      return "Sale, \xBFqu\xE9 d\xEDa y a qu\xE9 hora te acomoda? (por ejemplo \xABs\xE1bado 11 am\xBB)";
+    }
     if (a2.startsWith("auto:")) {
       const auto = porId(a2.slice(5));
       if (!auto) return lista(autos, null, "Ese auto ya no est\xE1 disponible \u{1F615}. Estos s\xED:");
@@ -5196,9 +5279,20 @@ Nuestro horario: ${horario}.` : ""}`;
     const n = numeroElegido(texto);
     const dice = Object.fromEntries(Object.entries(DICE).map(([k, ps2]) => [k, tieneAlguna(t, ps2)]));
     if (mencionados.length === 1) elegirAuto(mencionados[0]);
+    const modelo = !mencionados.length ? modeloMencionado(texto) : null;
+    if (modelo) {
+      c.modelo = modelo;
+      lead.interes = `${cfg.marca || "Honda"} ${modelo}`;
+    }
     if (pideMenu) {
       motivo = "menu";
       decir(menu());
+    } else if (c.paso === "nombre" && texto.trim().split(/\s+/).length <= 5 && !dice.asesor) {
+      motivo = "nombre";
+      lead.nombreCliente = texto.trim().replace(/^(soy|me llamo|a nombre de)\s+/i, "").slice(0, 60);
+      lead.quiereAsesor = true;
+      ir2("asesor");
+      decir(`Gracias, ${primerNombre(lead.nombreCliente) || lead.nombreCliente}. ${asesor} te espera; cualquier cambio me escribes por aqu\xED.`);
     } else if (n !== null && c.opciones?.[n - 1] && c.paso !== "enganche") {
       motivo = c.opciones[n - 1].split(":")[0];
       const r = accion(c.opciones[n - 1]);
@@ -5244,9 +5338,10 @@ Nuestro horario: ${horario}.` : ""}`;
         const nuevos = !semi && tieneAlguna(t, ["nuevo", "nuevos", "0 km"]);
         const filtro = semi ? autos.filter((a2) => a2.tipo === "seminuevo") : nuevos ? autos.filter((a2) => a2.tipo === "nuevo") : autos;
         decir(lista(filtro.length ? filtro : autos, null, filtro.length && (semi || nuevos) ? `Estos son los ${semi ? "seminuevos" : "nuevos"} disponibles:` : null));
-      } else if (dice.lista || dice.precio) {
-        motivo = "asesor";
-        decir(pasarAsesor(`Cu\xE9ntame qu\xE9 auto buscas y ${asesor} te pasa precio y disponibilidad.`));
+      } else if (dice.lista || dice.precio || dice.credito || dice.contado || modelo) {
+        motivo = "cita";
+        const lo2 = modelo ? `la ${modelo}` : "el modelo";
+        decir(pedirCita(dice.precio || dice.credito || dice.contado ? `El precio y las promociones cambian seg\xFAn la versi\xF3n y el mes; ${asesor} te da ${dice.credito ? "tu mensualidad" : "el precio"} exacto en la agencia.` : `Buena elecci\xF3n ${lo2 === "el modelo" ? "" : `${lo2} `}\u{1F44C} Lo mejor es que la veas y la manejes.`));
       } else if (primero || dice.saludo) {
         motivo = "menu";
         decir(menu());
@@ -5282,7 +5377,7 @@ ${resp[0].texto}` };
   }
   if (resp.length) c.autos = [...c.autos, now.toISOString()];
   c.ultimo = now.toISOString();
-  return { respuestas: resp, conv: c, lead, motivo };
+  return { respuestas: resp, conv: c, lead, motivo, ...reserva ? { reserva } : {} };
 }
 var ESQUEMA_IA = {
   type: "object",
@@ -5292,14 +5387,18 @@ var ESQUEMA_IA = {
     auto_id: { type: "string", description: "id del auto del inventario del que se habla, o vac\xEDo" },
     resumen: { type: "string", description: "Para el asesor: qui\xE9n es, qu\xE9 busca, c\xF3mo paga, qu\xE9 falta y qu\xE9 sigue (2-4 renglones)" },
     forma_pago: { type: "string", description: "contado, credito o vac\xEDo si no se sabe" },
-    cita: { type: "string", description: "d\xEDa y hora que propuso el cliente para venir, o vac\xEDo" }
+    cita: { type: "string", description: "d\xEDa y hora que propuso el cliente para venir, o vac\xEDo" },
+    reservar: { type: "string", description: "id EXACTO de la lista de horarios libres que el cliente ACEPT\xD3 en este mensaje, o vac\xEDo" },
+    nombre: { type: "string", description: "nombre del cliente si ya lo dijo, o vac\xEDo" },
+    modelo: { type: "string", description: "modelo que le interesa (ej. CR-V, Civic), o vac\xEDo" }
   },
-  required: ["respuesta", "pasar_a_asesor", "auto_id", "resumen", "forma_pago", "cita"],
+  required: ["respuesta", "pasar_a_asesor", "auto_id", "resumen", "forma_pago", "cita", "reservar", "nombre", "modelo"],
   additionalProperties: false
 };
-function promptIA({ cfg = {}, inventario = [], historial = [] }) {
-  const v = { ...VENTAS_BASE, ...cfg.ventas ?? {} };
+function promptIA({ cfg = {}, inventario = [], historial = [], libres = [] }) {
   const asesor = cfg.asesor || "el asesor";
+  const marca = cfg.marca || "Honda";
+  const agencia = cfg.agencia || marca;
   const autos = disponibles(inventario).map((a2) => ({
     id: a2.id,
     auto: nombreAuto(a2),
@@ -5308,49 +5407,53 @@ function promptIA({ cfg = {}, inventario = [], historial = [] }) {
     km: a2.km || void 0,
     color: a2.color || void 0,
     transmision: a2.transmision || void 0,
-    descripcion: a2.descripcion || void 0,
-    desde_al_mes: a2.precio > 0 ? pesos(mensualidad(a2.precio * (1 - v.engancheMinimo / 100), v.tasaAnual, Math.max(...v.plazos))) : void 0
+    descripcion: a2.descripcion || void 0
   }));
   const reglas = (cfg.reglas ?? []).map((r) => `- Si preguntan por ${(r.palabras ?? []).join(", ")}: ${r.respuesta}`).join("\n");
   const ejemplos = (cfg.estilo?.ejemplos ?? []).slice(0, 40);
+  const opciones = libres.slice(0, 30);
   const system = [
-    `Eres Sof\xEDa y atiendes el WhatsApp de ventas de ${asesor} en ${cfg.agencia || "una agencia de autos"}, en Monterrey.`,
-    "Escribe exactamente como escribe una persona real por WhatsApp, no como asistente ni como anuncio:",
-    "- Mensajes cortos: casi siempre 1 o 2 renglones. A veces una sola palabra basta (\xABva\xBB, \xABsale\xBB, \xABclaro\xBB).",
-    "- Nada de \xAB\xA1Claro que s\xED!\xBB, \xAB\xA1Excelente pregunta!\xBB, \xABCon gusto te ayudo\xBB, \xAB\xBFEn qu\xE9 m\xE1s te puedo ayudar?\xBB ni frases de call center. No repitas lo que el cliente dijo. No uses listas ni vi\xF1etas.",
-    "- Signos de admiraci\xF3n y emojis casi nunca. No termines todos los mensajes con pregunta; a veces solo responde y deja que el cliente siga.",
-    "- C\xE1lida pero normal, como alguien de Monterrey que sabe de autos. Si sale natural, una expresi\xF3n de aqu\xED (va, sale, \xBFc\xF3mo ves?, ahorita); nunca fuerces modismos.",
-    "- Imita el tono del cliente: si escribe corto y relajado, t\xFA igual; si escribe formal, de usted.",
-    ejemplos.length ? `- MUY IMPORTANTE: habla como ${asesor}. As\xED escribe en sus chats reales (copia su largo, su trato, sus saludos y su forma de cerrar, sin copiar los datos):
+    `Eres Sof\xEDa y contestas el WhatsApp de ventas de ${asesor}, asesor de ${agencia} (${marca}) en Monterrey.`,
+    `Tu \xFAnico trabajo: que cada persona que escribe AGENDE UNA CITA para venir a la agencia a ver o manejar el ${marca} que le interesa con ${asesor}. No cierras la venta: llevas al cliente a la cita y ${asesor} vende en persona.`,
+    "",
+    "C\xF3mo escribes (como una persona real por WhatsApp, no como asistente ni como anuncio):",
+    "- Mensajes cortos: 1 o 2 renglones. Nada de listas, vi\xF1etas ni men\xFAs. Emojis y signos de admiraci\xF3n casi nunca.",
+    "- Nada de \xAB\xA1Claro que s\xED!\xBB, \xAB\xA1Excelente pregunta!\xBB, \xABCon gusto te ayudo\xBB, \xAB\xBFEn qu\xE9 m\xE1s te puedo ayudar?\xBB. No repitas lo que dijo el cliente.",
+    "- C\xE1lida, segura y normal, como alguien de Monterrey. Una expresi\xF3n de aqu\xED solo si sale natural. Imita el tono del cliente (si habla de usted, de usted).",
+    ejemplos.length ? `- Habla como ${asesor}. As\xED escribe en sus chats reales (copia su estilo, no los datos):
 ${ejemplos.map((x) => `  \xB7 ${x.replace(/\s+/g, " ")}`).join("\n")}` : "",
     cfg.estilo?.notas ? `- Indicaciones de ${asesor}: ${cfg.estilo.notas}` : "",
     "",
-    "C\xF3mo vendes:",
-    "- Primero entiende a la persona: para qu\xE9 quiere el auto, qui\xE9n lo va a usar, qu\xE9 trae ahorita, qu\xE9 le importa. Una pregunta a la vez, y solo cuando venga al caso.",
-    "- Recomienda el auto del inventario que mejor le queda, con una raz\xF3n concreta para ESA persona. No sueltes todo el inventario.",
-    "- Si el precio asusta, habla de mensualidad. Averigua contado o cr\xE9dito, enganche y para cu\xE1ndo lo quiere, sin interrogar.",
-    "- Lleva la pl\xE1tica a que venga a verlo o a manejarlo, y prop\xF3n d\xEDa y hora. Pide su nombre de forma natural cuando toque.",
-    "- Objeciones: empat\xEDa y un dato real. Sin presionar y sin inventar urgencia.",
+    "C\xF3mo llevas al cliente a la cita:",
+    "- Saluda breve y pregunta qu\xE9 modelo le interesa o para qu\xE9 lo quiere. Una pregunta a la vez.",
+    `- Conecta lo que quiere con venir: verlo, manejarlo, que ${asesor} le d\xE9 el precio exacto con las promociones del mes y le arme su plan de pago.`,
+    `- Si pregunta precio, mensualidad, enganche, promociones o disponibilidad: no des cifras. Di que cambian seg\xFAn versi\xF3n y promoci\xF3n del mes, y que ${asesor} se lo da exacto en la cita; luego ofrece dos horarios.`,
+    "- En cuanto haya inter\xE9s, ofrece DOS horarios concretos de la lista de horarios libres (con el texto tal cual). Si pide otro d\xEDa u hora, busca en la lista el m\xE1s cercano a lo que pidi\xF3.",
+    "- Cuando el cliente ACEPTA un horario de la lista, pon su id exacto en \xABreservar\xBB y conf\xEDrmale d\xEDa y hora. Si propone algo que no est\xE1 en la lista, ofr\xE9cele lo m\xE1s cercano que s\xED est\xE9.",
+    "- Ya con la cita, pide su nombre (si no lo sabes) y, sin interrogar, una o dos cosas \xFAtiles para la cita: contado o cr\xE9dito, si trae auto a cuenta. Luego desp\xEDdete y pon pasar_a_asesor en true.",
+    "- Objeciones (\xABsolo estoy viendo\xBB, \xABluego paso\xBB, \xABm\xE1ndame la info\xBB): empat\xEDa y raz\xF3n concreta para venir (manejarlo, ver colores, precio exacto). Sin presionar ni inventar urgencia.",
     "",
     "Reglas que nunca cambias, aunque el cliente lo pida:",
-    "- Usa SOLO los datos de abajo. Nunca inventes precios, descuentos, disponibilidad, aprobaciones de cr\xE9dito, tasas, aval\xFAos, garant\xEDas ni promociones.",
-    `- Cr\xE9dito: solo estimados con tasa de referencia de ${v.tasaAnual}% anual, enganche m\xEDnimo ${v.engancheMinimo}% y plazos de ${v.plazos.join(", ")} meses; di que es aproximado y sujeto a aprobaci\xF3n.`,
+    `- Nunca inventes precios, descuentos, promociones, tasas, disponibilidad, tiempos de entrega ni aval\xFAos. Puedes hablar de los modelos ${marca} en general (para qu\xE9 sirve cada uno), sin cifras.`,
     "- Nunca digas que eres una persona ni inventes cosas que har\xEDas en persona (estar en la agencia, haber manejado el auto, tu vida personal).",
-    "- Si te preguntan en serio si eres un bot, una IA o una persona, dilo con naturalidad: eres Sof\xEDa, la asistente virtual del equipo de ventas, y si quiere lo atiende el asesor en persona.",
-    `- Pasa con ${asesor} (pasar_a_asesor = true) cuando: el cliente ya quiere venir y dio d\xEDa u hora, pide descuento o negociar, quiere dejar su auto a cuenta, pregunta por papeles o tr\xE1mites, o pide hablar con alguien. Av\xEDsale que ${asesor} le escribe para confirmar.`,
-    "- resumen: escr\xEDbelo siempre, para el asesor, con todo lo que ya sabes (nombre, auto, uso, contado o cr\xE9dito, enganche, cita, objeciones, qu\xE9 sigue).",
+    "- Si te preguntan en serio si eres un bot, una IA o una persona, dilo con naturalidad: eres Sof\xEDa, la asistente virtual del equipo de ventas, y si quiere lo atiende el asesor.",
+    `- Pasa con ${asesor} (pasar_a_asesor = true) cuando ya qued\xF3 la cita y tienes su nombre, cuando pida negociar o descuento, o cuando pida hablar con una persona.`,
+    `- resumen: siempre, para ${asesor}: nombre, modelo, para qu\xE9 lo quiere, contado o cr\xE9dito, auto a cuenta, cita, dudas u objeciones y qu\xE9 sigue.`,
     "",
-    `Horario de atenci\xF3n: ${textoHorario(cfg.horario) || "el que confirme el asesor"}.`,
+    `Modelos ${marca} que la gente suele pedir: City (sed\xE1n y hatchback), Civic, Accord, HR-V, BR-V, CR-V, Pilot y Odyssey. Si piden otro, di que ${asesor} confirma si lo tienen.`,
+    `Horario de la agencia: ${textoHorario(cfg.horario) || "el que confirme el asesor"}.`,
+    opciones.length ? `Horarios LIBRES para cita (ofrece solo estos; id \u2192 texto):
+${opciones.map((x) => `${x.id} \u2192 ${x.texto}`).join("\n")}` : `No hay horarios libres cargados: pide d\xEDa y hora y dile que ${asesor} se lo confirma.`,
     reglas ? `Respuestas del asesor que debes respetar:
 ${reglas}` : "",
-    `Inventario disponible (JSON):
-${JSON.stringify(autos)}`
+    autos.length ? `Autos con precio que S\xCD puedes mencionar (JSON):
+${JSON.stringify(autos)}` : ""
   ].filter((x) => x !== "").join("\n");
   const turnos = historial.filter((m) => String(m.text ?? "").trim()).slice(-20).map((m) => ({ role: m.dir === "in" ? "user" : "assistant", content: String(m.text).slice(0, 1500) }));
   while (turnos.length && turnos[0].role !== "user") turnos.shift();
   return { system, messages: turnos };
 }
-function aplicarIA(r, salida, { inventario = [], antes = {}, ahora = /* @__PURE__ */ new Date() } = {}) {
+function aplicarIA(r, salida, { inventario = [], antes = {}, ahora = /* @__PURE__ */ new Date(), libres = [] } = {}) {
   const texto = String(salida?.respuesta ?? "").trim().slice(0, 1200);
   if (!texto) return r;
   const now = ahora instanceof Date ? ahora : new Date(ahora);
@@ -5369,6 +5472,10 @@ function aplicarIA(r, salida, { inventario = [], antes = {}, ahora = /* @__PURE_
     lead.cita = salida.cita.trim().slice(0, 120);
     lead.calor = "caliente";
   }
+  if (salida.nombre?.trim()) lead.nombreCliente = salida.nombre.trim().slice(0, 60);
+  if (salida.modelo?.trim() && !lead.interes) lead.interes = `${salida.modelo.trim().slice(0, 60)}`;
+  const libre = salida.reservar ? libres.find((x) => x.id === salida.reservar) : null;
+  if (libre) Object.assign(lead, { cita: libre.texto, citaId: libre.id, citaConfirmada: true, calor: "caliente" });
   const foto = auto?.foto && !(antes.fotos ?? []).includes(auto.id) ? auto.foto : null;
   if (foto) conv.fotos = [...antes.fotos ?? [], auto.id];
   if (salida.pasar_a_asesor) {
@@ -5377,7 +5484,7 @@ function aplicarIA(r, salida, { inventario = [], antes = {}, ahora = /* @__PURE_
   } else if (!conv.paso || conv.paso === "asesor") {
     Object.assign(conv, { paso: "menu", opciones: ["lista", "credito", "cita", "asesor"] });
   }
-  return { respuestas: [foto ? { texto, foto } : { texto }], conv, lead, motivo: "ia" };
+  return { respuestas: [foto ? { texto, foto } : { texto }], conv, lead, motivo: "ia", ...libre ? { reserva: { id: libre.id, texto: libre.texto } } : {} };
 }
 
 // prueba/servidor/core.mjs
@@ -5415,6 +5522,7 @@ var DESDE_APP = {
   FB_PAGE_ID: /^\d{1,25}$/,
   FB_PAGE_TOKEN: /^\S{20,600}$/,
   IG_USER_ID: /^\d{1,25}$/,
+  ASESOR_WHATSAPP: /^\d{10,15}$/,
   ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/,
   ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/,
   PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/
@@ -5524,7 +5632,7 @@ function waText(m) {
   }
 }
 var AGENTE_BASE = {
-  activo: false,
+  activo: true,
   zonaHoraria: "America/Monterrey",
   horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" },
   // 0 = domingo, 1 = lunes … 6 = sábado
@@ -5536,10 +5644,11 @@ var AGENTE_BASE = {
   // no repetir la misma respuesta automática al mismo contacto antes de N horas
   pausaMinutos: 30,
   // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
-  asesor: "",
-  agencia: "",
-  ventas: { ...VENTAS_BASE },
-  // vendedora de autos (menú, inventario, crédito, citas); apagada = solo lo de arriba
+  asesor: "Mario",
+  agencia: "Honda",
+  marca: "Honda",
+  ventas: { ...VENTAS_BASE, ia: true },
+  // vendedora (agenda citas); apagada = solo lo de arriba
   estilo: { ejemplos: [], notas: "" }
   // cómo escribe el asesor: con IA, Sofía habla como él
 };
@@ -5594,6 +5703,7 @@ function normalizarConfig(c) {
     pausaMinutos: numeroEntre(c.pausaMinutos, AGENTE_BASE.pausaMinutos, 0, 1440),
     asesor: String(c.asesor ?? "").trim().slice(0, 80),
     agencia: String(c.agencia ?? "").trim().slice(0, 80),
+    marca: String(c.marca ?? AGENTE_BASE.marca).trim().slice(0, 40) || AGENTE_BASE.marca,
     ventas: normalizarVentas(c.ventas),
     estilo: normalizarEstilo(c.estilo)
   };
@@ -5616,11 +5726,12 @@ function normalizarVentas(v = {}) {
     plazos: plazos.length ? plazos : b.plazos,
     horasConAsesor: entre(v.horasConAsesor, b.horasConAsesor, 0, 168),
     presentacion: textoAuto(v.presentacion, "Presentaci\xF3n"),
-    ia: Boolean(v.ia)
+    ia: v.ia === void 0 ? b.ia : Boolean(v.ia)
   };
 }
 async function leerConfig(store) {
-  const c = await store.get("agente:config");
+  let c = await store.get("agente:config");
+  if (c && !c.marca) c = { ...c, activo: true, asesor: c.asesor || AGENTE_BASE.asesor, agencia: c.agencia || AGENTE_BASE.agencia, marca: AGENTE_BASE.marca, ventas: { ...c.ventas ?? {}, activo: true, ia: true } };
   return { ...AGENTE_BASE, ...c ?? {}, horario: { ...AGENTE_BASE.horario, ...c?.horario ?? {} }, ventas: { ...AGENTE_BASE.ventas, ...c?.ventas ?? {} } };
 }
 function enHorario(cfg, ahora) {
@@ -5680,9 +5791,12 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
   if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
   const inventario = await inventarioVendedora(store, publicBase(env, base), true);
   const historial = async () => (await store.get(`inbox:c:${e.canal}:${e.id}`) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
-  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero }, historial, ahora);
+  const libres = await libresDe(store, cfg, ahora);
+  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero }, historial, ahora, libres);
   if (r.errorIA) await anotarError(store, e, `IA: ${r.errorIA}`, ahora);
   if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
+  if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
+  await avisarSiToca(env, store, cfg, e, r, ahora);
   for (const [i, m] of r.respuestas.entries()) {
     try {
       await sendMessage(
@@ -5702,12 +5816,54 @@ async function inventarioVendedora(store, pub, soloHttps) {
   const ok = !soloHttps || pub.startsWith("https://");
   return (await store.get("ventas:inventario") ?? []).map((a2) => ({ ...a2, foto: a2.fotoId && ok ? `${pub}/media/${a2.fotoId}` : null }));
 }
+async function citasActivas(store, ahora) {
+  return (await store.get("agenda:citas") ?? []).filter((x) => x.estado !== "cancelada" && new Date(x.id) > ahora - 2 * 3600 * 1e3);
+}
+async function libresDe(store, cfg, ahora) {
+  const ocupadas = (await citasActivas(store, ahora)).map((x) => x.id);
+  return horariosLibres({ horario: cfg.horario, zonaHoraria: cfg.zonaHoraria, ocupadas, ahora });
+}
+async function apartarCita(env, store, cfg, e, r, ahora) {
+  const citas = await store.get("agenda:citas") ?? [];
+  if (citas.some((x) => x.id === r.reserva.id && x.estado !== "cancelada")) return false;
+  const lead = (await store.get("leads:index") ?? {})[`${e.canal}:${e.id}`] ?? {};
+  const cita = { id: r.reserva.id, texto: r.reserva.texto, canal: e.canal, cliente: e.id, nombre: lead.nombreCliente || e.nombre || "", interes: lead.interes ?? "", resumen: lead.resumen ?? "", creada: ahora.toISOString(), estado: "apartada" };
+  for (const x of citas) if (x.canal === e.canal && x.cliente === e.id && x.estado === "apartada") x.estado = "cancelada";
+  citas.push(cita);
+  await store.put("agenda:citas", citas.filter((x) => new Date(x.id) > ahora - 30 * DIA_MS).slice(-500));
+  return true;
+}
+async function avisarSiToca(env, store, cfg, e, r, ahora) {
+  const citas = await store.get("agenda:citas") ?? [];
+  const cita = citas.find((x) => x.canal === e.canal && x.cliente === e.id && x.estado === "apartada" && !x.avisada);
+  if (!cita) return;
+  const lead = (await store.get("leads:index") ?? {})[`${e.canal}:${e.id}`] ?? {};
+  if (!lead.nombreCliente && !r.lead.quiereAsesor) return;
+  Object.assign(cita, { nombre: lead.nombreCliente || cita.nombre, interes: lead.interes || cita.interes, resumen: lead.resumen || cita.resumen, avisada: true });
+  await store.put("agenda:citas", citas);
+  await avisarAsesor(env, store, cfg, e, cita, ahora);
+}
+async function avisarAsesor(env, store, cfg, e, cita, ahora) {
+  const numero = String(env.ASESOR_WHATSAPP ?? "").replace(/\D/g, "");
+  if (!numero || !waReady(env)) return;
+  const tel = e.canal === "wa" ? `
+WhatsApp: https://wa.me/${e.id}` : "";
+  const texto = `\u{1F4C5} Sof\xEDa te agend\xF3 una cita
+${cita.nombre || "Cliente"} \xB7 ${cita.texto}${cita.interes ? `
+Le interesa: ${cita.interes}` : ""}${cita.resumen ? `
+${cita.resumen}` : ""}${tel}`;
+  try {
+    await sendMessage(env, store, { channel: "wa", to: numero.length === 10 ? `52${numero}` : numero, text: texto }, { ahora });
+  } catch (err) {
+    await anotarError(store, e, `Aviso a ${cfg.asesor || "el asesor"}: ${err.message ?? err} (Meta solo deja escribirle si \xE9l le mand\xF3 un mensaje al n\xFAmero de Sof\xEDa en las \xFAltimas 24 h)`, ahora);
+  }
+}
 var SIN_IA = /* @__PURE__ */ new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"]);
-async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora) {
-  const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora });
+async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora, libres = []) {
+  const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora, libres });
   if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !motorIA(env)) return r;
   try {
-    return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial() })), { inventario, antes, ahora });
+    return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: await historial(), libres })), { inventario, antes, ahora, libres });
   } catch (err) {
     return { ...r, errorIA: err.message ?? String(err) };
   }
@@ -6256,13 +6412,24 @@ async function handle(req, envBase, store, opciones = {}) {
         await store.put(`media:${fotoId}`, { mime: m[1], datos });
         return json({ ok: true, fotoId, foto: `${publicBase(env, baseDe(req))}/media/${fotoId}` });
       }
+      // Citas que agendó Sofía (la app las muestra en Hoy)
+      case "GET /api/agenda":
+        return json({ ok: true, citas: (await citasActivas(store, ahora)).sort((a2, b) => a2.id.localeCompare(b.id)) });
+      case "POST /api/agenda/cancelar": {
+        const citas = await store.get("agenda:citas") ?? [];
+        const x = citas.find((c) => c.id === body.id && c.cliente === body.cliente && c.estado === "apartada");
+        if (!x) return fail("Esa cita ya no est\xE1", 404);
+        x.estado = "cancelada";
+        await store.put("agenda:citas", citas);
+        return json({ ok: true });
+      }
       // "Probar a Sofía" desde la app: el mismo camino que un mensaje real (menú + IA del servidor), sin guardar ni enviar nada.
       case "POST /api/vendedora/probar": {
         const cfg = await leerConfig(store);
         const inventario = await inventarioVendedora(store, publicBase(env, baseDe(req)), false);
         const historial = (Array.isArray(body.historial) ? body.historial : []).slice(-30).map((m) => ({ dir: m?.dir === "out" ? "out" : "in", text: String(m?.text ?? "").slice(0, 1500) }));
         const conv = body.conv && typeof body.conv === "object" && !Array.isArray(body.conv) ? body.conv : {};
-        const r = await pensarVenta(env, cfg, inventario, conv, { texto: String(body.texto ?? "").slice(0, 1500), nombre: String(body.nombre ?? "Cliente").slice(0, 60), primero: Boolean(body.primero) }, async () => historial, ahora);
+        const r = await pensarVenta(env, cfg, inventario, conv, { texto: String(body.texto ?? "").slice(0, 1500), nombre: String(body.nombre ?? "").slice(0, 60), primero: Boolean(body.primero) }, async () => historial, ahora, await libresDe(store, cfg, ahora));
         return json({ ok: true, ...r });
       }
       // Prospectos (contactos nuevos que escribieron por WhatsApp o Messenger)
