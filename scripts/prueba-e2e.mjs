@@ -409,11 +409,15 @@ await p.getByLabel(/^Con IA:/).uncheck();
 await cardOf("Configuración del asistente").getByRole("button", { name: "Guardar" }).click();
 await p.getByText(/Sofía vende por ti/).waitFor();
 await p.goto(BASE + "#/probar");
+// Servidor lento a propósito: los mensajes escritos rápido deben contestarse en orden, no en paralelo.
+const lento = async (route) => { await new Promise((r) => setTimeout(r, 400)); await route.continue(); };
+await p.route("**/api/vendedora/probar**", lento);
 for (const t of ["Hola", "1", "1", "1", "20%"]) {
   await p.getByPlaceholder("Escribe como cliente…").fill(t);
   await p.getByRole("button", { name: "Enviar", exact: true }).click();
 }
 await p.getByText("• 60 meses:").waitFor();
+await p.unroute("**/api/vendedora/probar**", lento);
 await p.locator(".sim .chat-img").first().waitFor(); // la ficha llevó la foto
 await p.getByText("Interés:").waitFor();
 await shot("12-probar-sofia");

@@ -233,10 +233,16 @@ export function renderSimulator(root) {
       : h("p", { class: "muted small" }, "Aquí verás lo que Sofía anota del cliente (auto, crédito, cita…), igual que en Prospectos."));
   };
 
-  const enviar = async (texto) => {
+  // En fila: si escribe rápido, cada mensaje espera la respuesta del anterior (como en WhatsApp, en orden).
+  let fila = Promise.resolve();
+  const enviar = (texto) => {
     const t = String(texto ?? caja.value).trim();
-    if (!t) return;
+    if (!t) return fila;
     caja.value = "";
+    fila = fila.then(() => contestar(t)).catch((err) => toast(err.message, 6000));
+    return fila;
+  };
+  const contestar = async (t) => {
     await listo;
     sim.mensajes.push({ dir: "in", texto: t });
     const antes = sim.conv;
