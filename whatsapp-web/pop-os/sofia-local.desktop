@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Sofía WhatsApp
+Comment=Prueba local del asistente de ventas
+Exec=/usr/bin/sofia-local
+Icon=sofia-local
+Terminal=false
+Categories=Network;Chat;

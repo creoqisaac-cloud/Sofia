@@ -1,0 +1,33 @@
+name: Sofía para Pop!_OS
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/focused-gauss-q4hxvr]
+    paths: ['whatsapp-web/**', 'prueba/servidor/core.mjs', 'prueba/servidor/servidor.mjs', '.github/workflows/sofia-pop.yml']
+permissions:
+  contents: write
+jobs:
+  paquete:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Crear instalador
+        run: bash whatsapp-web/pop-os/empaquetar.sh "1.0.${GITHUB_RUN_NUMBER}" "$PWD/Sofia-PopOS-amd64.deb"
+      - name: Instalar y probar la aplicación Linux
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ./Sofia-PopOS-amd64.deb xvfb xauth
+          python3 -m py_compile whatsapp-web/pop-os/sofia-local.py
+          ln -s /opt/sofia-local/app/whatsapp-web/node_modules whatsapp-web/node_modules
+          node --test whatsapp-web/cliente.test.mjs
+          xvfb-run -a /usr/bin/python3 whatsapp-web/pop-os/probar.py
+      - name: Publicar descarga
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum Sofia-PopOS-amd64.deb > SHA256SUMS
+          gh release create "sofia-pop-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" Sofia-PopOS-amd64.deb SHA256SUMS --target "$GITHUB_SHA" --prerelease --title "Sofía para Pop!_OS · ${GITHUB_RUN_NUMBER}" --notes "Instala el .deb y abre Sofía WhatsApp desde Aplicaciones. La primera ejecución descarga el navegador."

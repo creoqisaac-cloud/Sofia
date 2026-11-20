@@ -3,6 +3,8 @@ import QRCode from "qrcode";
 import whatsapp from "whatsapp-web.js";
 
 export function vincular(client, recibir, prueba = "") {
+  // WhatsApp puede conservar el prefijo móvil mexicano 521 en contactos antiguos.
+  const permitido = n => !prueba || String(n).replace(/^521(\d{10})$/, "52$1") === prueba.replace(/^521(\d{10})$/, "52$1");
   let qr = "";
   let conectado = false;
   let cola = Promise.resolve();
@@ -23,7 +25,7 @@ export function vincular(client, recibir, prueba = "") {
     }
     if (!/^\d+@c\.us$/.test(telefono)) return;
     const peer = telefono.split("@")[0];
-    if (peer === client.info?.wid?.user || (prueba && peer !== prueba)) return;
+    if (peer === client.info?.wid?.user || !permitido(peer)) return;
     const mensaje = { id: m.id._serialized, type: "text", timestamp: m.timestamp, text: { body: m.body } };
     const cambio = m.fromMe
       ? { field: "smb_message_echoes", value: { message_echoes: [{ ...mensaje, to: peer }] } }
@@ -37,7 +39,7 @@ export function vincular(client, recibir, prueba = "") {
     estado: () => ({ configured: true, ok: conectado, phone: conectado ? client.info?.wid?.user : null, modo: "web" }),
     async enviar({ to, text, image }) {
       if (!conectado) throw new Error("El dispositivo de WhatsApp está desconectado.");
-      if (!/^\d{6,15}$/.test(to) || (prueba && to !== prueba)) throw new Error("Destinatario no habilitado.");
+      if (!/^\d{6,15}$/.test(to) || !permitido(to)) throw new Error("Destinatario no habilitado.");
       const destino = await client.getNumberId(to);
       if (!destino) throw new Error("WhatsApp no encontró el contacto.");
       const msg = await client.sendMessage(destino._serialized, [text, image].filter(Boolean).join("\n"), { sendSeen: false });
