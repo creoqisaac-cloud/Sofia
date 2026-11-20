@@ -162,9 +162,11 @@ Así Mario **no pierde nada**: sigue usando su WhatsApp Business en el celular, 
 
 1. **Respaldo** en el celular de Mario: WhatsApp Business → Ajustes → Chats → Copia de seguridad → Guardar. Que la app esté actualizada.
 2. En **developers.facebook.com**, en tu app:
-   - Agrega el producto **Facebook Login for Business**.
-   - En **Configuraciones**, crea una nueva de tipo **WhatsApp Embedded Signup** y copia su **ID**.
-   - En **Configuración**, agrega `creoqisaac-cloud.github.io` en **Dominios permitidos para el SDK de JavaScript** y activa **Iniciar sesión con el SDK de JavaScript**.
+   - En **Facebook Login for Business → Configuraciones**, usa la configuración **Sofia WhatsApp** que ya existe. No crees otra.
+   - En **Configurar → Configuración del cliente de OAuth**, mantén activos **Inicio de sesión del cliente de OAuth**, **Inicio de sesión de OAuth web**, **Aplicar HTTPS**, **Inicio de sesión de OAuth de navegador integrado**, **Usar modo estricto para URI de redireccionamiento** e **Iniciar sesión con el SDK para JavaScript**.
+   - En **Dominios permitidos para el SDK de JavaScript**, agrega `creoqisaac-cloud.github.io`.
+   - En **URI de redireccionamiento de OAuth válidos**, agrega exactamente `https://creoqisaac-cloud.github.io/Sofia/` (incluye `/Sofia/`, sin `#/conexiones`). Meta requiere que el dominio de la página esté permitido en ambos campos.
+   - Sofía canjea el código Embedded Signup con `redirect_uri` vacío, el mismo valor implícito al lanzar `FB.login` con el SDK; no reemplaces ese campo por la URL de la página.
 3. En Sofía (desde el **navegador**, no desde la app instalada): Más → Conexiones → **WhatsApp Business de Mario** → «Antes de conectar». Pega el **ID de la app** (arriba a la izquierda en Meta) y el **ID de la configuración**, y toca **Guardar**.
 4. Con el celular de Mario a la mano, toca **Conectar el WhatsApp Business de Mario**. En la ventana de Meta elige conectar la app de WhatsApp Business que ya existe. Mario confirma en su celular y elige si comparte sus chats.
 5. Al terminar, Sofía hace lo demás sola: guarda la llave, se suscribe a los avisos (mensajes, lo que escribe Mario, historial) y pide el historial y los contactos (Meta da 24 horas para eso).

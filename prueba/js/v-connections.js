@@ -238,6 +238,7 @@ function webhookBox() {
 function coexCard() {
   const co = lastStatus()?.coexistencia;
   const conectado = co?.estado === "conectado";
+  const oauthRedirectUri = `${location.origin}${location.pathname}`;
   const box = h("div", { class: "stack-s" });
   const out = h("p", { class: "small", role: "status" });
   const lineas = (r) => (r?.pasos ?? []).map((x) => h("div", { class: `small ${x.ok ? "" : "warn"}` }, `${x.ok ? "✓" : "✗"} ${x.paso}${x.error ? `: ${x.error}` : ""}`));
@@ -276,10 +277,14 @@ function coexCard() {
         h("summary", {}, "Antes de conectar (una sola vez)"),
         h("ol", { class: "small stack-s" },
           h("li", {}, "En el celular de Mario: WhatsApp Business → Ajustes → Chats → Copia de seguridad → Guardar. Que tenga la app actualizada."),
-          h("li", {}, "En developers.facebook.com, en tu app: agrega el producto «Facebook Login for Business». En «Configuraciones» crea una nueva de tipo «WhatsApp Embedded Signup» y copia su ID."),
-          h("li", {}, `Ahí mismo, en «Configuración», agrega ${location.hostname} en «Dominios permitidos para el SDK de JavaScript» y activa «Iniciar sesión con el SDK de JavaScript».`),
+          h("li", {}, "En Meta → tu app → Facebook Login for Business → Configuraciones, usa la configuración de WhatsApp Embedded Signup que ya guardaste en Sofía; no crees otra."),
+          h("li", {}, `En «Configuración», verifica que ${location.hostname} esté en «Dominios permitidos para el SDK de JavaScript» y que «Iniciar sesión con el SDK de JavaScript» esté activo.`),
+          h("li", {}, "En esa misma página, agrega la URI exacta de esta instalación a «URI de redireccionamiento de OAuth válidos» (incluye la ruta /Sofia/; no incluyas #/conexiones):",
+            h("div", { class: "copy-row" }, h("code", { class: "pre" }, oauthRedirectUri), btn("Copiar URI", async () => { await navigator.clipboard?.writeText(oauthRedirectUri); toast("URI de OAuth copiada"); }, "small ghost"))),
           h("li", {}, "No registres el número de Mario en el «Paso 2» de Meta: eso lo sacaría de su app."),
           h("li", {}, "Pega aquí abajo el ID de la app (arriba a la izquierda en Meta) y el de la configuración.")),
+        h("p", { class: "warn small" }, "Sofía ya canjea el código con redirect_uri vacío, como corresponde al inicio mediante el SDK. La lista OAuth válida de Meta también debe incluir la URL mostrada, sobre todo para navegadores que bloquean ventanas emergentes."),
+        appId ? h("a", { href: `https://developers.facebook.com/apps/${encodeURIComponent(appId)}/business-login/settings/`, target: "_blank", rel: "noopener" }, "Abrir configuración OAuth de esta app en Meta") : null,
         serverForm([
           ["META_APP_ID", "ID de la app de Meta", "Solo números"],
           ["META_ES_CONFIG_ID", "ID de la configuración (WhatsApp Embedded Signup)", "Solo números"],

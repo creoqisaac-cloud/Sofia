@@ -110,7 +110,13 @@ async function graph(env, path, { method = "GET", token, body, form } = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
     const e = data.error ?? {};
-    throw new Error(e.error_user_msg || e.message || `Meta respondió ${res.status}`);
+    const mensaje = e.error_user_msg || e.message || `Meta respondió ${res.status}`;
+    const referencia = [
+      e.code != null ? `código ${e.code}` : "",
+      e.error_subcode != null ? `subcódigo ${e.error_subcode}` : "",
+      e.fbtrace_id ? `referencia ${e.fbtrace_id}` : "",
+    ].filter(Boolean).join(" · ");
+    throw new Error(referencia ? `${mensaje} (${referencia})` : mensaje);
   }
   return data;
 }
@@ -808,7 +814,9 @@ async function conectarCoexistencia(envBase, store, base, body, ahora) {
     try { const r = await fn(); pasos.push({ paso: nombre, ok: true }); return r; } catch (e) { pasos.push({ paso: nombre, ok: false, error: e.message }); return null; }
   };
 
-  const { access_token: token } = await graph(env, `oauth/access_token?client_id=${appId}&client_secret=${encodeURIComponent(secreto)}&code=${encodeURIComponent(code)}`);
+  // El SDK de JavaScript inicia Embedded Signup sin redirect_uri explícito; Meta vincula el code a "".
+  // Enviar redirect_uri vacío también al canjearlo evita el error 100 / subcode 36008 (URIs distintas).
+  const { access_token: token } = await graph(env, `oauth/access_token?client_id=${appId}&client_secret=${encodeURIComponent(secreto)}&code=${encodeURIComponent(code)}&redirect_uri=`);
   if (!token) throw new Error("Meta no dio la llave del negocio");
   let wabaId = pide(body.waba_id);
   if (!wabaId) { // si el aviso de la ventana no llegó, la cuenta sale de los permisos de la llave

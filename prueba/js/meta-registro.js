@@ -45,11 +45,15 @@ export function registrarWhatsApp(configId) {
         window.removeEventListener("message", oir);
         const code = r?.authResponse?.code;
         if (code) { resolve({ code, waba_id: sesion.waba_id, phone_number_id: sesion.phone_number_id, evento: sesion.evento }); return; }
-        reject(new Error(sesion.evento === "CANCEL"
+        let mensaje = sesion.evento === "CANCEL"
           ? `Se cerró la ventana de Meta${sesion.current_step ? ` (en «${sesion.current_step}»)` : ""}.`
-          : sesion.error_message ? `Meta dice: ${sesion.error_message}` : "No se terminó la conexión con Meta."));
+          : sesion.error_message ? `Meta dice: ${sesion.error_message}` : r?.error?.message ? `Meta dice: ${r.error.message}` : "No se terminó la conexión con Meta.";
+        const ref = [sesion.error_code ? `código ${sesion.error_code}` : "", sesion.session_id ? `sesión ${sesion.session_id}` : ""].filter(Boolean).join(" · ");
+        if (ref) mensaje += ` (${ref})`;
+        reject(new Error(mensaje));
       }, 800);
     }, {
+      // Embedded Signup usa la URI administrada por el SDK; no enviar redirect_uri aquí.
       config_id: configId,
       response_type: "code",
       override_default_response_type: true,

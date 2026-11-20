@@ -5685,7 +5685,13 @@ async function graph(env, path, { method = "GET", token, body, form } = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) {
     const e = data.error ?? {};
-    throw new Error(e.error_user_msg || e.message || `Meta respondi\xF3 ${res.status}`);
+    const mensaje = e.error_user_msg || e.message || `Meta respondi\xF3 ${res.status}`;
+    const referencia = [
+      e.code != null ? `c\xF3digo ${e.code}` : "",
+      e.error_subcode != null ? `subc\xF3digo ${e.error_subcode}` : "",
+      e.fbtrace_id ? `referencia ${e.fbtrace_id}` : ""
+    ].filter(Boolean).join(" \xB7 ");
+    throw new Error(referencia ? `${mensaje} (${referencia})` : mensaje);
   }
   return data;
 }
@@ -6300,7 +6306,7 @@ async function conectarCoexistencia(envBase, store, base, body, ahora) {
       return null;
     }
   };
-  const { access_token: token } = await graph(env, `oauth/access_token?client_id=${appId}&client_secret=${encodeURIComponent(secreto)}&code=${encodeURIComponent(code)}`);
+  const { access_token: token } = await graph(env, `oauth/access_token?client_id=${appId}&client_secret=${encodeURIComponent(secreto)}&code=${encodeURIComponent(code)}&redirect_uri=`);
   if (!token) throw new Error("Meta no dio la llave del negocio");
   let wabaId = pide(body.waba_id);
   if (!wabaId) {
