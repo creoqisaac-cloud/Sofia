@@ -814,19 +814,20 @@ async function conectarCoexistencia(envBase, store, base, body, ahora) {
     try { const r = await fn(); pasos.push({ paso: nombre, ok: true }); return r; } catch (e) { pasos.push({ paso: nombre, ok: false, error: e.message }); return null; }
   };
 
-  // El SDK de JavaScript inicia Embedded Signup sin redirect_uri explícito; Meta vincula el code a "".
-  // Enviar redirect_uri vacío también al canjearlo evita el error 100 / subcode 36008 (URIs distintas).
-  const { access_token: token } = await graph(env, `oauth/access_token?client_id=${appId}&client_secret=${encodeURIComponent(secreto)}&code=${encodeURIComponent(code)}&redirect_uri=`);
+  const params = new URLSearchParams({ client_id: appId, client_secret: secreto, code });
+  const { access_token: token } = await graph(env, `oauth/access_token?${params}`);
   if (!token) throw new Error("Meta no dio la llave del negocio");
   let wabaId = pide(body.waba_id);
   if (!wabaId) { // si el aviso de la ventana no llegó, la cuenta sale de los permisos de la llave
     const d = await graph(env, `debug_token?input_token=${encodeURIComponent(token)}`, { token: llaveApp });
-    wabaId = pide((d.data?.granular_scopes ?? []).find((x) => x.scope === "whatsapp_business_management")?.target_ids?.[0]);
+    const ids = new Set((d.data?.granular_scopes ?? []).filter((x) => x.scope === "whatsapp_business_management").flatMap((x) => x.target_ids ?? []));
+    if (ids.size === 1) wabaId = pide([...ids][0]);
   }
   if (!wabaId) throw new Error("Meta no dijo qué cuenta de WhatsApp se conectó");
   const numeros = (await graph(env, `${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,is_on_biz_app,platform_type`, { token })).data ?? [];
-  const tel = numeros.find((x) => x.id === pide(body.phone_number_id)) ?? numeros.find((x) => x.is_on_biz_app) ?? numeros[0];
-  if (!tel) throw new Error("La cuenta de WhatsApp conectada no tiene número");
+  const candidatos = numeros.filter((x) => x.is_on_biz_app === true && x.platform_type === "CLOUD_API" && (!body.phone_number_id || x.id === pide(body.phone_number_id)));
+  if (candidatos.length !== 1) throw new Error("Meta debe identificar un único número que siga conectado a WhatsApp Business. Vuelve a seleccionar el número de Mario en el registro insertado.");
+  const [tel] = candidatos;
 
   await guardarConexion(envBase, store, { WA_TOKEN: token, WA_PHONE_NUMBER_ID: tel.id, WA_WABA_ID: wabaId });
   const listo = await conConexion(envBase, store);

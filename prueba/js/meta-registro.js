@@ -29,35 +29,48 @@ export function registrarWhatsApp(configId) {
   return new Promise((resolve, reject) => {
     if (!window.FB) { reject(new Error("Facebook aún no carga; espera un segundo y vuelve a tocar.")); return; }
     let sesion = {};
+    let respuesta;
+    let espera;
+    const terminar = () => {
+      clearTimeout(espera);
+      window.removeEventListener("message", oir);
+      const code = respuesta?.authResponse?.code;
+      if (code && sesion.evento === "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING" && sesion.waba_id) {
+        resolve({ code, waba_id: sesion.waba_id, phone_number_id: sesion.phone_number_id, evento: sesion.evento });
+        return;
+      }
+      let mensaje = "Vuelve a abrir la ventana de Meta y pulsa «Finalizar» en el último paso.";
+      if (sesion.evento === "CANCEL") mensaje = "Se canceló la conexión en Meta.";
+      else if (sesion.error_message || respuesta?.error?.message) mensaje = String(sesion.error_message || respuesta.error.message);
+      else if (code) mensaje = "Meta no confirmó el WhatsApp Business del celular. En «Antes de conectar», revisa la plantilla de registro insertado y elige conectar tu cuenta existente.";
+      const referencia = [sesion.error_code, sesion.session_id].filter(Boolean).join(" · ");
+      reject(new Error(referencia ? mensaje + " (" + referencia + ")" : mensaje));
+    };
     const oir = (ev) => {
-      let host = "";
-      try { host = new URL(ev.origin).hostname; } catch { return; }
-      if (host !== "facebook.com" && !host.endsWith(".facebook.com")) return;
+      if (!/^https:\/\/(?:[\w-]+\.)*facebook\.com$/.test(ev.origin)) return;
       try {
         const d = typeof ev.data === "string" ? JSON.parse(ev.data) : ev.data;
-        if (d?.type === "WA_EMBEDDED_SIGNUP") sesion = { evento: d.event, ...(d.data ?? {}) };
+        if (d?.type !== "WA_EMBEDDED_SIGNUP" || !/^(FINISH.*|CANCEL|ERROR)$/.test(d.event)) return;
+        sesion = { ...(d.data ?? {}), evento: d.event };
+        if (respuesta || d.event === "CANCEL" || d.event === "ERROR") terminar();
       } catch { /* otros avisos de Facebook que no son JSON */ }
     };
     window.addEventListener("message", oir);
-    window.FB.login((r) => {
-      // El aviso de la ventana (con la cuenta conectada) a veces llega justo después: se espera un momento.
-      setTimeout(() => {
-        window.removeEventListener("message", oir);
-        const code = r?.authResponse?.code;
-        if (code) { resolve({ code, waba_id: sesion.waba_id, phone_number_id: sesion.phone_number_id, evento: sesion.evento }); return; }
-        let mensaje = sesion.evento === "CANCEL"
-          ? `Se cerró la ventana de Meta${sesion.current_step ? ` (en «${sesion.current_step}»)` : ""}.`
-          : sesion.error_message ? `Meta dice: ${sesion.error_message}` : r?.error?.message ? `Meta dice: ${r.error.message}` : "No se terminó la conexión con Meta.";
-        const ref = [sesion.error_code ? `código ${sesion.error_code}` : "", sesion.session_id ? `sesión ${sesion.session_id}` : ""].filter(Boolean).join(" · ");
-        if (ref) mensaje += ` (${ref})`;
-        reject(new Error(mensaje));
-      }, 800);
-    }, {
-      // Embedded Signup usa la URI administrada por el SDK; no enviar redirect_uri aquí.
-      config_id: configId,
-      response_type: "code",
-      override_default_response_type: true,
-      extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" },
-    });
+    const recibirCodigo = (r) => {
+      respuesta = r;
+      if (sesion.evento || !r?.authResponse?.code) terminar();
+      else espera = setTimeout(terminar, 10000);
+    };
+    try {
+      window.FB.login(recibirCodigo, {
+        config_id: configId,
+        response_type: "code",
+        override_default_response_type: true,
+        extras: { setup: {}, featureType: "whatsapp_business_app_onboarding", sessionInfoVersion: "3" },
+      });
+    } catch (error) {
+      window.removeEventListener("message", oir);
+      reject(error);
+    }
   });
 }

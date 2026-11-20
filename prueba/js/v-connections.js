@@ -265,9 +265,15 @@ function coexCard() {
         const datos = await registrarWhatsApp(configId); // en el mismo clic: si no, el navegador bloquea la ventana
         out.textContent = "Terminando la conexión en tu servidor…";
         const r = await connectCoexistence(datos);
-        await refreshStatus().catch(() => {});
-        out.replaceChildren(h("strong", {}, `Listo: ${r.numero}${r.nombre ? ` (${r.nombre})` : ""} conectado.`), ...lineas(r));
-        toast("WhatsApp Business de Mario conectado. Sofía ya contesta desde su número.", 7000);
+        const estado = await refreshStatus().catch(() => null);
+        let mensaje;
+        if (!r.coexistencia) mensaje = "Meta no confirmó que este número siga conectado a la app de Mario.";
+        else if (r.pasos?.slice(0, 2).some((paso) => !paso.ok)) mensaje = "Falta completar la recepción de mensajes. Revisa los avisos de Meta abajo.";
+        else if (!estado?.whatsapp?.ok) mensaje = "Comprueba la conexión con Meta antes de probar los mensajes.";
+        else if (!estado.agente?.activo) mensaje = "Activa «Contestar automáticamente» en WhatsApp → Automático.";
+        else mensaje = "Envía un mensaje desde otro celular para comprobar la respuesta de Sofía.";
+        out.replaceChildren(h("strong", {}, `${r.numero || "WhatsApp"} · ${mensaje}`), ...lineas(r));
+        toast(mensaje, 7000);
       } catch (err) { out.className = "small warn"; out.textContent = err.message; }
       b.disabled = false;
     }, conectado ? "ghost" : "primary");
@@ -277,20 +283,19 @@ function coexCard() {
         h("summary", {}, "Antes de conectar (una sola vez)"),
         h("ol", { class: "small stack-s" },
           h("li", {}, "En el celular de Mario: WhatsApp Business → Ajustes → Chats → Copia de seguridad → Guardar. Que tenga la app actualizada."),
-          h("li", {}, "En Meta → tu app → Facebook Login for Business → Configuraciones, usa la configuración de WhatsApp Embedded Signup que ya guardaste en Sofía; no crees otra."),
+          h("li", {}, "En Meta → Facebook Login for Business → Configuraciones, comprueba que la variación diga «Registro insertado de WhatsApp». Si dice «General», elige «Crear desde una plantilla» y selecciona la de registro insertado de WhatsApp con token de 60 días."),
           h("li", {}, `En «Configuración», verifica que ${location.hostname} esté en «Dominios permitidos para el SDK de JavaScript» y que «Iniciar sesión con el SDK de JavaScript» esté activo.`),
           h("li", {}, "En esa misma página, agrega la URI exacta de esta instalación a «URI de redireccionamiento de OAuth válidos» (incluye la ruta /Sofia/; no incluyas #/conexiones):",
             h("div", { class: "copy-row" }, h("code", { class: "pre" }, oauthRedirectUri), btn("Copiar URI", async () => { await navigator.clipboard?.writeText(oauthRedirectUri); toast("URI de OAuth copiada"); }, "small ghost"))),
           h("li", {}, "No registres el número de Mario en el «Paso 2» de Meta: eso lo sacaría de su app."),
           h("li", {}, "Pega aquí abajo el ID de la app (arriba a la izquierda en Meta) y el de la configuración.")),
-        h("p", { class: "warn small" }, "Sofía ya canjea el código con redirect_uri vacío, como corresponde al inicio mediante el SDK. La lista OAuth válida de Meta también debe incluir la URL mostrada, sobre todo para navegadores que bloquean ventanas emergentes."),
         appId ? h("a", { href: `https://developers.facebook.com/apps/${encodeURIComponent(appId)}/business-login/settings/`, target: "_blank", rel: "noopener" }, "Abrir configuración OAuth de esta app en Meta") : null,
         serverForm([
           ["META_APP_ID", "ID de la app de Meta", "Solo números"],
           ["META_ES_CONFIG_ID", "ID de la configuración (WhatsApp Embedded Signup)", "Solo números"],
           ["META_APP_SECRET", "Clave secreta de la app", "32 letras y números, de «Configuración de la app → Básica»", true],
         ], { boton: "Guardar", alGuardar: () => toast("Guardado. Ya puedes conectar el WhatsApp Business de Mario.", 5000) })),
-      h("p", { class: "muted small" }, "Hazlo desde el navegador (no desde la app instalada) y con el celular de Mario a la mano: Meta le pide confirmar en su WhatsApp Business y compartir sus chats."),
+      h("p", { class: "muted small" }, "Abre Sofía en el navegador. Mario confirma en su WhatsApp Business y decide si comparte el historial."),
       h("div", { class: "row wrap gap-s" }, conectar),
       out);
   }).catch((e) => box.replaceChildren(h("p", { class: "warn small" }, e.message)));

@@ -51,7 +51,7 @@ beforeAll(async () => {
       // Registro integrado de Meta (coexistencia): código → llave del negocio, cuenta, número y sincronización.
       if (path.startsWith("/v/oauth/access_token")) {
         const q = new URL(path, G).searchParams;
-        if (req.headers.authorization) return send({ error: { message: "no debe llevar llave" } }, 400);
+        if (req.headers.authorization || q.has("redirect_uri")) return send({ error: { message: "Embedded Signup solo admite el canje con client_id, client_secret y code en esta prueba" } }, 400);
         return q.get("client_id") === "12345" && q.get("client_secret") === "secreto-app" && q.get("code") === "codigo-meta-1234"
           ? send({ access_token: NEGOCIO, token_type: "bearer" }) : send({ error: { message: "Invalid verification code format." } }, 400);
       }
@@ -1022,6 +1022,10 @@ describe("conector · coexistencia (el WhatsApp Business que el asesor ya usa en
     calls.length = 0;
     await handle(post("/api/meta/coexistencia", { token: "clave", code: "codigo-meta-1234", waba_id: "999", phone_number_id: "777" }), env(), store);
     expect(calls.some((c) => c.path.startsWith("/v/debug_token"))).toBe(false);
+    calls.length = 0;
+    const otroNumero = await (await handle(post("/api/meta/coexistencia", { token: "clave", code: "codigo-meta-1234", waba_id: "999", phone_number_id: "888" }), env(), store)).json();
+    expect(otroNumero.error).toContain("número");
+    expect(calls.some((c) => c.path.endsWith("/subscribed_apps"))).toBe(false);
     const mal = await (await handle(post("/api/meta/coexistencia", { token: "clave", code: "codigo-viejo-5678" }), env(), store)).json();
     expect(mal.error).toContain("Invalid verification code");
   });

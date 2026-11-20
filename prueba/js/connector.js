@@ -37,7 +37,7 @@ export async function refreshStatus() {
   const st = await call("/api/estado");
   state.settings.server.status = {
     at: new Date().toISOString(), whatsapp: st.whatsapp, facebook: st.facebook, instagram: st.instagram, webhook: st.webhook, version: st.version,
-    agente: st.agente, prospectos: st.prospectos, programadas: st.programadas, publicUrl: st.publicUrl,
+    agente: st.agente, coexistencia: st.coexistencia, prospectos: st.prospectos, programadas: st.programadas, publicUrl: st.publicUrl,
   };
   persist(); // es estado de la conexión, no un cambio de datos: no tapa respaldos más nuevos
   return st;
