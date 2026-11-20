@@ -1,0 +1,3 @@
+{$SOFIA_DOMINIO} {
+    reverse_proxy sofia:8080
+}

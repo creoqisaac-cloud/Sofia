@@ -14,7 +14,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { handle, runScheduled, VERSION } from "./core.mjs";
+import { handle, runScheduled, eventoVinculado, VERSION } from "./core.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.resolve(here, "..");
@@ -36,6 +36,7 @@ fs.mkdirSync(path.join(DATA_DIR, "versiones"), { recursive: true });
 
 let claveGenerada = false; // solo así se imprime la clave: en un hosting quedaría en los registros
 if (!process.env.SOFIA_TOKEN) {
+  if (process.env.SOFIA_WHATSAPP_WEB === "1") throw new Error("Define SOFIA_TOKEN para proteger la vinculación por QR.");
   claveGenerada = true;
   const f = path.join(DATA_DIR, "clave.txt");
   if (!fs.existsSync(f)) fs.writeFileSync(f, crypto.randomBytes(12).toString("base64url"), { mode: 0o600 });
@@ -93,12 +94,29 @@ function readBody(req) {
   });
 }
 
+const entorno = { ...process.env };
+if (entorno.SOFIA_WHATSAPP_WEB === "1") {
+  const { iniciar } = await import("../../whatsapp-web/cliente.mjs");
+  entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store));
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+    if (url.pathname === "/vincular" && entorno.WA_WEB) {
+      const permiso = Buffer.from("Basic " + Buffer.from("sofia:" + entorno.SOFIA_TOKEN).toString("base64"));
+      const enviado = Buffer.from(req.headers.authorization || "");
+      res.setHeader("Cache-Control", "no-store");
+      if (enviado.length !== permiso.length || !crypto.timingSafeEqual(enviado, permiso)) {
+        res.writeHead(401, { "www-authenticate": 'Basic realm="Sofia"' }); res.end(); return;
+      }
+      const pagina = await entorno.WA_WEB.pagina();
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "referrer-policy": "no-referrer", "content-security-policy": "default-src 'none'; img-src data:; frame-ancestors 'none'" });
+      res.end(pagina); return;
+    }
     const body = ["GET", "HEAD"].includes(req.method) ? undefined : await readBody(req);
     const request = new Request(url, { method: req.method, headers: req.headers, body });
-    const response = await handle(request, process.env, store);
+    const response = await handle(request, entorno, store);
     if (!response) return serveStatic(req, res, url);
     res.writeHead(response.status, Object.fromEntries(response.headers));
     res.end(Buffer.from(await response.arrayBuffer()));
@@ -115,7 +133,7 @@ setInterval(async () => {
   if (programando) return; // la corrida anterior sigue publicando
   programando = true;
   try {
-    const r = await runScheduled(process.env, store);
+    const r = await runScheduled(entorno, store);
     if (r.publicadas || r.fallidas) console.log(`Programador: ${r.publicadas} publicada(s), ${r.fallidas} con error.`);
   } catch (e) {
     console.error("Programador:", e.message);
@@ -124,7 +142,7 @@ setInterval(async () => {
   }
 }, 60_000);
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, process.env.SOFIA_BIND || "0.0.0.0", () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === "IPv4" && !i.internal).map((i) => i.address);
   const e = process.env;
   console.log(`\nSofía (${VERSION}) corriendo.\n  En esta computadora: http://localhost:${PORT}`);

@@ -5993,7 +5993,7 @@ async function avisarSiToca(env, store, cfg, e, r, ahora) {
 }
 async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
   const numero = String(env.ASESOR_WHATSAPP ?? "").replace(/\D/g, "");
-  if (!numero || !waReady(env)) return;
+  if (!numero || !(env.WA_WEB?.estado?.().ok || waReady(env))) return;
   const nombre = cita?.nombre || lead.nombreCliente || e.nombre || "Cliente";
   const interes = cita?.interes || lead.interes;
   const resumen = cita?.resumen || lead.resumen;
@@ -6166,6 +6166,9 @@ async function handleWebhook(req, env, store, ahora) {
   }
   const ultimo = await store.get("webhook:last");
   if (!ultimo || ultimo.object !== body.object || !(ahora - new Date(ultimo.at) < AVISO_MS)) await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
+  return procesarEventos(body, env, store, ahora, baseDe(req));
+}
+async function procesarEventos(body, env, store, ahora, base) {
   const cfg = await leerConfig(store);
   const contestados = /* @__PURE__ */ new Set();
   const recibido = async (canal, peer, nombre, msg, { contestable, propio = false }) => {
@@ -6176,7 +6179,7 @@ async function handleWebhook(req, env, store, ahora) {
     if (!contestable || contestados.has(clave)) return;
     try {
       const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev };
-      if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, baseDe(req)) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
+      if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, base) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
     } catch (e) {
       console.error("Agente de Sof\xEDa:", e);
     }
@@ -6349,6 +6352,12 @@ async function sendMessage(env, store, b, { ahora = /* @__PURE__ */ new Date(), 
     const r2 = await enviar({ text: b.text });
     await addMessage(store, "fb", b.to, "", { id: r2.message_id, dir: "out", type: "text", text: b.text, at: at2, status: "sent", ...auto }, autoKey, indice);
     return { id: r2.message_id };
+  }
+  if (env.WA_WEB?.enviar) {
+    if (b.template) throw new Error("Las plantillas de Meta requieren la API oficial.");
+    const id2 = await env.WA_WEB.enviar(b);
+    await addMessage(store, "wa", String(b.to), "", { id: id2, dir: "out", type: "text", text: b.text || "", at: at2, status: "sent", ...auto }, autoKey, indice);
+    return { id: id2 };
   }
   if (!waReady(env)) throw new Error("WhatsApp no est\xE1 configurado en el servidor");
   const to2 = String(b.to ?? "").replace(/\D/g, "");
@@ -6552,7 +6561,8 @@ async function status(env, store, ahora) {
     const h2 = await store.get("coex:historial");
     out.coexistencia = { ...coex, historial: h2 ? { mensajes: h2.mensajes, chats: h2.hilos.length, delAsesor: h2.delAsesor, progreso: h2.progreso, error: h2.error ?? null } : null, aprendidos: cfg.estilo?.deChats?.length ?? 0 };
   }
-  if (waReady(env)) {
+  if (env.WA_WEB?.estado) Object.assign(out.whatsapp, env.WA_WEB.estado());
+  else if (waReady(env)) {
     try {
       const p = await graph(env, `${env.WA_PHONE_NUMBER_ID}?fields=display_phone_number,verified_name,quality_rating`, { token: env.WA_TOKEN });
       Object.assign(out.whatsapp, { ok: true, phone: p.display_phone_number, name: p.verified_name, quality: p.quality_rating });

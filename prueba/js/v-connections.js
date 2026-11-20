@@ -19,8 +19,12 @@ export function renderConnections(root) {
       h("p", { class: "muted" }, "Sofía funciona sin nada de esto. Todo lo de abajo es GRATIS excepto la IA, que es un extra opcional."),
       googleCard(),
       serverCard(),
-      coexCard(),
-      waCard(),
+      lastStatus()?.whatsapp?.modo === "web"
+        ? section("WhatsApp por dispositivo vinculado",
+            h("p", {}, lastStatus().whatsapp.ok ? `Vinculado · ${lastStatus().whatsapp.phone}` : "Pendiente de vincular"),
+            h("a", { href: serverBase() + "/vincular", target: "_blank", rel: "noopener" }, "Abrir vinculación por QR"))
+        : coexCard(),
+      lastStatus()?.whatsapp?.modo === "web" ? null : waCard(),
       fbCard(),
       aiCard(),
       h("p", { class: "muted small" }, "Guía paso a paso (cuentas de Meta, tokens y servidor gratis): ", h("a", { href: GUIDE, target: "_blank", rel: "noopener" }, "CONEXIONES.md"))));

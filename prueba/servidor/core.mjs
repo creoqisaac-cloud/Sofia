@@ -472,7 +472,7 @@ async function avisarSiToca(env, store, cfg, e, r, ahora) {
 /** WhatsApp al asesor con el contexto del cliente (ASESOR_WHATSAPP en Conexiones). Si Meta no lo deja, queda en errores. */
 async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
   const numero = String(env.ASESOR_WHATSAPP ?? "").replace(/\D/g, "");
-  if (!numero || !waReady(env)) return;
+  if (!numero || !(env.WA_WEB?.estado?.().ok || waReady(env))) return;
   const nombre = cita?.nombre || lead.nombreCliente || e.nombre || "Cliente";
   const interes = cita?.interes || lead.interes;
   const resumen = cita?.resumen || lead.resumen;
@@ -669,6 +669,15 @@ async function handleWebhook(req, env, store, ahora) {
   const ultimo = await store.get("webhook:last");
   if (!ultimo || ultimo.object !== body.object || !(ahora - new Date(ultimo.at) < AVISO_MS)) await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
 
+  return procesarEventos(body, env, store, ahora, baseDe(req));
+}
+
+export async function eventoVinculado(body, env, store) {
+  const config = await conConexion(env, store);
+  return procesarEventos(body, config, store, new Date(), config.PUBLIC_URL || "");
+}
+
+async function procesarEventos(body, env, store, ahora, base) {
   const cfg = await leerConfig(store);
   const contestados = new Set(); // como mucho una respuesta automática por contacto en cada aviso de Meta
   // Cada mensaje entrante NUEVO: se guarda, se vuelve prospecto si es el primer contacto y, si toca, se contesta.
@@ -681,7 +690,7 @@ async function handleWebhook(req, env, store, ahora) {
     if (!contestable || contestados.has(clave)) return;
     try {
       const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev };
-      if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, baseDe(req)) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
+      if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, base) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
     } catch (e) {
       console.error("Agente de Sofía:", e); // nunca romper el webhook: Meta reintentaría y se duplicaría el trabajo
     }
@@ -865,6 +874,12 @@ async function sendMessage(env, store, b, { ahora = new Date(), autoKey, indice 
     const r = await enviar({ text: b.text });
     await addMessage(store, "fb", b.to, "", { id: r.message_id, dir: "out", type: "text", text: b.text, at, status: "sent", ...auto }, autoKey, indice);
     return { id: r.message_id };
+  }
+  if (env.WA_WEB?.enviar) {
+    if (b.template) throw new Error("Las plantillas de Meta requieren la API oficial.");
+    const id = await env.WA_WEB.enviar(b);
+    await addMessage(store, "wa", String(b.to), "", { id, dir: "out", type: "text", text: b.text || "", at, status: "sent", ...auto }, autoKey, indice);
+    return { id };
   }
   if (!waReady(env)) throw new Error("WhatsApp no está configurado en el servidor");
   const to = String(b.to ?? "").replace(/\D/g, "");
@@ -1099,7 +1114,8 @@ async function status(env, store, ahora) {
     const h = await store.get("coex:historial");
     out.coexistencia = { ...coex, historial: h ? { mensajes: h.mensajes, chats: h.hilos.length, delAsesor: h.delAsesor, progreso: h.progreso, error: h.error ?? null } : null, aprendidos: cfg.estilo?.deChats?.length ?? 0 };
   }
-  if (waReady(env)) {
+  if (env.WA_WEB?.estado) Object.assign(out.whatsapp, env.WA_WEB.estado());
+  else if (waReady(env)) {
     try {
       const p = await graph(env, `${env.WA_PHONE_NUMBER_ID}?fields=display_phone_number,verified_name,quality_rating`, { token: env.WA_TOKEN });
       Object.assign(out.whatsapp, { ok: true, phone: p.display_phone_number, name: p.verified_name, quality: p.quality_rating });

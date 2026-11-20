@@ -1,0 +1,8 @@
+**
+!whatsapp-web/
+!whatsapp-web/package*.json
+!whatsapp-web/cliente.mjs
+!prueba/
+!prueba/**
+prueba/servidor/.env
+prueba/servidor/datos/

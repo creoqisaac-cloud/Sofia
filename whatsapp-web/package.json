@@ -1,0 +1,9 @@
+{
+  "name": "sofia-dispositivo-vinculado",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "qrcode": "1.5.4",
+    "whatsapp-web.js": "1.34.8"
+  }
+}

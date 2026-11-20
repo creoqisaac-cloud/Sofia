@@ -1,0 +1,31 @@
+services:
+  sofia:
+    build:
+      context: ..
+      dockerfile: whatsapp-web/Dockerfile
+    restart: unless-stopped
+    shm_size: 256mb
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - datos:/data
+    environment:
+      SOFIA_TOKEN: ${SOFIA_TOKEN:?Define la clave privada de Sofía}
+      SOFIA_PRUEBA_NUMERO: ${SOFIA_PRUEBA_NUMERO:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+  https:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SOFIA_DOMINIO: ${SOFIA_DOMINIO:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certificados:/data
+volumes:
+  datos:
+  certificados:
