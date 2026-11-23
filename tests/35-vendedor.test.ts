@@ -380,3 +380,42 @@ describe("vendedora · habla como Mario y respeta la postventa", () => {
     expect(r.respuestas[0]!.texto).not.toMatch(/asesor|le aviso|te paso/i);
   });
 });
+
+describe("vendedora · vende como persona con el inventario", () => {
+  const inv = [
+    { id: "city", marca: "Honda", modelo: "City", anio: 2026, precio: 401900, tipo: "nuevo", palabras: ["city"], foto: "https://x/media/city" },
+    { id: "brv", marca: "Honda", modelo: "BR-V", anio: 2026, precio: 479900, tipo: "nuevo", palabras: ["brv", "7 pasajeros", "camioneta"], foto: "https://x/media/brv" },
+    { id: "crv", marca: "Honda", modelo: "CR-V", anio: 2027, precio: 830900, tipo: "nuevo", palabras: ["crv", "camioneta"], foto: "https://x/media/crv" },
+  ];
+  const ahora0 = new Date("2026-11-23T18:00:00Z");
+  const libres = ["2026-11-24T15:00:00.000Z", "2026-11-24T19:00:00.000Z", "2026-11-24T22:00:00.000Z"].map((id) => ({ id, texto: textoCita(id, "America/Monterrey", ahora0) }));
+  const charla = (msgs: string[]) => {
+    let conv = {};
+    return msgs.map((texto, i) => {
+      const r = decidir({ cfg: { asesor: "Mario Abarca" }, inventario: inv, conv, msg: { texto, nombre: "Laura", primero: i === 0 }, ahora: new Date(ahora0.getTime() + i * 60000), libres }) as Resultado;
+      conv = r.conv;
+      return r;
+    });
+  };
+  it("manda la foto del auto que está viendo cuando se la piden", () => {
+    const [, r] = charla(["precio de la crv", "me mandas fotos?"]);
+    expect(r!.motivo).toBe("fotos");
+    expect(r!.respuestas[0]!.foto).toBe("https://x/media/crv");
+  });
+  it("después de la corrida contesta otro plazo sin volver a preguntar", () => {
+    const rs = charla(["la crv", "a credito con 200 mil", "y a 36?"]);
+    expect(rs[2]!.motivo).toBe("plazo");
+    expect(rs[2]!.respuestas[0]!.texto).toMatch(/^A 36 meses te queda en \*\$[\d,]+\* al mes, con \$200,000 de enganche/);
+  });
+  it("«puedo ir mañana» ofrece horas reales de mañana y «a la 1» la aparta", () => {
+    const rs = charla(["la city", "puedo ir mañana a verla", "a la 1"]);
+    expect(rs[1]!.respuestas[0]!.texto).toBe("Mañana martes tengo espacio a las 9 am, a la 1 pm o a las 4 pm. ¿Cuál te acomoda?");
+    expect(rs[2]!.reserva?.id).toBe("2026-11-24T19:00:00.000Z");
+  });
+  it("filtra por personas y por presupuesto", () => {
+    expect(charla(["busco camioneta para 7 personas"])[0]!.respuestas[0]!.texto).toMatch(/Para 7 personas te recomiendo:\n1️⃣ \*Honda BR-V 2026\*/);
+    const r = charla(["hola", "tengo hasta 450 mil"])[1]!;
+    expect(r.respuestas[0]!.texto).toMatch(/Con ese presupuesto te alcanza para:\n1️⃣ \*Honda City 2026\*/);
+    expect(r.respuestas[0]!.texto).not.toMatch(/BR-V/);
+  });
+});

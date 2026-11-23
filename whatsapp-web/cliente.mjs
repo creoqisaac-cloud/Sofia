@@ -75,6 +75,14 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
   client.on("auth_failure", desconectar);
   client.on("disconnected", desconectar);
 
+  /** Nombre con el que el cliente se presenta en WhatsApp (o como Mario lo guardó); vacío si no hay. */
+  async function nombreDe(m) {
+    const aviso = String(m._data?.notifyName ?? "").trim();
+    if (aviso) return aviso.slice(0, 60);
+    const c = await m.getContact?.().catch(() => null);
+    return String(c?.name || c?.pushname || "").trim().slice(0, 60);
+  }
+
   async function procesar(m) {
     if (!conectado || m.type !== "chat" || !m.body || m.isStatus || !m.id?._serialized) return;
     const chat = m.fromMe ? m.to : m.from;
@@ -106,7 +114,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     const mensaje = { id: m.id._serialized, type: "text", timestamp: m.timestamp, text: { body: m.body }, ...(soloMiWhatsApp && esChatPropio ? { pruebaLocal: true } : {}) };
     const cambio = m.fromMe && !esChatPropio
       ? { field: "smb_message_echoes", value: { message_echoes: [{ ...mensaje, to: peer }] } }
-      : { field: "messages", value: { messages: [{ ...mensaje, from: peer }] } };
+      : { field: "messages", value: { contacts: [{ wa_id: peer, profile: { name: await nombreDe(m) } }], messages: [{ ...mensaje, from: peer }] } };
     await recibir({ object: "whatsapp_business_account", entry: [{ changes: [cambio] }] });
   }
   async function procesarComandoOperativo(m, propio) {

@@ -142,7 +142,16 @@ const marcasRecientes = (marcas, hasta) => Object.fromEntries(Object.entries(mar
 async function addMessage(store, channel, peer, name, msg, autoKey, extra) {
   const key = `${channel}:${peer}`;
   const list = (await store.get(`inbox:c:${key}`)) ?? [];
-  if (msg.id && list.some((m) => m.id === msg.id)) return null;
+  if (msg.id && list.some((m) => m.id === msg.id)) {
+    // Mensaje repetido (p. ej. al traer chats): solo se aprovecha para completar el nombre que faltaba.
+    if (name) {
+      const index = (await store.get("inbox:index")) ?? {};
+      if (index[key] && !index[key].name) { index[key].name = name; await store.put("inbox:index", index); }
+      const leads = (await store.get("leads:index")) ?? {};
+      if (leads[key] && !leads[key].nombre) { leads[key].nombre = name; await store.put("leads:index", leads); }
+    }
+    return null;
+  }
   list.push(msg);
   if (list.length > MAX_MSGS) list.splice(0, list.length - MAX_MSGS);
   await store.put(`inbox:c:${key}`, list);

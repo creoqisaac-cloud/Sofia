@@ -249,6 +249,38 @@ function numeroElegido(texto) {
 const montoExplicito = (texto) => /(\d\s*(%|por\s*ciento|mil\b|k\b|millon|mdp))|\$\s*\d|\d{1,3}([,.]\d{3})+|\d{4,}/.test(sinAcentos(texto));
 const pareceFecha = (t) => /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoy|manana|pasado|fin de semana|finde|semana|tarde|noche|mediodia|\d{1,2}\s*(:\d{2})?\s*(am|pm|hrs?|h)\b|\d{1,2}[/-]\d{1,2}|\d{1,2} de \w+)/.test(sinAcentos(t));
 
+/** «a las 11», «a la 1», «11:30 am», «5pm» → minutos del día (horario de agencia: 1 a 7 sin am/pm es de la tarde); si no, null. */
+function horaDicha(s) {
+  const m = /\b(?:a|de|como a|tipo|para)?\s*las?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/.exec(s) || /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|hrs?)\b/.exec(s);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2] ?? 0);
+  if (h > 23 || min > 59) return null;
+  if (m[3] === "pm" && h < 12) h += 12;
+  else if (!m[3] && h >= 1 && h <= 7) h += 12;
+  return h * 60 + min;
+}
+/** «mañana martes a las 10 am» → «mañana martes». */
+const diaDe = (x) => x.texto.replace(/\s+a las?\s+.*$/, "");
+/** Minutos del día de un horario libre (viene calculado; si no, se lee del texto). */
+const minDe = (x) => x.min ?? horaDicha(sinAcentos(x.texto.slice(diaDe(x).length))) ?? 0;
+/** Tres horas repartidas en el día: temprano, a medio día y en la tarde. */
+const repartir = (xs) => (xs.length <= 3 ? xs : [xs[0], xs[Math.floor(xs.length / 2)], xs.at(-1)]);
+/** Pasajeros del auto según su descripción o palabras («7 pasajeros»); 5 si no lo dice. */
+const capacidad = (a) => Number(/(\d)\s*pasajeros/.exec(sinAcentos(`${a.descripcion ?? ""} ${(a.palabras ?? []).join(" ")}`))?.[1] ?? 5);
+/** «para 7 personas», «somos ocho», «tercera fila» → personas; 0 si no lo dice. */
+function personasDichas(t) {
+  const m = /\b(\d{1,2}|cinco|seis|siete|ocho|nueve)\s*(personas|pasajeros|plazas|asientos|lugares|integrantes)\b/.exec(t) || /\bsomos\s+(\d{1,2}|cinco|seis|siete|ocho|nueve)\b/.exec(t);
+  if (m) return NUMEROS[m[1]] ?? Number(m[1]);
+  return /\b(familia grande|tercera fila|3 filas|tres filas)\b/.test(t) ? 7 : 0;
+}
+/** «a 48 meses», «48 mensualidades»; con `suelto`, también «48» solo. 0 si no. */
+function plazoDicho(t, suelto = false) {
+  const m = /\b(\d{1,2})\s*(meses|mensualidades)\b/.exec(t) || (suelto ? /^\s*(?:a|en|y a|y en)?\s*(\d{2})\s*\??\s*$/.exec(t) : null);
+  const p = m ? Number(m[1]) : 0;
+  return p >= 6 && p <= 84 ? p : 0;
+}
+
 // ───────── Respuestas ─────────
 
 const LLAMADA = "Que te marque por teléfono";
@@ -400,6 +432,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     const ajustado = enganche < minimo;
     const eng = Math.max(enganche, minimo);
     lead.enganche = Math.round(eng);
+    c.enganche = Math.round(eng); // para contestar «¿y a 48 meses?» sin volver a preguntar
     const filas = v.plazos.map((p) => `• ${p} meses: *${pesos(mensualidad(a.precio - eng, v.tasaAnual, p))}*`);
     lead.plazo = Math.max(...v.plazos);
     lead.mensualidad = Math.round(mensualidad(a.precio - eng, v.tasaAnual, lead.plazo));
@@ -471,6 +504,32 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     if (e?.pct) lead.enganchePct = e.pct;
     return pedirCita(e ? `Va, con ${e.texto} te armo la corrida.` : "Va, te la armo con 20, 30, 40 y 50% de enganche para que veas cuál te acomoda.");
   };
+  // «mañana a las 11», «el sábado», «a la 1»: si hay agenda, se aparta o se ofrecen horas reales de ESE día.
+  const citaPara = (txt) => {
+    const s = sinAcentos(txt);
+    const hora = horaDicha(s);
+    const dia = /\bhoy\b/.test(s) ? "hoy"
+      : /\bmanana\b/.test(s) && !/\b(en|por|de) la manana\b/.test(s) ? "manana"
+        : ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"].find((d) => new RegExp(`\\b${d}\\b`).test(s));
+    let candidatos = [];
+    if (dia) {
+      candidatos = libres.filter((x) => { const tx = sinAcentos(x.texto); return dia === "hoy" ? tx.startsWith("hoy") : dia === "manana" ? tx.startsWith("manana") : tx.includes(dia); });
+      const primerDia = candidatos[0] && diaDe(candidatos[0]);
+      candidatos = candidatos.filter((x) => diaDe(x) === primerDia);
+    } else if (hora !== null) {
+      candidatos = (c.opciones ?? []).filter((o) => o.startsWith("slot:")).map((o) => libres.find((l) => l.id === o.slice(5))).filter(Boolean);
+    }
+    if (!libres.length || (!dia && !candidatos.length)) return anotarCita(txt);
+    if (dia && !candidatos.length) return pedirCita(dia === "hoy" ? "Hoy ya no me queda espacio." : "Ese día ya lo tengo lleno.");
+    const exacta = hora !== null ? candidatos.find((x) => minDe(x) === hora) : null;
+    if (exacta) return apartar(exacta.id);
+    const ops = (hora !== null ? [...candidatos].sort((a, b) => Math.abs(minDe(a) - hora) - Math.abs(minDe(b) - hora)) : repartir(candidatos)).slice(0, 3).sort((a, b) => a.id.localeCompare(b.id));
+    calentar("caliente");
+    ir("cita", [...ops.map((x) => `slot:${x.id}`), "otra-hora"]);
+    const diaTxt = diaDe(ops[0]);
+    const horas = ops.map((x) => x.texto.slice(diaTxt.length).trim());
+    return `${hora !== null ? `A esa hora ya lo tengo ocupado, pero ${diaTxt}` : mayus(diaTxt)} tengo espacio ${yO(horas)}. ¿Cuál te acomoda?`;
+  };
   const accion = (a) => {
     if (a.startsWith("slot:")) return apartar(a.slice(5));
     if (a === "otra-hora") { ir("cita"); return "Sale, ¿qué día y a qué hora te acomoda? (por ejemplo «sábado 11 am»)"; }
@@ -519,16 +578,34 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       const r = accion(c.opciones[n - 1]);
       if (typeof r === "string") decir(r); else decir(r.texto, r.foto || undefined);
     }
+    else if (c.paso === "cotizado" && c.enganche > 0 && porId(c.autoId)?.precio > 0 && plazoDicho(t, true)) {
+      motivo = "plazo"; // «¿y a 48 meses?» después de la corrida
+      const a = porId(c.autoId);
+      const p = plazoDicho(t, true);
+      const m = mensualidad(a.precio - c.enganche, v.tasaAnual, p);
+      Object.assign(lead, { formaPago: "credito", plazo: p, mensualidad: Math.round(m), enganche: c.enganche });
+      calentar("caliente");
+      ir("cotizado", ["cita", "lista", "asesor"]);
+      decir(`A ${p} meses te queda en *${pesos(m)}* al mes, con ${pesos(c.enganche)} de enganche. ${variar("plazo", ["¿Cuándo vienes a manejarla y lo dejamos amarrado?", "Si te late, te aparto una cita para cerrar números. ¿Qué día puedes?"])}`);
+    }
     else if ((c.paso === "enganche" || (["auto", "cotizado"].includes(c.paso) && montoExplicito(texto))) && !dice.asesor && porId(c.autoId)?.precio > 0 && leerEnganche(texto, porId(c.autoId).precio) !== null) {
       motivo = "cotizacion";
       decir(cotizar(porId(c.autoId), leerEnganche(texto, porId(c.autoId).precio)));
-    } else if (c.paso === "cita" && !dice.asesor && pareceFecha(texto)) {
-      motivo = "cita-anotada"; // a la segunda se anota lo que haya escrito: el asesor lo confirma
-      decir(anotarCita(texto));
+    } else if (["cita", "cotizado", "auto"].includes(c.paso) && !dice.asesor && (pareceFecha(texto) || (c.paso === "cita" && horaDicha(t) !== null))) {
+      motivo = "cita-anotada"; // aparta la hora si está libre; si no, ofrece las de ese día
+      decir(citaPara(texto));
     }
     // 2. Lo que pide el cliente, de lo más importante a lo menos.
     else if (dice.asesor) { motivo = "asesor"; decir(pasarAsesor()); }
-    else if (dice.cita) { motivo = "cita"; decir(pareceFecha(texto) ? anotarCita(texto) : pedirCita()); }
+    else if (/\b(fotos?|fotitos?|imagen|imagenes)\b/.test(t)) {
+      motivo = "fotos";
+      const a = mencionados.length === 1 ? mencionados[0] : porId(c.autoId);
+      if (a?.foto) { elegirAuto(a); calentar("tibio"); decir(variar("fotos", [`Claro, mira 📸 así está la ${nombreAuto(a)}. ¿Te gustaría verla en persona?`, `Va, aquí te va la ${nombreAuto(a)} 📸 ¿Cuándo te late venir a manejarla?`]), a.foto); }
+      else if (a) decir(pasarAsesor("Déjame tomarle unas fotos y te las mando."));
+      else if (autos.length) decir(lista(mencionados.length > 1 ? mencionados : autos, null, "¡Claro! ¿De cuál te mando fotos?"));
+      else decir(preguntarModelo());
+    }
+    else if (dice.cita) { motivo = "cita"; decir(pareceFecha(texto) ? citaPara(texto) : pedirCita()); }
     else if (dice.credito && autos.length) {
       motivo = "credito";
       const a = mencionados.length === 1 ? mencionados[0] : porId(c.autoId);
@@ -536,6 +613,26 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       else decir(a ? pedirEnganche(a) : lista(mencionados.length > 1 ? mencionados : autos, "credito"));
     }
     else if (dice.contado && autos.length) { motivo = "contado"; decir(contado(mencionados.length === 1 ? mencionados[0] : porId(c.autoId))); }
+    else if (personasDichas(t) >= 6 && autos.length && mencionados.length !== 1) {
+      motivo = "lista"; // «camioneta para 7»: solo las que caben
+      const p = personasDichas(t);
+      const caben = autos.filter((a) => capacidad(a) >= p).sort((a, b) => (a.precio || 9e9) - (b.precio || 9e9));
+      decir(caben.length ? lista(caben, null, `Para ${p} personas te recomiendo:`) : pasarAsesor(`Para ${p} personas déjame checar qué opción te queda mejor.`));
+    }
+    else if (autos.length && (/\b(mas barat\w*|mas economic\w*|menos car\w*|mas accesible|algo barato|economic\w*)\b/.test(t) || (/\b(hasta|maximo|no mas de|presupuesto)\b/.test(t) && montoExplicito(texto)))) {
+      motivo = "lista";
+      const tope = /\b(hasta|maximo|no mas de|presupuesto)\b/.test(t) && montoExplicito(texto) ? leerEnganche(texto, 0) : 0;
+      const ref = tope >= 100000 ? tope + 1 : porId(c.autoId)?.precio || Infinity;
+      const porPrecio = autos.filter((a) => a.precio > 0).sort((a, b) => a.precio - b.precio);
+      const bajo = porPrecio.filter((a) => a.precio < ref);
+      decir(bajo.length
+        ? lista(ref === Infinity ? bajo.slice(0, 3) : bajo, null, tope >= 100000 ? "Con ese presupuesto te alcanza para:" : "Claro, lo más accesible que tengo:")
+        : lista(porPrecio.slice(0, 3), null, "Lo más accesible que tengo es esto:"));
+    }
+    else if (c.paso === "lista" && dice.precio && !mencionados.length && !modelo) {
+      motivo = "lista-precio"; // ya vio la lista con precios: no se la repite
+      decir(variar("lista-precio", ["El precio viene junto a cada uno 👆 ¿Cuál te late? Te mando fotos y te armo la corrida.", "Ahí arriba te puse los precios. ¿Cuál te interesa más?"]));
+    }
     else if (mencionados.length === 1) { motivo = "auto"; const a = mencionados[0]; decir(ficha(a), a.foto || undefined); }
     else if (mencionados.length > 1) { motivo = "lista"; decir(lista(mencionados, null, "Tengo estas opciones:")); }
     else {

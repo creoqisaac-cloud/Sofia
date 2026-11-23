@@ -53,7 +53,10 @@ export function renderHoyMario(root) {
   (async () => {
     try {
       const [st, bandeja, citas, prospectos] = await Promise.all([refreshStatus(), inbox(), getAgenda(), listLeads()]);
-      const pend = Object.entries(bandeja).filter(([k, c]) => k.startsWith("wa:") && c.lastDir === "in" && Date.now() - new Date(c.lastAt) < 30 * 864e5);
+      // Solo clientes (los que llegaron como prospecto): nunca amigos ni familia, ni postventa.
+      const clientes = new Map(prospectos.map((p) => [p.clave, p]));
+      const pend = Object.entries(bandeja).filter(([k, c]) => clientes.has(k) && !clientes.get(k).postventa && c.lastDir === "in" && Date.now() - new Date(c.lastAt) < 30 * 864e5)
+        .map(([k, c]) => [k, { ...c, name: c.name || clientes.get(k).nombreCliente || clientes.get(k).nombre }]);
       const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
       const citasHoy = citas.filter((c) => new Date(c.id) >= hoy && new Date(c.id) < new Date(hoy.getTime() + 2 * 864e5));
       const calientes = prospectos.filter((p) => p.calor === "caliente");
@@ -94,7 +97,7 @@ async function responderPendientes(pend) {
 function filaChat(clave, c) {
   const esperando = c.lastDir === "in";
   return h("button", { class: `m-row${esperando ? " espera" : ""}`, onclick: () => go(`/chat/${encodeURIComponent(clave)}`) },
-    h("div", { class: "m-avatar" }, (nombreDe(c, clave)[0] || "?").toUpperCase()),
+    h("div", { class: "m-avatar" }, c?.name ? c.name.trim()[0].toUpperCase() : "👤"),
     h("div", { class: "m-grow" },
       h("div", { class: "m-between" }, h("b", {}, nombreDe(c, clave)), h("span", { class: "m-dim m-small" }, fmtWhen(c.lastAt))),
       h("span", { class: "m-dim m-one" }, `${c.lastDir === "out" ? "Tú: " : ""}${c.lastText || "(foto o audio)"}`)),

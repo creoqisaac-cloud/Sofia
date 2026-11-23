@@ -299,7 +299,7 @@ async function start() {
   setRenderer(render);
   window.addEventListener("hashchange", render);
   render();
-  onboarding();
+  // La bienvenida de la versión anterior ya no aplica: Sofía es de Mario y se conecta con su link.
   onChange(() => { dirty = true; syncNative(); syncCalendar(); });
   syncNative();
   onNotificationTap((extra) => { if (extra.customerId) go(`/cliente/${extra.customerId}`); });
