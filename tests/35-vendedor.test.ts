@@ -322,3 +322,40 @@ describe("vendedora · agenda", () => {
     expect(textoCita("2026-11-12T15:00:00Z", "America/Monterrey", ahora)).toBe("el jueves 12 a las 9 am");
   });
 });
+
+describe("vendedora · recuperación de chat propio de prueba", () => {
+  const conf = { ...CFG, ventas: { horasConAsesor: 12, ia: false } };
+  const ahora = new Date(T0);
+  const asesor = { paso: "asesor", desde: ahora.toISOString(), fallos: 2 };
+  const ejecutar = (texto: string, pruebaLocal: boolean, conv: Record<string, unknown> = asesor) =>
+    decidir({ cfg: conf, inventario: INVENTARIO, conv, msg: { texto, nombre: "Prueba", pruebaLocal, primero: false, enHorario: true }, ahora });
+
+  it("un /sofia hola autorizado reanuda Sofía aun después del pase a asesor", () => {
+    const r = ejecutar("/sofia hola", true);
+    expect(r.motivo).not.toBe("con-asesor");
+    expect(r.respuestas.length).toBeGreaterThan(0);
+    expect(r.conv.paso).not.toBe("asesor");
+    expect(r.conv.fallos).toBe(0);
+  });
+
+  it("las notas personales sin /sofia no generan respuesta", () => {
+    const r = ejecutar("anotación personal", true, {});
+    expect(r.motivo).toBe("comando-prueba-requerido");
+    expect(r.respuestas).toEqual([]);
+  });
+
+  it("un cliente normal no puede reactivar su conversación con /sofia", () => {
+    const r = ejecutar("/sofia hola", false);
+    expect(r.motivo).toBe("con-asesor");
+    expect(r.respuestas).toEqual([]);
+  });
+
+  it("dos mensajes desconocidos de prueba se recuperan con un nuevo comando", () => {
+    const primero = ejecutar("/sofia asdfgh", true, {});
+    const segundo = ejecutar("/sofia qwerty", true, primero.conv);
+    expect(segundo.conv.paso).toBe("asesor");
+    const recuperado = ejecutar("/sofia hola", true, segundo.conv);
+    expect(recuperado.respuestas.length).toBeGreaterThan(0);
+    expect(recuperado.motivo).not.toBe("con-asesor");
+  });
+});
