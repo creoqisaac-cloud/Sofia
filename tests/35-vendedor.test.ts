@@ -174,7 +174,7 @@ describe("vendedora · conversación", () => {
     expect(duda.texto).toContain("¿Más o menos cuánto podrías dar de enganche?");
     expect(charlaSin(["precio del accord", "mmm déjame ver", "pues ok"]).ultimo.motivo).toBe("corrida"); // a la segunda, a la cita
     const contado = charlaSin(["Hola", "lo quiero de contado"]);
-    expect(contado.texto).toMatch(/^Va, de contado también te armo la corrida\. ¿Qué día y a qué hora puedes venir\?/);
+    expect(contado.texto).toMatch(/^Va, de contado también te armo la corrida\. ¿Qué día y a qué hora te gustaría venir\? Puedo recibirte /);
     expect(contado.lead).toMatchObject({ formaPago: "contado" });
     const raro = charlaSin(["Hola", "asdf", "qwer"]);
     expect(raro.txt(1)).toBe("Perdón, no te entendí. ¿Qué modelo te interesa?");
