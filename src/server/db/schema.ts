@@ -17,6 +17,7 @@ import {
   boolean,
   check,
   customType,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -1234,3 +1235,165 @@ export const aiUsageEvents = pgTable("ai_usage_events", {
   outputTokens: integer("output_tokens"),
   createdAt: createdAt(),
 });
+
+// ───────────────────────────── Sofía Ventas (mostrador sin API) ─────────────────────────────
+
+/**
+ * Biblioteca de fotos, videos, flyers y fichas por modelo (o por unidad concreta).
+ * No son datos sensibles del cliente: es material comercial que Sofía adjunta cuando
+ * el cliente pregunta por el modelo o cuando Mario lo pide en una indicación.
+ */
+export const vehicleMedia = pgTable(
+  "vehicle_media",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    /** NULL = material general de la agencia (p. ej. flyer de evento). */
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }),
+    versionName: text("version_name"),
+    unitId: uuid("unit_id").references((): AnyPgColumn => vehicleUnits.id, { onDelete: "set null" }),
+    /** photo | video | flyer | sheet */
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    /** Texto que Sofía usa al mandarlo (si está vacío, Sofía lo redacta). */
+    caption: text("caption"),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageProvider: text("storage_provider").notNull(),
+    storageBucket: text("storage_bucket").notNull(),
+    storageKey: text("storage_key").notNull(),
+    sha256: text("sha256").notNull(),
+    /** Sofía lo adjunta sola cuando el cliente pregunta por el modelo. */
+    sendOnAsk: boolean("send_on_ask").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    /** Para flyers de promoción: después de esta fecha ya no se manda. */
+    validTo: timestamp("valid_to", { withTimezone: true }),
+    active: boolean("active").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index("vehicle_media_ws_vehicle_idx").on(t.workspaceId, t.vehicleId, t.active)],
+);
+
+/** Novedades e información que Mario le da a Sofía sobre cada modelo (o general). */
+export const vehicleUpdates = pgTable(
+  "vehicle_updates",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "cascade" }),
+    /** novedad | promo | inventario | ficha | argumento */
+    kind: text("kind").notNull().default("novedad"),
+    text: text("text").notNull(),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+    active: boolean("active").notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("vehicle_updates_ws_vehicle_idx").on(t.workspaceId, t.vehicleId, t.active)],
+);
+
+/** Unidades físicas (inventario de piso o en tránsito). */
+export const vehicleUnits = pgTable(
+  "vehicle_units",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    vehicleId: uuid("vehicle_id")
+      .notNull()
+      .references(() => vehicles.id, { onDelete: "cascade" }),
+    versionName: text("version_name"),
+    color: text("color"),
+    modelYear: integer("model_year"),
+    /** available | reserved | in_transit | sold */
+    status: text("status").notNull().default("available"),
+    price: money("price"),
+    notes: text("notes"),
+    reservedForCustomerId: uuid("reserved_for_customer_id").references(() => customers.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("vehicle_units_ws_vehicle_idx").on(t.workspaceId, t.vehicleId, t.status)],
+);
+
+/** Columnas del tablero de Mario (Caliente / Tibio / Frío / las que él quiera). */
+export const pipelineColumns = pgTable(
+  "pipeline_columns",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    name: text("name").notNull(),
+    /** Color de la columna: red | orange | amber | blue | green | violet | gray */
+    color: text("color").notNull().default("gray"),
+    /** Si la columna representa una temperatura, mover una tarjeta ahí la actualiza. */
+    temperature: temperatureEnum("temperature"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [index("pipeline_columns_ws_idx").on(t.workspaceId, t.sortOrder)],
+);
+
+/** Lugar de cada cliente en el tablero: columna, mes y orden. */
+export const pipelineCards = pgTable(
+  "pipeline_cards",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .unique()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    columnId: uuid("column_id").references(() => pipelineColumns.id, { onDelete: "set null" }),
+    /** Mes al que Mario asigna al cliente ("2026-11"). */
+    period: text("period").notNull(),
+    position: doublePrecision("position").notNull().default(0),
+    /** true = Mario la acomodó a mano; Sofía ya no la mueve sola. */
+    pinned: boolean("pinned").notNull().default(false),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("pipeline_cards_ws_idx").on(t.workspaceId, t.columnId)],
+);
+
+/** Indicaciones que Mario le escribe a Sofía ("háblale a los calientes del HR-V…"). */
+export const sofiaDirectives = pgTable(
+  "sofia_directives",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    text: text("text").notNull(),
+    plan: jsonb("plan").$type<Record<string, unknown>>().notNull().default({}),
+    /** draft | queued | done | cancelled */
+    status: text("status").notNull().default("queued"),
+    recipients: integer("recipients").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index("sofia_directives_ws_idx").on(t.workspaceId, t.createdAt)],
+);
+
+/**
+ * Cola de mensajes listos para mandar por WhatsApp (sin API: Mario los manda con un toque).
+ * Al marcarse como enviado se registra en la conversación del cliente.
+ */
+export const outboxMessages = pgTable(
+  "outbox_messages",
+  {
+    id: id(),
+    workspaceId: workspaceId(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    directiveId: uuid("directive_id").references(() => sofiaDirectives.id, { onDelete: "set null" }),
+    /** directive | followup | appointment | reply | media */
+    kind: text("kind").notNull(),
+    body: text("body").notNull(),
+    mediaIds: jsonb("media_ids").$type<string[]>().notNull().default([]),
+    /** pending | sent | skipped */
+    status: text("status").notNull().default("pending"),
+    reason: text("reason"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("outbox_messages_ws_status_idx").on(t.workspaceId, t.status, t.dueAt), index("outbox_messages_customer_idx").on(t.customerId, t.status)],
+);

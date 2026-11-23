@@ -114,8 +114,28 @@ ${history || "(inicio de la conversación)"}
 Intenciones detectadas: ${ctx.intents.join(", ") || "(ninguna)"}
 Escalamientos detectados por reglas: ${ctx.deterministicEscalations.map((e) => e.trigger).join(", ") || "(ninguno)"}
 </turn_signals>
+${renderDeskGuide(ctx)}
 
 <new_message id="${ctx.newMessage.id}">
 ${ctx.newMessage.body}
 </new_message>`;
+}
+
+/** Guía de venta determinista (estilo de Mario, día, novedades, enganche y material adjunto). */
+export function renderDeskGuide(ctx: TurnContext): string {
+  const d = ctx.desk;
+  if (!d) return "";
+  const lines = [
+    `Hoy es ${d.day.label}: ${d.day.focus}. Cierre sugerido: "${d.day.cta.tu}"`,
+    d.day.hook ? `Gancho de urgencia permitido: "${d.day.hook.tu}"` : null,
+    d.burstCount > 1 ? `El cliente mandó ${d.burstCount} mensajes seguidos; responde a todo en un solo mensaje.` : null,
+    d.fixes.length ? `Se corrigieron faltas: ${d.fixes.map((f) => `${f.from}→${f.to}`).join(", ")}` : null,
+    ...d.updates.filter((u) => u.model && ctx.commercial.modelsInScope.includes(u.model)).map((u) => `Novedad registrada por Mario (${u.model}): ${u.text}`),
+    d.affordability
+      ? `Enganche ${d.affordability.level === "below_min" ? "por debajo del mínimo" : "bajo"} para ${d.affordability.current.model} ${d.affordability.current.version}. Alternativas cotizadas: ${d.affordability.options.map((o) => `${o.model} ${o.version} (ref ${o.refId})`).join("; ") || "ninguna"}`
+      : null,
+    d.mediaPlan.ids.length ? `Se adjuntarán ${d.mediaPlan.ids.length} archivo(s) de ${d.mediaPlan.models.join(", ")}; puedes decir "te comparto fotos".` : null,
+    d.mediaPlan.missingFor.length ? `No hay fotos/videos cargados de ${d.mediaPlan.missingFor.join(", ")}: ofrece que Mario se los mande.` : null,
+  ].filter(Boolean);
+  return `<sales_desk>\n${lines.join("\n")}\n</sales_desk>`;
 }

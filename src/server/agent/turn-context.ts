@@ -33,7 +33,10 @@ import {
   type ExtractedFact,
   type Intent,
 } from "@/domain/intents";
+import { repairText } from "@/domain/spelling";
+import { mergeBurst } from "@/domain/whatsapp-paste";
 import type { Db } from "../db/client";
+import { loadDeskTurnData, type DeskTurnContext } from "../desk/turn";
 import * as s from "../db/schema";
 import { loadCatalog, toCatalogVehicles, type CatalogSnapshot } from "../commercial/catalog";
 import { computeQuote, type QuoteComputation } from "../commercial/quoting";
@@ -84,6 +87,8 @@ export interface TurnContext {
   systemQuote: SystemQuote | null;
   catalog: CatalogSnapshot;
   catalogVehicles: CatalogVehicle[];
+  /** Sofía Ventas: estilo, día, novedades, material y enganche (opcional en pruebas). */
+  desk?: DeskTurnContext;
 }
 
 export async function loadProfile(db: Db, customerId: string): Promise<CustomerProfile> {
@@ -192,13 +197,26 @@ export async function buildTurnContext(
 
   const lastSofia = [...recentMessages].reverse().find((m) => m.sender === "sofia" && m.id !== newMessage.id);
   const lastAskedFact = lastSofia ? detectAskedFact(lastSofia.body) : null;
-  const intents = detectIntents(newMessage.body);
-  const provisionalFacts = extractFacts(newMessage.body, catalogVehicles, { lastAskedFact, profile });
+
+  // Varios mensajes seguidos del cliente se entienden juntos ("hola" + "cuánto la hrv" + "con 50 mil").
+  const burst: string[] = [];
+  for (let i = recentMessages.length - 1; i >= 0 && burst.length < 8; i--) {
+    const m = recentMessages[i]!;
+    if (m.sender !== "customer") break;
+    burst.unshift(m.body);
+  }
+  if (!burst.length || !recentMessages.some((m) => m.id === newMessage.id)) burst.splice(0, burst.length, newMessage.body);
+  // Faltas de ortografía y abreviaturas ("presio del sivic", "q enganche ocupo").
+  const repaired = repairText(mergeBurst(burst), catalogVehicles.flatMap((v) => [v.model, ...v.aliases]));
+  const understoodText = repaired.text;
+
+  const intents = detectIntents(understoodText);
+  const provisionalFacts = extractFacts(understoodText, catalogVehicles, { lastAskedFact, profile });
   const provisionalProfile = provisionalMerge(profile, provisionalFacts);
 
   const models = Array.from(
     new Set([
-      ...mentionedModels(newMessage.body, catalogVehicles),
+      ...mentionedModels(understoodText, catalogVehicles),
       ...(typeof provisionalProfile.vehicle_interest === "string" ? [provisionalProfile.vehicle_interest] : []),
     ]),
   );
@@ -213,7 +231,7 @@ export async function buildTurnContext(
     versionByModel,
     intents,
     paymentMethod,
-    query: newMessage.body,
+    query: understoodText,
     now: args.now,
   });
 
@@ -269,7 +287,7 @@ export async function buildTurnContext(
       : null,
     recentMessages,
     totalMessages: totalRow?.n ?? recentMessages.length,
-    newMessage: { id: newMessage.id, body: newMessage.body },
+    newMessage: { id: newMessage.id, body: understoodText },
     documents,
     openAlerts,
     approvals,
@@ -297,5 +315,14 @@ export async function buildTurnContext(
     systemQuote,
     catalog,
     catalogVehicles,
+    // Si la parte de Ventas falla (p. ej. migración pendiente), Sofía contesta igual sin ella.
+    desk: await loadDeskTurnData(db, {
+      workspaceId: args.workspaceId,
+      conversationId: args.conversationId,
+      now: args.now,
+      catalog,
+      burstCount: burst.length,
+      fixes: repaired.fixes,
+    }).catch(() => undefined),
   };
 }

@@ -24,7 +24,20 @@ export const TAG_CATALOG = {
   listo_para_cerrar: "Listo para cerrar",
   auto_a_cuenta: "Quiere dejar su auto a cuenta",
   reactivado: "Prospecto reactivado",
+  enganche_bajo: "Enganche bajo para el modelo",
+  pidio_fotos: "Pidió fotos o video",
 } as const;
+
+/** Etiqueta automática del modelo de interés ("modelo:HR-V"). Sofía la mantiene; no se borra a mano. */
+export const MODEL_TAG_PREFIX = "modelo:";
+export const modelTag = (model: string) => `${MODEL_TAG_PREFIX}${model}`;
+export const isModelTag = (tag: string) => tag.startsWith(MODEL_TAG_PREFIX);
+
+/** Nombre legible de cualquier etiqueta (catálogo, modelo o libre de Mario). */
+export function tagLabel(tag: string): string {
+  if (isModelTag(tag)) return tag.slice(MODEL_TAG_PREFIX.length);
+  return (TAG_CATALOG as Record<string, string>)[tag] ?? tag;
+}
 
 export type Tag = keyof typeof TAG_CATALOG;
 

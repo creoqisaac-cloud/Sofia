@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { IconCalendar, IconCar, IconDoc, IconHome, IconMore, IconPeople, IconPlate } from "@/components/sofia/icons";
+import { IconBoard, IconCalendar, IconChat, IconDoc, IconHome, IconMore, IconPeople } from "@/components/sofia/icons";
 import { ReminderSync } from "@/components/sofia/ReminderSync";
 
 type NavItem = { href: string; label: string; Icon: typeof IconHome; match: (p: string) => boolean };
@@ -11,19 +11,20 @@ type NavItem = { href: string; label: string; Icon: typeof IconHome; match: (p: 
 /** Modo tablet (piloto de Mario): Solicitudes, Seguimiento y Placas al frente; sin herramientas de desarrollo. */
 const TABLET_NAV: NavItem[] = [
   { href: "/", label: "Inicio", Icon: IconHome, match: (p: string) => p === "/" },
+  { href: "/ventas", label: "Chats", Icon: IconChat, match: (p: string) => p === "/ventas" || p.startsWith("/ventas/chat") || p.startsWith("/ventas/nuevo") || p.startsWith("/ventas/envios") || p.startsWith("/ventas/modelos") || p.startsWith("/ventas/estilo") },
+  { href: "/ventas/tablero", label: "Tablero", Icon: IconBoard, match: (p: string) => p.startsWith("/ventas/tablero") },
   { href: "/customers", label: "Clientes", Icon: IconPeople, match: (p: string) => p.startsWith("/customers") && !p.includes("/credit") },
   { href: "/applications", label: "Solicitudes", Icon: IconDoc, match: (p: string) => p.startsWith("/applications") || p.includes("/credit") },
   { href: "/followups", label: "Seguimiento", Icon: IconCalendar, match: (p: string) => p.startsWith("/followups") || p.startsWith("/agenda") },
-  { href: "/plates", label: "Placas", Icon: IconPlate, match: (p: string) => p.startsWith("/plates") || p.startsWith("/emails") },
-  { href: "/more", label: "Más", Icon: IconMore, match: (p: string) => ["/more", "/sales", "/returns"].some((x) => p.startsWith(x)) },
+  { href: "/more", label: "Más", Icon: IconMore, match: (p: string) => ["/more", "/sales", "/returns", "/plates", "/emails"].some((x) => p.startsWith(x)) },
 ];
 
 const NAV: NavItem[] = [
   { href: "/", label: "Inicio", Icon: IconHome, match: (p: string) => p === "/" || p.startsWith("/quote") },
+  { href: "/ventas", label: "Chats", Icon: IconChat, match: (p: string) => p === "/ventas" || p.startsWith("/ventas/chat") || p.startsWith("/ventas/nuevo") || p.startsWith("/ventas/envios") || p.startsWith("/ventas/modelos") || p.startsWith("/ventas/estilo") || p.startsWith("/whatsapp") },
+  { href: "/ventas/tablero", label: "Tablero", Icon: IconBoard, match: (p: string) => p.startsWith("/ventas/tablero") },
   { href: "/customers", label: "Clientes", Icon: IconPeople, match: (p: string) => p.startsWith("/customers") },
-  { href: "/agenda", label: "Agenda", Icon: IconCalendar, match: (p: string) => p.startsWith("/agenda") },
-  { href: "/sales", label: "Ventas", Icon: IconCar, match: (p: string) => p.startsWith("/sales") },
-  { href: "/more", label: "Más", Icon: IconMore, match: (p: string) => ["/more", "/rules", "/simulator", "/mario", "/alerts", "/plates", "/emails", "/returns", "/programs"].some((x) => p.startsWith(x)) },
+  { href: "/more", label: "Más", Icon: IconMore, match: (p: string) => ["/more", "/agenda", "/sales", "/rules", "/simulator", "/mario", "/alerts", "/plates", "/emails", "/returns", "/programs", "/followups"].some((x) => p.startsWith(x)) },
 ];
 
 /** iPhone: navegación inferior. Escritorio/tablet: barra lateral. */

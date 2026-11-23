@@ -135,8 +135,8 @@ async function CustomerHome({ o, id, app }: { o: Awaited<ReturnType<typeof getCu
             <a href={`tel:${o.phone}`} className="flex min-h-11 items-center gap-2 rounded-full bg-panel px-4 text-[15px] text-ivory">
               <IconPhone width={17} height={17} /> Llamar
             </a>
-            <Link href={`/whatsapp?cliente=${id}`} className="flex min-h-11 items-center rounded-full bg-sand px-4 text-[15px] font-semibold text-ink">
-              💬 Preparar WhatsApp
+            <Link href={`/ventas/chat/${id}`} className="flex min-h-11 items-center rounded-full bg-sand px-4 text-[15px] font-semibold text-ink">
+              💬 Chat con Sofía
             </Link>
           </div>
         )}
@@ -215,8 +215,8 @@ async function TabletCustomer({ id, app }: { id: string; app: Awaited<ReturnType
           <FollowupButtons customerId={id} followupId={t.nextAction?.id ?? null} phone={t.phone} />
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Link href={`/whatsapp?cliente=${id}`} className="flex min-h-14 items-center justify-center rounded-2xl bg-sand px-4 text-[15px] font-semibold text-ink">
-            💬 WhatsApp para este cliente
+          <Link href={`/ventas/chat/${id}`} className="flex min-h-14 items-center justify-center rounded-2xl bg-sand px-4 text-[15px] font-semibold text-ink">
+            💬 Chat con Sofía
           </Link>
           <Link href="/correos" className="flex min-h-14 items-center justify-center rounded-2xl bg-raise px-4 text-[15px] text-ivory">
             ✉️ Asistente de correos

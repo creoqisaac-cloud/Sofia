@@ -4,9 +4,30 @@
 - Sprint 2: **app operativa iPhone-first**. Incluye clientes con procedencia y conflictos, solicitudes de crédito BBVA/Banorte en PDF, memoria de corridas y control de ventas.
 - Sprint 3: **piloto para Mario**. Sofía como copiloto operativo: comando universal por texto o voz, cotizador V2 con calibración, seguimiento, citas, placas, correos y los PDFs reales de BBVA/Banorte. Ver [Sprint 3](#sprint-3--piloto-operativo).
 
-Todavía no hay WhatsApp, API de IA real, pagos, notificaciones push ni producción.
+WhatsApp funciona **sin API** desde Sofía Ventas (`/ventas`): pegas lo que escribió el cliente y Sofía contesta con texto, fotos y video listos para mandar. Todavía no hay API oficial de WhatsApp, API de IA real, pagos ni notificaciones push.
 
 > ⚠️ Todos los precios, bonos, tasas, seguros y corridas incluidos son **DEMO (ficticios)**: están marcados `is_demo = true`, sus fuentes se llaman “DEMO — … (NO REAL)” y Sofía los menciona con “(dato DEMO)”. No representan información comercial real de Honda.
+
+## Sofía Ventas — WhatsApp sin API y sin IA (`/ventas`)
+
+Todo funciona con reglas deterministas; la IA (si algún día se activa) solo pule conversaciones.
+
+| Pantalla | Qué hace |
+|---|---|
+| **Chats** (`/ventas`) | Pegas lo que te escribió el cliente (uno o varios mensajes, o el chat copiado de WhatsApp con fecha y nombre). Sofía lo entiende **junto** (varios mensajes seguidos = una sola respuesta), corrige faltas y abreviaturas (“presio del sivic”, “q”, “kiero la hrv”), contesta con texto **y adjunta fotos/videos** del modelo. Botón **WhatsApp**: abre la hoja de compartir con archivos + texto (o el chat del cliente con el texto). También: “Yo contesté” (registrar lo que tú mandaste) y “Pedirle a Sofía” (indicación para ese cliente). |
+| **Citados** (en Chats) | Citas de hoy y mañana; desde Envíos se confirman por WhatsApp con un toque. |
+| **Tablero** (`/ventas/tablero`) | Columnas a tu gusto (Caliente / Tibio / Frío / las que quieras), vista **por columna o por mes**, arrastrar y soltar (o menú ⋯ en iPhone), etiquetas libres. La etiqueta del modelo (“HR-V”) la mantiene Sofía. Mover a una columna con temperatura actualiza al cliente. |
+| **Envíos** (`/ventas/envios`) | Cola de mensajes listos: indicaciones, **seguimientos por cadencia** (1, 3, 7, 15, 30 días sin respuesta), confirmación de citas. Revisas, editas, mandas y queda registrado en la conversación. |
+| **Modelos** (`/ventas/modelos`) | Por modelo: fotos, videos, flyers y fichas (con texto para mandarlos y vigencia), **novedades** que Sofía menciona una vez a cada cliente, y **unidades** (versión, color, estatus). |
+| **Estilo** (`/ventas/estilo`) | Nombre, tono (tú/usted), emojis, urgencia, firma, cadencia, **enganche sano** y tu frase de cierre por día. |
+
+**Indicaciones a Sofía** (en Chats, Envíos o el comando universal): “Háblale a los calientes del HR-V con la promo de este mes”, “Manda el flyer del Civic a todos los tibios”, “Dile a Juan Pérez que ya llegó su unidad”, “A los que no contestan del CR-V mándales fotos y video”, “Confírmales la cita a los citados de mañana”. Sofía muestra a quién entendió, redacta cada mensaje y nada sale sin que lo revises.
+
+**Venta adaptada al día:** lunes agenda visita, martes corrida, miércoles fotos/video, jueves invita al sábado, viernes aparta, sábado “hoy estamos en agencia”, domingo sin presión; en cierre de mes agrega urgencia (según tu estilo).
+
+**Enganche bajo para modelos altos:** si el enganche no alcanza el mínimo de la financiera (o queda abajo del enganche sano de tu estilo), o la mensualidad rebasa lo que el cliente quiere pagar, Sofía recomienda versiones/modelos donde ese mismo enganche sí rinde, cotizados por el motor (cifras con respaldo) y con foto.
+
+Código: dominio puro en `src/domain/{spelling,whatsapp-paste,directive,sales-style,affordability}.ts`; servidor en `src/server/desk/`; UI en `src/components/desk/`; tablas nuevas en `drizzle/0005_sales_desk.sql` (se aplican solas con `SOFIA_AUTO_MIGRATE=true`).
 
 ## Inicio rápido
 

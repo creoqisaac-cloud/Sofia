@@ -6,7 +6,7 @@ import { documentsAllowed, nextDocumentToRequest } from "@/domain/documents";
 import { DOCUMENT_TYPE_LABELS } from "@/domain/enums";
 import { FACT_DEFS, isFactKey, normalizeFactValue, type FactKey, type FactValue } from "@/domain/facts";
 import type { GuardContext, GuardViolation } from "@/domain/guards";
-import { amountsMatch, parseMoneyMentions } from "@/domain/money";
+import { amountsMatch, parseMoneyMentions, parsePercentMentions } from "@/domain/money";
 import { normalize } from "@/domain/text";
 import { quoteAmounts, type RetrievedItem } from "../commercial/retrieval";
 import type { AgentOutput, KnowledgeRefType } from "./output-schema";
@@ -114,10 +114,15 @@ export function buildGuardContext(ctx: TurnContext, scratch: TurnScratch, accept
   for (const f of acceptedFacts) knownFactKeys.add(f.key);
   if (ctx.customer.nameKnown) knownFactKeys.add("name");
 
+  // Novedades que Mario registró por modelo: su información cuenta como respaldo.
+  const marioUpdates = (ctx.desk?.updates ?? []).map((u) => u.text);
+  const updateAmounts = marioUpdates.flatMap((t) => parseMoneyMentions(t).map((m) => m.value));
+  const updatePercents = marioUpdates.flatMap((t) => parsePercentMentions(t).map((m) => m.value));
+
   return {
-    allowedAmounts: [...current.flatMap((i) => i.amounts), ...quotes.flatMap((q) => q.all)],
+    allowedAmounts: [...current.flatMap((i) => i.amounts), ...quotes.flatMap((q) => q.all), ...updateAmounts],
     historicalAmounts: historical.flatMap((i) => i.amounts),
-    allowedPercents: [...current.flatMap((i) => i.percents), ...quotes.flatMap((q) => q.percents)],
+    allowedPercents: [...current.flatMap((i) => i.percents), ...quotes.flatMap((q) => q.percents), ...updatePercents],
     historicalPercents: historical.flatMap((i) => i.percents),
     customerAmounts,
     estimateAmounts: [...current.filter((i) => i.status === "estimate").flatMap((i) => i.amounts), ...quotes.flatMap((q) => q.estimateOnly)],

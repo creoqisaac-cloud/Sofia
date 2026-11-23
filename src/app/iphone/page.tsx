@@ -6,7 +6,7 @@ const tools = [
   { href: "/plates", icon: "🚘", title: "Correos de placas", detail: "Prepara solicitudes de placas con adjuntos desde el expediente." },
   { href: "/customers", icon: "🪪", title: "INE y solicitudes", detail: "Abre un cliente, toma foto de la INE y revisa los datos antes de llenar la solicitud." },
   { href: "/settings/reminders", icon: "⏰", title: "Recordatorios", detail: "Registra tareas y agrégalas al Calendario del iPhone." },
-  { href: "/whatsapp", icon: "💬", title: "WhatsApp", detail: "Mensajes sugeridos, editables y listos para abrir en WhatsApp." },
+  { href: "/ventas", icon: "💬", title: "Chats de Sofía", detail: "Pega lo que te escribió el cliente; Sofía contesta con texto, fotos y video listos para WhatsApp." },
 ];
 
 export default function IPhonePage() {

@@ -22,6 +22,7 @@ import { draftPlatesEmail, emailConfigured, getEmail, sendEmail, EMAIL_NOT_CONFI
 import { ServiceError } from "../services/errors";
 import { ensurePlateCase, listPlateCases, NO_PLATE_REQUIREMENTS, PLATE_STATUS_LABELS, PLATE_STATUSES, plateMissing, updatePlateCase, type PlateStatus } from "../services/plates";
 import { runQuote, saveQuoteRun, type QuoteRunView } from "../services/quote-v2";
+import { looksLikeDirective } from "@/domain/directive";
 import { updateSale } from "../services/sales";
 import { getTodayItems, searchEverything } from "../services/today";
 
@@ -151,6 +152,15 @@ async function customerSummary(app: AppContext, customerId: string) {
 // ───────── ejecución ─────────
 
 export async function runCommand(app: AppContext, text: string, ctx: CommandContext = {}): Promise<CommandResponse> {
+  // "Háblale a los calientes del HR-V…", "Dile a Juan que…": indicaciones de venta → Sofía Ventas.
+  if (looksLikeDirective(text)) {
+    return {
+      intent: "navigate",
+      say: "Va. Te preparo los mensajes para que los revises.",
+      blocks: [{ type: "text", text: "Abro Envíos con tu indicación: ahí ves a quién le escribo y qué le digo antes de mandarlo." }],
+      navigate: `/ventas/envios?i=${encodeURIComponent(text.trim().slice(0, 1500))}`,
+    };
+  }
   const parsed = parseCommand(text, await catalogModels(app), app.clock.now());
   return executeParsed(app, parsed, ctx);
 }

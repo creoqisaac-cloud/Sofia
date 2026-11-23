@@ -8,13 +8,15 @@ import { listAllApplications } from "@/server/services/tablet";
 import { listPlateCases } from "@/server/services/plates";
 
 const QUICK = [
+  { label: "Chats", href: "/ventas" },
+  { label: "Pedirle a Sofía", href: "/ventas#indicar" },
+  { label: "Tablero", href: "/ventas/tablero" },
+  { label: "Envíos", href: "/ventas/envios" },
   { label: "Cotizar", href: "/quote" },
-  { label: "Solicitud", href: "/customers?f=credit" },
-  { label: "Seguimiento", href: "/agenda#seguimiento" },
   { label: "Cita", href: "/agenda?new=1" },
+  { label: "Seguimiento", href: "/agenda#seguimiento" },
   { label: "Venta", href: "/sales" },
   { label: "Correos", href: "/correos" },
-  { label: "WhatsApp", href: "/whatsapp" },
 ];
 
 /** HOME: "¿Qué necesito hacer ahorita?" — comando/voz arriba y solo lo que requiere acción. */
@@ -87,7 +89,7 @@ async function TabletHome({ items, app }: { items: Awaited<ReturnType<typeof get
         {[
           { href: "/correos", label: "✉️ Correos" },
           { href: "/settings/reminders", label: "⏰ Avisos" },
-          { href: "/whatsapp", label: "💬 WhatsApp" },
+          { href: "/ventas", label: "💬 Chats" },
         ].map((a) => (
           <Link key={a.href} href={a.href} className="flex min-h-14 items-center justify-center rounded-2xl bg-raise px-2 text-center text-[13px] text-ivory">
             {a.label}

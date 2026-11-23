@@ -20,6 +20,7 @@ import { detectAskedFact, INTENT_LABELS } from "@/domain/intents";
 import { normalize } from "@/domain/text";
 import { findVehicle, findVersion } from "../../commercial/catalog";
 import { pickListPrice, resolveBonusFor, toFinancingLike } from "../../commercial/quoting";
+import { pendingUpdateFor } from "../../desk/turn";
 import type { AgentOutput, KnowledgeRefType, RequestedTool } from "../output-schema";
 import type { TurnContext } from "../turn-context";
 import type { LlmProvider, ProviderRequest, ProviderResponse } from "./types";
@@ -92,7 +93,12 @@ export function demoBrain(ctx: TurnContext): AgentOutput {
   const isFirstReply = !ctx.recentMessages.some((m) => m.sender === "sofia");
   const lastNonCustomer = [...ctx.recentMessages].reverse().find((m) => m.id !== ctx.newMessage.id && m.sender !== "customer");
   const resumingAfterMario = lastNonCustomer?.sender === "mario" || (lastNonCustomer?.sender === "system" && /retoma/i.test(lastNonCustomer.body));
-  if (isFirstReply) parts.push(`¡Hola${firstName ? `, ${firstName}` : ""}! Soy Sofía, te escribo de parte de Mario Abarca, asesor Honda 🙌`);
+  const style = ctx.desk?.style;
+  if (isFirstReply) {
+    parts.push(
+      `¡Hola${firstName ? `, ${firstName}` : ""}! Soy ${style?.assistantName ?? "Sofía"}, te escribo de parte de ${style?.advisorName ?? "Mario Abarca"}, asesor ${style ? `de ${style.agency}` : "Honda"} 🙌`,
+    );
+  }
   else if (resumingAfterMario) parts.push(`Retomo por aquí${firstName ? `, ${firstName}` : ""} 🙌`);
   const escalations = ctx.deterministicEscalations;
   if (!isFirstReply && !resumingAfterMario && escalations.length === 0) {
@@ -136,6 +142,8 @@ export function demoBrain(ctx: TurnContext): AgentOutput {
         );
         cite("quote", ctx.systemQuote.refId, "estimate");
       }
+    } else if (c.reason === "down_payment_below_minimum" && ctx.desk?.affordability?.options.length) {
+      // Lo explica el bloque de enganche bajo con alternativas que sí rinden.
     } else if (c.reason === "down_payment_below_minimum" || c.reason === "term_not_allowed") {
       parts.push(`${c.message} ¿Quieres que lo calculemos con otro monto o plazo?`);
       asked = true;
@@ -252,6 +260,42 @@ export function demoBrain(ctx: TurnContext): AgentOutput {
     }
   }
 
+  // ── Enganche bajo para el modelo que pide: alternativas donde su enganche sí rinde ──
+  const adv = ctx.desk?.affordability ?? null;
+  if (!notInterested && adv && adv.options.length) {
+    const cur = `${adv.current.model} ${adv.current.version}`;
+    const lead =
+      adv.level === "below_min"
+        ? `Con ${formatMXN(adv.downPayment)} de enganche, el ${cur} no alcanza el enganche mínimo de la financiera.`
+        : adv.level === "ok"
+          ? `Para la mensualidad que buscas, el ${cur} se te sale un poco.`
+          : `Con ${formatMXN(adv.downPayment)} de enganche, el ${cur} te quedaría con una mensualidad pesada.`;
+    const opts = adv.options.map(
+      (o) => `${o.model} ${o.version}${o.monthly !== null ? `, que con tu mismo enganche a ${o.termMonths} meses queda ${o.validated ? "en" : "aprox. en"} ${formatMXN(Math.round(o.monthly))} al mes` : ""}`,
+    );
+    parts.push(`${lead} Para que te quede más cómodo te recomiendo el ${opts.join(", o el ")}${demoSuffix(adv.options.some((o) => o.isDemo), "estimación sujeta a aprobación de crédito")}.`);
+    for (const o of adv.options) cite("quote", o.refId, o.validated ? "validated_quote" : "estimate");
+    if (!asked) {
+      parts.push("¿Cuál te late más para cotizarlo bien?");
+      asked = true;
+    }
+  }
+
+  // ── Novedad registrada por Mario para el modelo ──
+  const askedAboutModel = ["ask_price", "ask_bonus", "ask_features", "ask_availability", "ask_quote", "ask_financing"].some((i) => intents.has(i as never));
+  if (!notInterested && vehicle && (askedAboutModel || isFirstReply)) {
+    const upd = pendingUpdateFor(ctx, vehicle.model);
+    if (upd) parts.push(`Novedad del ${vehicle.model}: ${upd.text.trim().replace(/([^.!?])$/, "$1.")}`);
+  }
+
+  // ── Fotos/videos pedidos que no están cargados ──
+  const media = ctx.desk?.mediaPlan;
+  if (!notInterested && media?.asked && media.missingFor.length && !media.ids.length) {
+    parts.push(`Ahorita no tengo fotos del ${media.missingFor.join(" ni del ")} a la mano; le pido a Mario que te las mande.`);
+    requested.push({ tool: "create_followup", reason: "El cliente pidió fotos/video sin material cargado", arguments: { requested_window: null, document_type: null, amount: null, note: `Mandar fotos/video de ${media.missingFor.join(", ")} (y subirlos a la biblioteca de Sofía).` } });
+    pendingNew.push(`Mandar fotos/video de ${media.missingFor.join(", ")}`);
+  }
+
   // ── Documentación: uno a la vez ──
   let proposedStage: CrmStage | null = null;
   if (!notInterested && intents.has("ask_documents")) {
@@ -332,6 +376,13 @@ export function demoBrain(ctx: TurnContext): AgentOutput {
     }
   }
 
+  // ── Cierre según el día (lunes agenda, viernes aparta, sábado visita…) ──
+  if (!asked && escalations.length === 0 && !notInterested && !lateStage && ctx.desk) {
+    parts.push(ctx.desk.day.cta.tu);
+    if (ctx.desk.day.hook && ["hot", "very_hot"].includes(ctx.crm.temperature)) parts.push(ctx.desk.day.hook.tu);
+    asked = ctx.desk.day.cta.tu.includes("?");
+  }
+
   // ── Etapa ──
   const cur = ctx.crm.stage;
   const esc = new Set(escalations.map((e) => e.trigger));
@@ -374,6 +425,8 @@ export function demoBrain(ctx: TurnContext): AgentOutput {
   if (intents.has("test_drive")) tags.add("pidio_prueba_manejo");
   if (/a cuenta/.test(msg)) tags.add("auto_a_cuenta");
   if (cur === "not_interested" || cur === "follow_up") tags.add("reactivado");
+  if (adv && adv.level !== "ok") tags.add("enganche_bajo");
+  if (media?.asked) tags.add("pidio_fotos");
   const tagsProposed = [...tags].filter((t) => !ctx.tags.includes(t)).map((tag) => ({ tag, reason: "Derivado del perfil/mensaje del cliente" }));
 
   // ── Compromisos de Mario (solo de sus propios mensajes) ──
@@ -402,7 +455,7 @@ export function demoBrain(ctx: TurnContext): AgentOutput {
   const pending = Array.from(new Set([...prevPending, ...pendingNew, ...(nextQuestionLabel ? [`Obtener ${nextQuestionLabel.toLowerCase()}`] : [])])).slice(0, 6);
 
   return {
-    customer_reply: oneEmoji(parts.join(" ")),
+    customer_reply: style?.emojis === 0 ? oneEmoji(parts.join(" ")).replace(/\p{Extended_Pictographic}\uFE0F?/gu, "").replace(/\s{2,}/g, " ").trim() : oneEmoji(parts.join(" ")),
     observed_facts: ctx.provisionalFacts.map((f) => ({
       key: f.key,
       value: f.value,

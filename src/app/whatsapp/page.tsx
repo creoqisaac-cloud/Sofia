@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import Link from "next/link";
 import { MobileHeader, Page } from "@/components/app/AppShell";
 import { WhatsAppAssistant } from "@/components/sofia/WhatsAppAssistant";
 import { getAppContext } from "@/server/app";
@@ -20,10 +21,13 @@ export default async function WhatsAppPage({ searchParams }: { searchParams: Pro
     <>
       <MobileHeader title="WhatsApp" back={valid ? `/customers/${cliente}` : "/more"} subtitle="Borradores para conversar con clientes" />
       <Page>
+        <Link href={valid ? `/ventas/chat/${cliente}` : "/ventas"} className="flex min-h-14 items-center justify-between rounded-3xl bg-sand px-5 text-[15px] font-semibold text-ink">
+          <span>Chats de Sofía: pega lo que te escribió el cliente y ella contesta con fotos</span>
+          <span aria-hidden>›</span>
+        </Link>
         <WhatsAppAssistant initialName={customer?.name ?? ""} initialPhone={customer?.phone ?? ""} />
         <p className="text-[13px] leading-relaxed text-dim">
-          Esta primera versión no lee conversaciones ni envía mensajes por sí sola. Para una bandeja bidireccional
-          y respuestas automáticas hará falta conectar la plataforma oficial de WhatsApp Business con permisos y consentimiento.
+          Plantillas rápidas. Para conversar con clientes usa Chats; para mandar a varios clientes a la vez, Envíos.
         </p>
       </Page>
     </>

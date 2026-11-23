@@ -11,6 +11,14 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+/** Extensión opaca según el tipo (la llave nunca lleva el nombre original del archivo). */
+function extensionFor(mimeType: string): string {
+  if (mimeType === "application/pdf") return ".pdf";
+  const [kind, sub] = mimeType.split("/");
+  if ((kind === "image" || kind === "video") && sub && /^[a-z0-9.+-]{1,20}$/.test(sub)) return `.${sub.replace(/[^a-z0-9]/g, "")}`;
+  return ".bin";
+}
+
 export interface StoredObjectRef {
   provider: "local_private" | "supabase_storage";
   bucket: string;
@@ -38,7 +46,7 @@ export class LocalPrivateStorage implements DocumentStorage {
   }
 
   async put(workspaceId: string, folder: string, bytes: Uint8Array, mimeType: string): Promise<StoredObjectRef> {
-    const ext = mimeType === "application/pdf" ? ".pdf" : mimeType.startsWith("image/") ? `.${mimeType.split("/")[1]}` : ".bin";
+    const ext = extensionFor(mimeType);
     // Llave opaca: no contiene nombre del cliente ni tipo de documento.
     const safeFolder = folder.replace(/[^a-zA-Z0-9/_-]/g, "_").replace(/^\/+|\.\./g, "");
     const key = `${safeFolder}/${randomUUID()}${ext}`;
@@ -102,7 +110,7 @@ export class SupabaseStorage implements DocumentStorage {
 
   async put(workspaceId: string, folder: string, bytes: Uint8Array, mimeType: string): Promise<StoredObjectRef> {
     await this.ensureBucket();
-    const ext = mimeType === "application/pdf" ? ".pdf" : mimeType.startsWith("image/") ? `.${mimeType.split("/")[1]}` : ".bin";
+    const ext = extensionFor(mimeType);
     const safeFolder = folder.replace(/[^a-zA-Z0-9/_-]/g, "_").replace(/^\/+|\.\./g, "");
     const key = `${workspaceId}/${safeFolder}/${randomUUID()}${ext}`;
     const res = await fetch(this.objectUrl(key), { method: "POST", headers: this.headers({ "content-type": mimeType, "x-upsert": "false" }), body: Buffer.from(bytes) });

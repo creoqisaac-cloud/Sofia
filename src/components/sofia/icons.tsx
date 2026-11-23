@@ -17,3 +17,5 @@ export const IconDoc = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path 
 export const IconPlate = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><rect x="3" y="7" width="18" height="10" rx="2" /><path d="M7 12h2M11 12h2M15 12h2" /></svg>);
 export const IconUpload = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5" /><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" /></svg>);
 export const IconShare = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><circle cx="18" cy="5.5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="18.5" r="2.5" /><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1" /></svg>);
+export const IconChat = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><path d="M5 18.5V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9.5z" /><path d="M9 9.5h6M9 12.5h4" /></svg>);
+export const IconBoard = (p: SVGProps<SVGSVGElement>) => (<svg {...base(p)}><rect x="3.5" y="4.5" width="5" height="15" rx="1.5" /><rect x="9.5" y="4.5" width="5" height="10" rx="1.5" /><rect x="15.5" y="4.5" width="5" height="12.5" rx="1.5" /></svg>);

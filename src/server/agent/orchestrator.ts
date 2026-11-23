@@ -19,6 +19,8 @@ import type { Db } from "../db/client";
 import * as s from "../db/schema";
 import { logger } from "../lib/logger";
 import { applyTurnEffects, type AppliedEffects } from "./effects";
+import { adviseAffordability, mediaAnnouncement, planMedia } from "../desk/turn";
+import { syncCustomerBoard } from "../desk/pipeline";
 import { AgentOutputSchema, type AgentOutput } from "./output-schema";
 import { buildPrompt } from "./prompt";
 import { ProviderError } from "./providers/types";
@@ -56,6 +58,15 @@ export async function runSofiaTurn(app: AppContext, args: { conversationId: stri
   const ctx = await buildTurnContext(app.db, { workspaceId: app.workspaceId, conversationId: args.conversationId, newMessageId: args.inboundMessageId, now });
   const scratch = newScratch();
   const tools = new ReadToolExecutor(ctx, scratch);
+  // Sofía Ventas (sin IA): enganche bajo → alternativas cotizadas, y material a adjuntar.
+  if (ctx.desk) {
+    try {
+      ctx.desk.affordability = await adviseAffordability(ctx, tools);
+    } catch (error) {
+      logger.warn("sofia.desk_affordability_error", { error: error instanceof Error ? error.message : String(error) });
+    }
+    ctx.desk.mediaPlan = planMedia(ctx);
+  }
 
   let output: AgentOutput | null = null;
   let accepted: AcceptedFact[] = [];
@@ -138,6 +149,11 @@ export async function runSofiaTurn(app: AppContext, args: { conversationId: stri
     }
   }
 
+  // Material adjunto (fotos/video/flyer): se anuncia si la respuesta no lo menciona ya.
+  const mediaIds = ctx.desk?.mediaPlan.ids ?? [];
+  const announce = mediaAnnouncement(ctx);
+  if (announce && !/\b(foto|fotos|video|flyer|ficha|comparto)\b/i.test(finalReply)) finalReply = `${finalReply}\n${announce}`;
+
   const knowledge = output ? validateKnowledgeUsed(output.knowledge_used, ctx, scratch) : { refs: [], rejected: [] };
   const runId = randomUUID();
 
@@ -151,7 +167,13 @@ export async function runSofiaTurn(app: AppContext, args: { conversationId: stri
         customerId: ctx.customerId,
         sender: "sofia",
         body: finalReply,
-        metadata: { agentRunId: runId, status, guard: guard!.violations.map((v) => v.code) },
+        metadata: {
+          agentRunId: runId,
+          status,
+          guard: guard!.violations.map((v) => v.code),
+          media: mediaIds,
+          understood: { burst: ctx.desk?.burstCount ?? 1, fixes: (ctx.desk?.fixes ?? []).slice(0, 12), text: ctx.newMessage.body.slice(0, 600) },
+        },
       })
       .returning({ id: s.messages.id });
 
@@ -195,6 +217,11 @@ export async function runSofiaTurn(app: AppContext, args: { conversationId: stri
     await tx.update(s.conversations).set({ lastMessageAt: new Date(), updatedAt: new Date() }).where(eq(s.conversations.id, ctx.conversationId));
     return { replyId: reply!.id, effects };
   });
+
+  // Tablero y etiquetas de modelo (no bloquea la respuesta si falla).
+  await syncCustomerBoard(app, ctx.customerId).catch((error) =>
+    logger.warn("sofia.desk_board_sync_error", { error: error instanceof Error ? error.message : String(error) }),
+  );
 
   logger.info("sofia.turn", {
     status,
