@@ -1,14 +1,14 @@
-# Sofía — asistente comercial con IA para Mario Abarca (Honda)
+# Sofía — asistente comercial de Mario Abarca
 
 > **Para trabajar con una IA:** empieza por [`AI_CONTEXT.md`](AI_CONTEXT.md); identifica qué carpeta ejecuta Sofía antes de editar.
 
-> **Versión de prueba gratis, sin servidor y sin IA obligatoria:** carpeta [`prueba/`](prueba/LEEME.md) — clientes con recordatorios, crédito con INE por cámara, correos de placas y asistente de WhatsApp. Web en GitHub Pages + APK Android, datos en el dispositivo, servidor propio opcional (Google Apps Script o `node`).
+> **Versión operativa del piloto de Mario:** la PWA de [`prueba/`](prueba/LEEME.md) sirve como panel móvil en iPhone, Android y computadora; el conector de [`whatsapp-web/`](whatsapp-web/) mantiene el vínculo y responde mensajes. La computadora con el conector debe permanecer encendida y conectada para que Sofía atienda WhatsApp.
 
-- Sprint 1: **cerebro, persistencia y simulador**.
-- Sprint 2: **app operativa iPhone-first**. Incluye clientes con procedencia y conflictos, solicitudes de crédito BBVA/Banorte en PDF, memoria de corridas y control de ventas.
-- Sprint 3: **piloto para Mario**. Sofía como copiloto operativo: comando universal por texto o voz, cotizador V2 con calibración, seguimiento, citas, placas, correos y los PDFs reales de BBVA/Banorte. Ver [Sprint 3](#sprint-3--piloto-operativo).
+- Para abrir el panel en el teléfono, instalarlo y ver el estado desplegado: [guía de la app operativa](prueba/LEEME.md).
+- Para iniciar o reiniciar el conector en Windows conservando la sesión ya vinculada, usa [`INICIAR_MARIO.cmd`](whatsapp-web/windows/INICIAR_MARIO.cmd). No borres la carpeta de sesión.
+- Para editar con Codex, Claude, DeepSeek u otra IA: [`AI_CONTEXT.md`](AI_CONTEXT.md), [`AGENTS.md`](AGENTS.md) y [`CLAUDE.md`](CLAUDE.md) comparten la misma guía del proyecto.
 
-Todavía no hay WhatsApp, API de IA real, pagos, notificaciones push ni producción.
+La carpeta `src/` conserva una generación anterior de Next.js y prototipos; sus cambios **no** actualizan la PWA ni el conector que usa Mario. Los cambios de interfaz se publican por GitHub Pages; los cambios del conector requieren reiniciarlo sin borrar su perfil. Consulta [`AI_CONTEXT.md`](AI_CONTEXT.md) antes de trabajar.
 
 > ⚠️ Todos los precios, bonos, tasas, seguros y corridas incluidos son **DEMO (ficticios)**: están marcados `is_demo = true`, sus fuentes se llaman “DEMO — … (NO REAL)” y Sofía los menciona con “(dato DEMO)”. No representan información comercial real de Honda.
 
