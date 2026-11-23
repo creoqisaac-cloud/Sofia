@@ -242,12 +242,53 @@ async function checkServerOnStart() {
   } catch (e) { console.warn("Servidor:", e.message); }
 }
 
+// Link de un toque que la computadora de Mario le manda a su chat «Tú»:
+//   …/#/conectar?u=https://xxxx.trycloudflare.com&k=CLAVE
+// Deja la app apuntando a esa Sofía y ofrece subir (o traer) los clientes de este dispositivo.
+function linkDeConexion() {
+  const m = location.hash.match(/^#\/conectar\?(.*)$/);
+  if (!m) return null;
+  const p = new URLSearchParams(m[1]);
+  history.replaceState(null, "", location.pathname + location.search + "#/"); // la clave no se queda en la barra ni en el historial
+  const u = (p.get("u") ?? "").trim().replace(/\/+$/, "");
+  const k = (p.get("k") ?? "").trim();
+  if (!/^https:\/\/[\w.-]+(:\d+)?$/.test(u) || k.length < 16) return { error: "El link de conexión está incompleto. Pide uno nuevo." };
+  const sv = state.settings.server;
+  const cambio = sv.url !== u || sv.token !== k;
+  sv.url = u; sv.token = k; sv.auto = true;
+  save();
+  return { cambio };
+}
+
+async function despuesDeConectar() {
+  try {
+    const meta = await serverPeek();
+    const locales = state.customers?.length ?? 0;
+    if (!meta.updatedAt && locales) {
+      modal("Conectada a la Sofía de Mario", h("p", {}, `Este dispositivo tiene ${locales} cliente(s). ¿Los subo a Sofía para que ella los conozca y los veas en todos tus dispositivos?`), [
+        { label: "Ahora no" },
+        { label: "Subir", kind: "primary", onClick: async () => { try { await serverPush(); toast("Clientes subidos a Sofía"); } catch (e) { toast(e.message, 6000); return false; } } },
+      ]);
+    } else if (meta.updatedAt && !locales) {
+      await serverPull(); toast("Conectada. Traje los clientes de Sofía"); rerender();
+    } else if (meta.updatedAt && locales) {
+      modal("Conectada a la Sofía de Mario", h("p", {}, "Sofía ya tiene clientes guardados y este dispositivo también. ¿Qué hago?"), [
+        { label: "Traer los de Sofía", onClick: async () => { try { await serverPull(); toast("Datos actualizados"); rerender(); } catch (e) { toast(e.message, 6000); return false; } } },
+        { label: "Subir los de aquí", kind: "primary", onClick: async () => { try { await serverPush(); toast("Clientes subidos a Sofía"); } catch (e) { toast(e.message, 6000); return false; } } },
+      ]);
+    } else toast("Conectada a la Sofía de Mario");
+  } catch (e) {
+    toast("No pude hablar con la computadora de Mario: " + e.message, 7000);
+  }
+}
+
 // ───────── Inicio ─────────
 
 async function start() {
   document.documentElement.classList.toggle("native", isNative());
   shell();
   await load();
+  const link = linkDeConexion();
   askPersistence();
   setRenderer(render);
   window.addEventListener("hashchange", render);
@@ -260,7 +301,9 @@ async function start() {
   tick();
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") autoPush(); else { tick(); syncCalendar(); if (route() === "/") render(); } });
   window.addEventListener("online", () => syncCalendar());
-  checkServerOnStart();
+  if (link?.error) toast(link.error, 7000);
+  else if (link) despuesDeConectar();
+  else checkServerOnStart();
   if (connectorReady()) { refreshStatus().then(() => { if (route() === "/") render(); }).catch(() => {}); checkInbox(); }
   if (googleReady()) {
     googleStatus().catch(() => {});

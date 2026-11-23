@@ -133,6 +133,34 @@ if (entorno.SOFIA_WHATSAPP_WEB === "1") {
   entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store), operaciones);
 }
 
+// Puente al celular: Sofia.ps1 abre un túnel de Cloudflare hacia este servidor y deja su registro en
+// SOFIA_TUNEL_LOG. Al ver una dirección nueva, Sofía la usa como dirección pública (fotos) y le manda
+// a Mario, a su chat «Tú», un link de un toque que conecta la app. Solo una vez por dirección.
+if (entorno.SOFIA_TUNEL_LOG && entorno.WA_WEB) {
+  const app = (entorno.SOFIA_APP_URL || "https://creoqisaac-cloud.github.io/Sofia/").replace(/\/?$/, "/");
+  let avisando = false;
+  setInterval(async () => {
+    if (avisando) return;
+    avisando = true;
+    try {
+      const log = fs.existsSync(entorno.SOFIA_TUNEL_LOG) ? fs.readFileSync(entorno.SOFIA_TUNEL_LOG, "utf8") : "";
+      const direccion = [...log.matchAll(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/g)].at(-1)?.[0];
+      if (!direccion) return;
+      entorno.PUBLIC_URL = direccion;
+      const wa = entorno.WA_WEB.estado();
+      if (!wa.ok || !wa.phone || (await store.get("tunel:avisado")) === direccion) return;
+      const link = `${app}#/conectar?u=${encodeURIComponent(direccion)}&k=${encodeURIComponent(entorno.SOFIA_TOKEN)}`;
+      await entorno.WA_WEB.enviar({ to: String(wa.phone), text: `📲 Sofía lista en tu celular. Toca para abrir la app ya conectada:\n${link}\n\nNo compartas este link: lleva tu clave. Si la computadora se reinicia te mando uno nuevo.` });
+      await store.put("tunel:avisado", direccion);
+      console.log("Túnel listo; link de conexión enviado al chat «Tú».");
+    } catch (e) {
+      console.error("Túnel:", e.message);
+    } finally {
+      avisando = false;
+    }
+  }, 5000).unref();
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);

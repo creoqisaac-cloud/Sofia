@@ -38,6 +38,9 @@ $null = Control Label 'Deja esta ventana abierta durante la prueba. Al cerrarla,
 if ($SoloYo) { $form.Text="Sofía · Solo mi WhatsApp"; $number.Visible=$false; $etiqueta.Text="Prueba privada con tu propio teléfono"; $status.Text="Escanea el QR desde tu propio WhatsApp." }; if ($Mario) { $form.Text="Sofía · WhatsApp de Mario"; $number.Visible=$false; $etiqueta.Text="Vincular el WhatsApp Business de Mario"; $status.Text="Mario debe escanear el QR con su teléfono. Después Sofía responderá a los clientes."; [IO.File]::WriteAllText((Join-Path $data 'perfil.txt'),'sesion-mario') }; $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 1200
 $script:server = $null
+$script:tunel = $null
+$script:tunelPuerto = 0
+$cloudflared = @((Get-Command cloudflared.exe -ErrorAction SilentlyContinue).Source, "${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe", "$env:ProgramFiles\cloudflared\cloudflared.exe") | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
 $script:ready = $false
 $script:qrSeen = $false
 $script:reintentos = 0
@@ -47,11 +50,30 @@ $iniciar = {
         $n = $number.Text -replace '[\s()+-]',''
         if (!$SoloYo -and !$Mario -and $n -notmatch '^\d{6,15}$') { $status.Text='Falta el número de prueba con su código de país.'; return }
         if (!(Test-Path $node) -or !$browser) { throw 'Falta Node.js o un navegador compatible en esta PC.' }
-        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
-        $listener.Start()
+        # Mario: mismo puerto y misma clave en cada arranque, para que el túnel y la app del celular sigan
+        # conectados aunque el conector se reinicie. Ambos viven en la carpeta de datos, fuera de Git.
+        $puertoFile = Join-Path $data 'puerto.txt'
+        $guardado = if ($Mario -and (Test-Path $puertoFile)) { [int]([IO.File]::ReadAllText($puertoFile).Trim()) } else { 0 }
+        try { $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$guardado); $listener.Start() }
+        catch { $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0); $listener.Start() }
         $port = $listener.LocalEndpoint.Port
         $listener.Stop()
-        $secret = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+        if ($Mario) { [IO.File]::WriteAllText($puertoFile,"$port") }
+        $claveFile = Join-Path $data 'clave-servidor.txt'
+        if ($Mario -and (Test-Path $claveFile)) { $secret = [IO.File]::ReadAllText($claveFile).Trim() }
+        if (!$secret -or $secret.Length -lt 32) {
+            $secret = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+            if ($Mario) { [IO.File]::WriteAllText($claveFile,$secret) }
+        }
+        # Túnel HTTPS de Cloudflare hacia este puerto (solo Mario): así la app del celular llega a esta Sofía.
+        $script:tunelLog = Join-Path $data 'tunel.log'
+        if ($Mario -and $cloudflared -and (!$script:tunel -or $script:tunel.HasExited -or $script:tunelPuerto -ne $port)) {
+            if ($script:tunel -and !$script:tunel.HasExited) { & taskkill.exe /PID $script:tunel.Id /T /F 2>&1 | Out-Null }
+            '' | Set-Content -LiteralPath $script:tunelLog
+            $script:tunel = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel','--no-autoupdate','--url',"http://127.0.0.1:$port") -WindowStyle Hidden -RedirectStandardError $script:tunelLog -RedirectStandardOutput (Join-Path $data 'tunel-salida.log') -PassThru
+            $script:tunelPuerto = $port
+        }
+        if ($Mario -and $cloudflared) { $env:SOFIA_TUNEL_LOG = $script:tunelLog }
         $script:headers = @{Authorization='Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("sofia:$secret"))}
         $script:url = "http://127.0.0.1:$port/vincular"
         $script:log = Join-Path $data 'servidor.log'
@@ -79,6 +101,11 @@ $iniciar = {
 }
 $start.Add_Click($iniciar)
 $timer.Add_Tick({
+    # Si el túnel se cayó (internet, suspensión), se vuelve a abrir; Sofía le manda a Mario el link nuevo.
+    if ($Mario -and $cloudflared -and $script:tunel -and $script:tunel.HasExited -and $script:tunelPuerto) {
+        '' | Set-Content -LiteralPath $script:tunelLog
+        $script:tunel = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel','--no-autoupdate','--url',"http://127.0.0.1:$($script:tunelPuerto)") -WindowStyle Hidden -RedirectStandardError $script:tunelLog -RedirectStandardOutput (Join-Path $data 'tunel-salida.log') -PassThru
+    }
     if ($script:server -and $script:server.HasExited -and $Mario -and !$PruebaTecnica) {
         if (!$script:reintentarEn) {
             $espera = [Math]::Min(30, [Math]::Pow(2, [Math]::Min(5, $script:reintentos)))
@@ -123,6 +150,7 @@ $timer.Add_Tick({
 })
 $form.Add_FormClosed({
     $timer.Stop()
+    if ($script:tunel -and !$script:tunel.HasExited) { & taskkill.exe /PID $script:tunel.Id /T /F 2>&1 | Out-Null }
     if ($script:server -and !$script:server.HasExited) {
         [IO.File]::WriteAllText($env:SOFIA_STOP_FILE,'')
         if (!$script:server.WaitForExit(8000)) { & taskkill.exe /PID $script:server.Id /T /F 2>&1 | Out-Null }
