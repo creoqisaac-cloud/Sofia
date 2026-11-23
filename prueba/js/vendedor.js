@@ -20,6 +20,8 @@ export const VENTAS_BASE = {
   horasConAsesor: 0, // al volver a escribir el cliente, Sofía retoma; la pausa breve cubre respuestas manuales de Mario
   presentacion: "", // cómo saluda en el primer mensaje; vacío = "¡Hola {nombre}! 👋"
   ia: false, // con IA (opcional, de pago): contesta lo que el menú no entiende, con los mismos datos y reglas
+  seguimiento: true, // al día siguiente y a los 3 días le escribe a quien se quedó callado (máx. 2 veces)
+  resumenDiario: true, // a las 9 am le manda a Mario, a su chat «Tú», sus citas y pendientes del día
 };
 export const MAX_POR_HORA = 15; // freno contra bucles con otro contestador automático
 const HORA = 3600 * 1000;
@@ -344,6 +346,13 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     Object.assign(lead, { quiereAsesor: true });
     Object.assign(c, { paso: "asesor", desde: now.toISOString(), opciones: null, silencioHasta: new Date(now.getTime() + 12 * HORA).toISOString() });
     return quedar("dice-bot");
+  }
+  // «Ya no me interesa», «ya compré en otro lado»: se despide bonito y no se le vuelve a escribir.
+  if (!comandoPrueba && /\b(ya no (me )?interesa|ya no estoy interesad[oa]|ya compre (en|con) otr\w*|ya compre otr\w*|ya adquiri otr\w*)\b/.test(limpio)) {
+    Object.assign(lead, { calor: "perdido", noPromociones: true });
+    Object.assign(c, { paso: "asesor", desde: now.toISOString(), opciones: null, autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
+    const nom = primerNombre(msg.nombre);
+    return { respuestas: [{ texto: `Va${nom ? `, ${nom}` : ""}, gracias por avisarme. Si más adelante buscas auto, aquí estoy 🙂` }], conv: c, lead, motivo: "no-interesa" };
   }
   if (tieneAlguna(limpio, POSTVENTA)) {
     Object.assign(lead, { quiereAsesor: true, postventa: true });

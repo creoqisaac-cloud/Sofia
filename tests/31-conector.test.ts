@@ -795,7 +795,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
   it("configuración de la vendedora: valores por defecto y límites", async () => {
     const store = memStore();
     const def = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
-    expect(def.ventas).toEqual({ activo: true, tasaAnual: 15.9, engancheMinimo: 20, plazos: [24, 36, 48, 60], horasConAsesor: 0, presentacion: "", ia: true });
+    expect(def.ventas).toEqual({ activo: true, tasaAnual: 15.9, engancheMinimo: 20, plazos: [24, 36, 48, 60], horasConAsesor: 0, presentacion: "", ia: true, seguimiento: true, resumenDiario: true });
     const r = await (await configurar(store, { ventas: { tasaAnual: 12.5, plazos: [12, 72, 500, "x", 12] } })).json();
     expect(r.config.ventas).toMatchObject({ activo: true, tasaAnual: 12.5, plazos: [12, 72], engancheMinimo: 20 });
     const off = await (await configurar(store, { ventas: { activo: false } })).json();

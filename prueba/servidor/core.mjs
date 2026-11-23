@@ -313,6 +313,8 @@ function normalizarVentas(v = {}) {
     horasConAsesor: entre(v.horasConAsesor, b.horasConAsesor, 0, 168),
     presentacion: textoAuto(v.presentacion, "Presentación"),
     ia: v.ia === undefined ? b.ia : Boolean(v.ia),
+    seguimiento: v.seguimiento === undefined ? b.seguimiento : Boolean(v.seguimiento),
+    resumenDiario: v.resumenDiario === undefined ? b.resumenDiario : Boolean(v.resumenDiario),
   };
 }
 
@@ -1127,6 +1129,7 @@ async function publicarProgramada(env, store, x, base, ahora) {
 /** Envía recordatorio por WhatsApp cerca de una hora antes, si la cita sigue activa. */
 async function recordarCitas(env, store, ahora) {
   if (!(env.WA_WEB?.estado?.().ok || waReady(env))) return 0;
+  if (env.WA_WEB?.estado?.().ok) await confirmarCitasDeManana(env, store, ahora);
   const citas = (await store.get("agenda:citas")) ?? [];
   const dentroDe = ahora.getTime() + 60 * 60 * 1000;
   const listas = citas.filter((c) => c.estado === "apartada" && c.canal === "wa" && !c.recordatorioEnviadoAt && !c.recordatorioBloqueado
@@ -1146,9 +1149,8 @@ async function recordarCitas(env, store, ahora) {
       await store.put("agenda:citas", citas);
       continue;
     }
-    const fecha = new Intl.DateTimeFormat("es-MX", { timeZone: cfg.zonaHoraria, weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(new Date(cita.id));
-    const nombre = String(cita.nombre || "").trim().split(/\s+/)[0];
-    const texto = `Hola${nombre ? ` ${nombre}` : ""}, soy ${cfg.asesor || "Mario Abarca"}. Te confirmo nuestra cita para el ${fecha} en ${cfg.agencia || cfg.marca || "Honda"}. ¿Sigue en pie?`;
+    const nombre = primerNombre(cita.nombre);
+    const texto = `Hola${nombre ? ` ${nombre}` : ""}, ya casi: te espero hoy ${horaDeCita(cfg, cita.id)} en ${cfg.agencia || cfg.marca || "Honda"}. Al llegar pregunta por mí, ${cfg.asesor || "Mario Abarca"} 👋`;
     try {
       await sendMessage(env, store, { channel: "wa", to: cita.cliente, text: texto }, { ahora, autoKey: "cita:recordatorio" });
       cita.recordatorioEnviadoAt = ahora.toISOString();
@@ -1158,6 +1160,140 @@ async function recordarCitas(env, store, ahora) {
     await store.put("agenda:citas", citas);
   }
   return enviadas;
+}
+
+// ───────── Trabajo solo (WhatsApp vinculado de Mario): confirmar citas, seguimiento y resumen del día ─────────
+
+/** Día, fecha (AAAA-MM-DD) y minutos del día en la zona de la agencia. */
+function relojLocal(cfg, fecha) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: cfg.zonaHoraria, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(fecha).map((x) => [x.type, x.value]));
+  return { dia: DIAS[p.weekday], fecha: `${p.year}-${p.month}-${p.day}`, min: Number(p.hour) * 60 + Number(p.minute) };
+}
+/** «a la 1 pm», «a las 11:30 am». */
+function horaDeCita(cfg, iso) {
+  const { min } = relojLocal(cfg, new Date(iso));
+  const h24 = Math.floor(min / 60), h12 = h24 % 12 || 12, m = min % 60;
+  return `${h12 === 1 ? "a la" : "a las"} ${h12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h24 < 12 ? "am" : "pm"}`;
+}
+/** Número de Mario (su chat «Tú» en el WhatsApp vinculado, u otro si se configuró ASESOR_WHATSAPP). */
+function numeroDeMario(env) {
+  const n = String(env.ASESOR_WHATSAPP || env.WA_WEB?.estado?.().phone || "").replace(/\D/g, "");
+  return n.length === 10 ? `52${n}` : n;
+}
+/** ¿Es buena hora para escribirle a un cliente? Día de trabajo, de 10 am a 7 pm. */
+function horaDeEscribir(cfg, ahora) {
+  const l = relojLocal(cfg, ahora);
+  return cfg.horario.dias.includes(l.dia) && l.min >= 10 * 60 && l.min < 19 * 60;
+}
+const conArticulo = (interes) => {
+  const m = String(interes ?? "").replace(/^honda\s+/i, "").replace(/\s+(19|20)\d{2}$/, "").trim();
+  if (!m) return { de: "tu próximo Honda", lo: "lo" };
+  const fem = /^(hr-?v|br-?v|cr-?v|pilot|odyssey)\b/i.test(m);
+  return { de: `${fem ? "la" : "el"} ${m}`, lo: fem ? "la" : "lo" };
+};
+
+/** Un día antes (de 10 am a 8 pm): «¿sigue en pie tu cita de mañana a la 1 pm?». Solo citas apartadas con anticipación. */
+async function confirmarCitasDeManana(env, store, ahora) {
+  const cfg = await leerConfig(store);
+  const l = relojLocal(cfg, ahora);
+  if (l.min < 10 * 60 || l.min >= 20 * 60) return 0;
+  const manana = relojLocal(cfg, new Date(ahora.getTime() + 24 * 3600e3)).fecha;
+  const citas = (await store.get("agenda:citas")) ?? [];
+  const cita = citas.find((c) => c.estado === "apartada" && c.canal === "wa" && !c.confirmacionAt && relojLocal(cfg, new Date(c.id)).fecha === manana
+    && ahora - new Date(c.creada ?? 0) > 3 * 3600e3);
+  if (!cita) return 0;
+  cita.confirmacionAt = ahora.toISOString(); // se marca antes: nunca dos veces aunque falle el envío
+  await store.put("agenda:citas", citas);
+  const nombre = primerNombre(cita.nombre);
+  const { de } = conArticulo(cita.interes);
+  const texto = `¡Hola${nombre ? ` ${nombre}` : ""}! Te escribo para confirmar tu cita de mañana ${horaDeCita(cfg, cita.id)}${cita.interes ? ` para que veas ${de}` : ""}. ¿Sigue en pie? 🙌`;
+  try { await sendMessage(env, store, { channel: "wa", to: cita.cliente, text: texto }, { ahora, autoKey: "cita:confirmar" }); return 1; }
+  catch (e) { await anotarError(store, { canal: "wa", id: cita.cliente }, `Confirmación de cita: ${e.message ?? e}`, ahora); return 0; }
+}
+
+/**
+ * Seguimiento: a quien preguntó por un auto y dejó de contestar, Sofía le escribe como Mario al día siguiente y,
+ * si sigue callado, a los 3 días; luego ya no. Nunca a postventa, a quien pidió no recibir promociones o borrar
+ * sus datos, a quien tiene cita, ni a chats que Mario lleva a mano. Uno por minuto y máximo 25 al día.
+ */
+async function darSeguimiento(env, store, cfg, ahora) {
+  if (cfg.ventas.seguimiento === false || !cfg.activo || !cfg.ventas.activo || !horaDeEscribir(cfg, ahora)) return 0;
+  const hoy = relojLocal(cfg, ahora).fecha;
+  const conteo = (await store.get("seguimiento:conteo")) ?? {};
+  if ((conteo[hoy] ?? 0) >= 25) return 0;
+  const leads = (await store.get("leads:index")) ?? {};
+  const index = (await store.get("inbox:index")) ?? {};
+  const DIA = 24 * 3600e3;
+  // Con cita por venir o que ya vino esta semana: eso lo lleva Mario en persona.
+  const conCita = new Set(((await store.get("agenda:citas")) ?? []).filter((c) => c.estado !== "cancelada" && new Date(c.id) > ahora - 7 * DIA).map((c) => `${c.canal || "wa"}:${c.cliente}`));
+  const toca = Object.entries(leads).find(([clave, l]) => {
+    const conv = index[clave];
+    const etapa = l.seguimientos ?? 0;
+    if (!clave.startsWith("wa:") || !conv || etapa >= 2 || l.postventa || l.noPromociones || l.pideBorrar || l.quiereAsesor) return false;
+    if (["cerrado", "perdido"].includes(l.calor) || !(l.interes || ["tibio", "caliente"].includes(l.calor)) || conCita.has(clave)) return false;
+    if (conv.lastDir !== "out" || !conv.lastInAt || ahora - new Date(conv.lastInAt) > 14 * DIA) return false; // ya contestó, o es muy viejo (eso es «revivir cartera»)
+    if (conv.lastManualAt && new Date(conv.lastManualAt) >= new Date(conv.lastInAt)) return false; // Mario le contestó a mano: él lo lleva
+    if (conv.venta?.silencioHasta && new Date(conv.venta.silencioHasta) > ahora) return false;
+    if (etapa === 0) return ahora - new Date(conv.lastAt) >= 20 * 3600e3;
+    return ahora - new Date(l.seguimientoAt ?? 0) >= 3 * DIA && new Date(conv.lastAt) <= new Date(new Date(l.seguimientoAt).getTime() + 60e3);
+  });
+  if (!toca) return 0;
+  const [clave, l] = toca;
+  const etapa = (l.seguimientos ?? 0) + 1;
+  leads[clave] = { ...l, seguimientos: etapa, seguimientoAt: ahora.toISOString() }; // se marca antes de enviar
+  await store.put("leads:index", leads);
+  await store.put("seguimiento:conteo", Object.fromEntries([...Object.entries(conteo).filter(([f]) => f >= relojLocal(cfg, new Date(ahora.getTime() - 7 * DIA)).fecha), [hoy, (conteo[hoy] ?? 0) + 1]]));
+  const nombre = primerNombre(l.nombreCliente || l.nombre || index[clave]?.name);
+  const hola = `Hola${nombre ? ` ${nombre}` : ""}`;
+  const { de, lo } = conArticulo(l.interes);
+  const opciones = etapa === 1
+    ? [`¡${hola}! ¿Pudiste ver lo de ${de}? Si quieres te armo la corrida o te aparto un horario para que ${lo} manejes, sin compromiso.`,
+      `${hola}, ¿cómo vas? Me quedé pendiente de ${de}. ¿Te paso la corrida o prefieres venir a ver${lo}?`]
+    : [`${hola}, no te quiero molestar 🙂 Sigo a tus órdenes con ${de}; esta semana te puedo armar algo a tu medida. Si ya no te interesa, dímelo y no te escribo más.`];
+  const texto = opciones[huella(clave).charCodeAt(0) % opciones.length];
+  try { await sendMessage(env, store, { channel: "wa", to: l.id, text: texto }, { ahora, autoKey: `seguimiento:${etapa}` }); return 1; }
+  catch (e) { await anotarError(store, { canal: "wa", id: l.id }, `Seguimiento: ${e.message ?? e}`, ahora); return 0; }
+}
+
+/** A las 9 am (días de trabajo), un resumen a Mario en su chat «Tú»: citas de hoy, quién espera respuesta y los calientes. */
+async function resumenDelDia(env, store, cfg, ahora) {
+  const l = relojLocal(cfg, ahora);
+  if (cfg.ventas.resumenDiario === false || !cfg.horario.dias.includes(l.dia) || l.min < 9 * 60 || l.min >= 12 * 60) return false;
+  if ((await store.get("resumen:enviado")) === l.fecha) return false;
+  const mario = numeroDeMario(env);
+  if (!mario) return false;
+  await store.put("resumen:enviado", l.fecha);
+  const DIA = 24 * 3600e3;
+  const leads = (await store.get("leads:index")) ?? {};
+  const index = (await store.get("inbox:index")) ?? {};
+  const nombreDe = (clave) => { const x = leads[clave] ?? {}; return x.nombreCliente || x.nombre || index[clave]?.name || `…${clave.slice(-4)}`; };
+  const citas = ((await store.get("agenda:citas")) ?? []).filter((c) => c.estado === "apartada" && relojLocal(cfg, new Date(c.id)).fecha === l.fecha).sort((a, b) => a.id.localeCompare(b.id));
+  const esperan = Object.entries(index).filter(([k, c]) => leads[k] && !leads[k].postventa && c.lastDir === "in" && ahora - new Date(c.lastAt) < 7 * DIA).map(([k]) => k);
+  const calientes = Object.entries(leads).filter(([k, x]) => x.calor === "caliente" && ahora - new Date(x.actualizado ?? x.at ?? 0) < 14 * DIA).map(([k]) => k);
+  const postventa = Object.entries(leads).filter(([k, x]) => x.postventa && index[k]?.lastDir === "in" && ahora - new Date(index[k].lastAt) < 3 * DIA).map(([k]) => k);
+  const ayer = relojLocal(cfg, new Date(ahora.getTime() - DIA)).fecha;
+  const seguidos = ((await store.get("seguimiento:conteo")) ?? {})[ayer] ?? 0;
+  const nombres = (claves) => claves.slice(0, 6).map(nombreDe).join(", ") + (claves.length > 6 ? ` y ${claves.length - 6} más` : "");
+  const texto = [
+    `☀️ Buenos días, ${primerNombre(cfg.asesor) || "Mario"}. Así va tu día:`,
+    citas.length ? `📅 Citas hoy (${citas.length}):\n${citas.map((c) => `• ${horaDeCita(cfg, c.id).replace(/^a las? /, "")} · ${c.nombre || nombreDe(`wa:${c.cliente}`)}${c.interes ? ` (${c.interes.replace(/^Honda\s+/i, "")})` : ""}`).join("\n")}` : "📅 Hoy no hay citas agendadas.",
+    esperan.length ? `💬 Esperan respuesta (${esperan.length}): ${nombres(esperan)}` : "",
+    postventa.length ? `🛠️ Postventa por atender (${postventa.length}): ${nombres(postventa)}` : "",
+    calientes.length ? `🔥 Calientes (${calientes.length}): ${nombres(calientes)}` : "",
+    seguidos ? `🔁 Ayer le di seguimiento a ${seguidos} cliente${seguidos === 1 ? "" : "s"} que se habían quedado callados.` : "",
+    "Todo lo ves en Sofía Web.",
+  ].filter(Boolean).join("\n\n");
+  try { await sendMessage(env, store, { channel: "wa", to: mario, text: texto }, { ahora }); return true; }
+  catch (e) { await anotarError(store, { canal: "wa", id: "resumen" }, `Resumen del día: ${e.message ?? e}`, ahora); return false; }
+}
+
+/** Lo que Sofía hace sola cada minuto con el WhatsApp de Mario (no en Cloudflare ni con la API de Meta). */
+async function trabajarSola(env, store, ahora) {
+  if (!env.WA_WEB?.estado?.().ok) return {};
+  const cfg = await leerConfig(store);
+  const resumen = await resumenDelDia(env, store, cfg, ahora);
+  const seguimientos = await darSeguimiento(env, store, cfg, ahora);
+  return { resumen, seguimientos };
 }
 
 /**
@@ -1170,6 +1306,7 @@ export async function runScheduled(envBase, store, ahoraISO = new Date().toISOSt
   const env = await conConexion(envBase, store);
   const ahora = new Date(ahoraISO);
   const recordatorios = soloId ? 0 : await recordarCitas(env, store, ahora);
+  if (!soloId) await trabajarSola(env, store, ahora).catch((e) => console.error("Trabajo solo:", e.message));
   const cola = (await store.get("social:cola")) ?? [];
   const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && ((x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora)
     || (x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS)));

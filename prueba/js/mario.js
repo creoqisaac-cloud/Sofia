@@ -381,13 +381,17 @@ export function renderAjustesMario(root) {
       // Conducta
       const activo = h("input", { type: "checkbox", checked: Boolean(cfg.activo && cfg.ventas?.activo) });
       const conIa = h("input", { type: "checkbox", checked: Boolean(cfg.ventas?.ia) });
+      const seguir = h("input", { type: "checkbox", checked: cfg.ventas?.seguimiento !== false });
+      const resumen = h("input", { type: "checkbox", checked: cfg.ventas?.resumenDiario !== false });
       const pausa = h("select", { class: "m-input" }, [[0, "No se calla"], [10, "10 minutos"], [30, "30 minutos"], [60, "1 hora"]].map(([v, l]) => h("option", { value: v, selected: Number(cfg.pausaMinutos) === v }, l)));
       conducta.replaceChildren(h("h2", {}, "Cómo trabaja"),
         h("label", { class: "m-row" }, activo, h("span", {}, "Sofía contesta sola a los clientes")),
         h("label", { class: "m-row" }, conIa, h("span", {}, "Usar IA cuando esté conectada")),
+        h("label", { class: "m-row" }, seguir, h("span", {}, "Seguimiento: escribirle al día siguiente y a los 3 días a quien se quedó callado")),
+        h("label", { class: "m-row" }, resumen, h("span", {}, "Resumen del día a las 9 am en mi chat «Tú»")),
         h("label", { class: "m-field" }, h("span", { class: "m-label" }, "Si Mario contesta a mano, Sofía se calla en ese chat"), pausa),
         h("button", { class: "m-btn", onclick: async () => {
-          try { await setAgentConfig({ ...cfg, activo: activo.checked, pausaMinutos: Number(pausa.value), ventas: { ...cfg.ventas, activo: activo.checked, ia: conIa.checked } }); toast("Guardado"); } catch (e) { toast(e.message, 5000); }
+          try { await setAgentConfig({ ...cfg, activo: activo.checked, pausaMinutos: Number(pausa.value), ventas: { ...cfg.ventas, activo: activo.checked, ia: conIa.checked, seguimiento: seguir.checked, resumenDiario: resumen.checked } }); toast("Guardado"); } catch (e) { toast(e.message, 5000); }
         } }, "Guardar"));
     } catch (e) { estado.replaceChildren(); falla(estado, e); }
   })();
