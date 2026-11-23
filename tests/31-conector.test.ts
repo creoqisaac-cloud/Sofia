@@ -729,7 +729,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
 
     calls.length = 0;
     await handle(signed(waMsg("wamid.V2", "4", mas(LUNES_10, 1))), env(), store, { ahora: mas(LUNES_10, 1) });
-    expect(waEnvios()[0]!.text.body).toBe("Va, ahorita le aviso a Pedro para que te escriba.");
+    expect(waEnvios()[0]!.text.body).toBe("Claro, dame unos minutos y te escribo.");
     expect(await leadDe(store)).toMatchObject({ quiereAsesor: true, calor: "caliente" });
     expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).prospectos).toEqual({ nuevos: 1, calientes: 1 });
 
@@ -758,7 +758,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect(opciones).toContain("1️⃣ hoy a las 12 pm");
     expect(opciones).toContain("4️⃣ Otro día u hora");
     expect(await decir("wamid.L7", "1", 6)).toBe("Listo, quedó hoy a las 12 pm. ¿A nombre de quién?");
-    expect(await decir("wamid.L8", "Lucía Pérez", 7)).toBe("Gracias, Lucía. Al llegar a la agencia pregunta por Pedro para que vaya a recibirte.");
+    expect(await decir("wamid.L8", "Lucía Pérez", 7)).toBe("Gracias, Lucía. Al llegar a la agencia pregunta por mí, Pedro, y salgo a recibirte.");
     expect(await leadDe(store)).toMatchObject({ autoId: "versa", formaPago: "credito", enganche: 80000, cita: "hoy a las 12 pm", citaConfirmada: true, nombreCliente: "Lucía Pérez", quiereAsesor: true });
     const { citas } = await (await handle(req("/api/agenda?token=clave"), env(), store, { ahora: mas(LUNES_10, 8) })).json();
     expect(citas).toEqual([expect.objectContaining({ id: "2026-10-12T18:00:00.000Z", texto: "hoy a las 12 pm", cliente: CLIENTA, nombre: "Lucía Pérez", interes: "Nissan Versa 2022", estado: "apartada" })]);
@@ -953,7 +953,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect((await decir("wamid.S1", "Buenas, precio del civic", 0)).cliente).toBe("¡Hola Lucía! 👋 Soy Mario Abarca, de Honda.\nClaro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?");
     expect((await decir("wamid.S2", "como 80 mil", 1)).cliente).toMatch(/^Va, con 80 mil te armo la corrida\. ¿Cuándo puedes venir a ver el Civic\? Tengo:\n1️⃣ hoy a las 12 pm/);
     const pide = await decir("wamid.S3", "mejor que me marque el asesor", 2);
-    expect(pide.cliente).toBe("Va, ahorita le aviso a Mario Abarca para que te escriba.");
+    expect(pide.cliente).toBe("Claro, dame unos minutos y te escribo.");
     expect(pide.asesor).toHaveLength(1);
     expect(pide.asesor[0]).toContain("🔥 PIDE ASESOR · LUCÍA Prueba\nVehículo: Honda Civic");
     expect(pide.asesor[0]).toContain(`Abrir chat: https://wa.me/${CLIENTA}`);

@@ -42,7 +42,7 @@ describe("vendedora · conversación", () => {
     expect(ultimo.motivo).toBe("menu");
     expect(texto).toMatch(/^¡Hola Ana! 👋 Soy Pedro, de Honda Ejemplo\.\n¿En qué te ayudo\?/);
     expect(texto).toContain("1️⃣ Ver autos disponibles");
-    expect(texto).toContain("4️⃣ Hablar con Pedro");
+    expect(texto).toContain("4️⃣ Que te marque por teléfono");
   });
 
   it("menú → lista → ficha con foto y precio → cotización → cita: el prospecto queda completo", () => {
@@ -53,7 +53,7 @@ describe("vendedora · conversación", () => {
     expect(r.txt(2)).toContain("💵 *$689,900* de contado");
     expect(r.paso(4).motivo).toBe("cotizacion");
     expect(r.txt(4)).toContain(`• 60 meses: *$${Math.round(mensualidad(689900 * 0.7, 15.9, 60)).toLocaleString("es-MX")}*`);
-    expect(r.ultimo.respuestas[0]!.texto).toBe("Va, queda anotado: el sábado a las 11 para ver la Honda CR-V Touring 2026. Ahorita te confirma Pedro.");
+    expect(r.ultimo.respuestas[0]!.texto).toBe("Va, queda anotado: el sábado a las 11 para ver la Honda CR-V Touring 2026. Te confirmo en un momento.");
     expect(r.lead).toMatchObject({ autoId: "crv", interes: "Honda CR-V Touring 2026", precio: 689900, formaPago: "credito", enganche: 206970, plazo: 60, cita: "el sábado a las 11", quiereAsesor: true, calor: "caliente" });
   });
 
@@ -101,7 +101,7 @@ describe("vendedora · conversación", () => {
   it("pasa el prospecto a Pedro y Sofía retoma si el cliente vuelve a escribir", () => {
     const r = charla(["Hola", "quiero hablar con un asesor", "¿sigues ahí?", "menú"]);
     expect(r.paso(1).motivo).toBe("asesor");
-    expect(r.txt(1)).toBe("Va, ahorita le aviso a Pedro para que te escriba.");
+    expect(r.txt(1)).toBe("Claro, dame unos minutos y te escribo.");
     expect(r.paso(2).motivo).not.toBe("con-asesor");
     expect(r.paso(2).respuestas.length).toBeGreaterThan(0);
     expect(r.ultimo.motivo).toBe("menu");
@@ -124,7 +124,7 @@ describe("vendedora · conversación", () => {
     expect(r.paso(1).motivo).toBe("no-entendi");
     expect(r.txt(1)).toContain("no te entendí");
     expect(r.ultimo.motivo).toBe("no-entendi");
-    expect(r.ultimo.respuestas[0]!.texto).toContain("le aviso a Pedro");
+    expect(r.ultimo.respuestas[0]!.texto).toContain("dame unos minutos y te escribo");
     expect(r.lead).toMatchObject({ quiereAsesor: true });
   });
 
@@ -154,7 +154,7 @@ describe("vendedora · conversación", () => {
     expect(apartada.reserva).toMatchObject(libres[1]!);
     expect(apartada.respuestas[0]!.texto).toBe("Listo, quedó el miércoles 11 a las 4 pm. ¿A nombre de quién?");
     const nombre = di("Luis Treviño", apartada.conv, 3);
-    expect(nombre.respuestas[0]!.texto).toBe("Gracias, Luis. Al llegar a la agencia pregunta por Mario Abarca para que vaya a recibirte.");
+    expect(nombre.respuestas[0]!.texto).toBe("Gracias, Luis. Al llegar a la agencia pregunta por mí, Mario Abarca, y salgo a recibirte.");
     expect(nombre.lead).toMatchObject({ nombreCliente: "Luis Treviño", quiereAsesor: true });
   });
 
@@ -179,13 +179,13 @@ describe("vendedora · conversación", () => {
     expect(contado.lead).toMatchObject({ formaPago: "contado" });
     const raro = charlaSin(["Hola", "asdf", "qwer"]);
     expect(raro.txt(1)).toBe("Perdón, no te entendí. ¿Qué modelo te interesa?");
-    expect(raro.texto).toBe("Va, ahorita le aviso a Mario Abarca para que te escriba.");
+    expect(raro.texto).toBe("Claro, dame unos minutos y te escribo.");
   });
 
   it("el asesor con título se nombra con artículo; sin título, solo el nombre", () => {
     expect([asesorCon("Lic. Mario Abarca"), asesorCon("Lic. Mario Abarca", "a"), asesorCon("Lic. Mario Abarca", "de")]).toEqual(["el Lic. Mario Abarca", "al Lic. Mario Abarca", "del Lic. Mario Abarca"]);
     expect([asesorCon("Licenciada Ana Ruiz", "a"), asesorCon("Pedro", "de"), asesorCon("Pedro")]).toEqual(["a la Licenciada Ana Ruiz", "de Pedro", "Pedro"]);
-    expect(charla(["Hola", "2"], { cfg: { ...CFG, asesor: "Lic. Mario Abarca" }, inventario: [] }).texto).toBe("Va, ahorita le aviso al Lic. Mario Abarca para que te escriba.");
+    expect(charla(["Hola", "2"], { cfg: { ...CFG, asesor: "Lic. Mario Abarca" }, inventario: [] }).texto).toBe("Claro, dame unos minutos y te escribo.");
   });
 
   it("freno: con otro bot del otro lado no contesta más de MAX_POR_HORA veces por hora", () => {
@@ -269,7 +269,7 @@ describe("vendedora · IA opcional", () => {
     expect(system).toContain("Eres Mario Abarca, asesor de ventas de Honda en Monterrey.");
     expect(system).toContain("di «Mario Abarca», nunca solo «Mario» ni «Mario te dice».");
     expect(system).toContain("Confirma claramente el día y la hora de la cita.");
-    expect(system).toContain("Al llegar a la agencia pregunta por Mario Abarca para que vaya a recibirte.");
+    expect(system).toContain("Al llegar a la agencia pregunta por mí, Mario Abarca, y salgo a recibirte.");
     expect(system).toContain("«con gusto te ayudo», «excelente elección», «promoción del mes», «lo siento»");
     expect(system).toContain(`CORRIDAS (las únicas cifras de crédito que puedes dar; tal cual):\n${corridas}`);
     expect(system).not.toContain("Aún no tienes las cifras");
@@ -298,7 +298,7 @@ describe("vendedora · aviso de privacidad", () => {
   it("«BORRAR MIS DATOS» y «NO PROMOCIONES» se contestan siempre y quedan anotados para el asesor", () => {
     const borrar = charla(["Hola", "4", "Quiero que BORREN MIS DATOS por favor"]);
     expect(borrar.ultimo.motivo).toBe("borrar-datos"); // aunque ya lo atendía el asesor
-    expect(borrar.texto).toContain("Recibimos tu solicitud para borrar tus datos. Pedro la confirma");
+    expect(borrar.texto).toContain("Recibí tu solicitud para borrar tus datos. Te confirmo");
     expect(borrar.lead).toMatchObject({ pideBorrar: true, quiereAsesor: true });
     const promo = charla(["Hola", "no promociones gracias"]);
     expect(promo.ultimo.motivo).toBe("sin-promociones");
@@ -360,5 +360,22 @@ describe("vendedora · recuperación de chat propio de prueba", () => {
     const recuperado = ejecutar("/sofia hola", true, segundo.conv);
     expect(recuperado.respuestas.length).toBeGreaterThan(0);
     expect(recuperado.motivo).not.toBe("con-asesor");
+  });
+});
+
+describe("vendedora · habla como Mario y respeta la postventa", () => {
+  it("una devolución no recibe menú de ventas: contesta como Mario, avisa y se calla 12 h", () => {
+    const ahora = new Date("2026-11-23T16:00:00Z");
+    const r = decidir({ cfg: { asesor: "Mario Abarca", agencia: "Honda" }, inventario: [], conv: {}, msg: { texto: "Hola, vengo por lo de la devolución de mi apartado", nombre: "Ana López", primero: true }, ahora });
+    expect(r.motivo).toBe("postventa");
+    expect(r.respuestas[0]!.texto).toBe("Claro, Ana, déjame revisarlo y te confirmo en un momento.");
+    expect(r.lead).toMatchObject({ quiereAsesor: true, postventa: true });
+    const despues = decidir({ cfg: { asesor: "Mario Abarca" }, inventario: [], conv: r.conv, msg: { texto: "¿qué precio tiene el CR-V?", nombre: "Ana" }, ahora: new Date(ahora.getTime() + 3600e3) });
+    expect(despues.respuestas).toEqual([]);
+  });
+  it("nunca dice que le avisa a un asesor ni que la pasa con alguien", () => {
+    const r = decidir({ cfg: { asesor: "Mario Abarca" }, inventario: [], conv: {}, msg: { texto: "me puedes llamar?", nombre: "Luis" }, ahora: new Date("2026-11-23T16:00:00Z") });
+    expect(r.respuestas[0]!.texto).toMatch(/^Claro, dame unos minutos y te marco 📞/);
+    expect(r.respuestas[0]!.texto).not.toMatch(/asesor|le aviso|te paso/i);
   });
 });

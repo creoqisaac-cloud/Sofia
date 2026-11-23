@@ -415,7 +415,7 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
       const etiquetas = [
         r.lead.quiereAsesor && "Asesor",
         (r.lead.cita || r.reserva) && "Cita",
-        (r.lead.calor === "caliente" || r.lead.quiereAsesor || r.reserva) && "Caliente",
+        (r.lead.calor === "caliente" || (r.lead.quiereAsesor && !r.lead.postventa) || r.reserva) && "Caliente",
         r.lead.interes && !r.lead.quiereAsesor && !r.lead.cita && !r.reserva && "Prospecto",
       ].filter(Boolean);
       if (etiquetas.length) await env.WA_WEB.etiquetar({ to: e.id, etiquetas }).catch(() => {});
@@ -506,7 +506,7 @@ async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
   const corrida = lead.mensualidad ? `Mensualidad mencionada: ${pesos(lead.mensualidad)}${lead.plazo ? ` a ${lead.plazo} meses` : ""}` : "";
   const siguiente = cita ? "Confirmar la visita y recibirlo en agencia" : lead.quiereAsesor ? "Contactarlo y retomar la conversación" : "Dar seguimiento a la cotización";
   const renglones = [
-    cita ? `📅 CITA · ${nombre} · ${cita.texto}` : `🔥 PIDE ASESOR · ${nombre}`,
+    cita ? `📅 CITA · ${nombre} · ${cita.texto}` : lead.postventa ? `🛠️ POSTVENTA (devolución, servicio o trámite) · ${nombre} · Sofía le dijo que lo revisas y le confirmas; no le vende en este chat 12 h` : `🔥 PIDE ASESOR · ${nombre}`,
     interes && `Vehículo: ${interes}${lead.precio ? ` · ${pesos(lead.precio)}` : ""}`,
     pago,
     corrida,

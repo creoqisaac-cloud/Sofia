@@ -208,7 +208,7 @@ test("como persona: «escribiendo…» antes de contestar, y la cita le llega al
   await cliente("1");
   await cliente("Luis Treviño");
   const aSofia = pasos.filter(x => typeof x !== "string" && x.a === peer + "@c.us").map(x => x.texto);
-  assert.match(aSofia.at(-1), /Al llegar a la agencia pregunta por Mario Abarca para que vaya a recibirte/);
+  assert.match(aSofia.at(-1), /Al llegar a la agencia pregunta por mí, Mario Abarca, y salgo a recibirte/);
   const aviso = pasos.filter(x => typeof x !== "string" && x.a === self + "@c.us");
   assert.equal(aviso.length, 1);
   assert.match(aviso[0].texto, /^📅 CITA · Luis Treviño · /);
