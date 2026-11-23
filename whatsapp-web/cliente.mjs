@@ -41,6 +41,8 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
   let conectado = false;
   let cola = Promise.resolve();
   const comandosOperativosVistos = new Set();
+  // Conserva exactamente el orden que Sofía acaba de mostrar en «Tú», aunque cambie la bandeja al sincronizar.
+  let pendientesMostrados = [];
   client.on("qr", codigo => { qr = codigo; conectado = false; });
   client.on("ready", () => { conectado = true; qr = ""; });
   const desconectar = () => { conectado = false; qr = ""; };
@@ -98,21 +100,22 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
       if (orden === "pendientes") {
         const resultado = await operaciones.pendientes();
         const lista = resultado.pendientes ?? [];
+        pendientesMostrados = lista.slice(0, 8);
         if (!lista.length) {
           await responderMario(`Listo: revisé ${resultado.chats ?? 0} chats (${resultado.mensajes ?? 0} mensajes). No encontré chats pendientes de respuesta.`);
           return;
         }
-        const filas = lista.slice(0, 8).map((x, i) => `${i + 1}. ${x.nombre || "Cliente"} · …${String(x.id).slice(-4)}\n   ${(x.ultimoMensaje || "").replace(/\s+/g, " ").slice(0, 110)}`);
-        await responderMario(`Revisé ${resultado.chats ?? 0} chats y traje ${resultado.mensajes ?? 0} mensajes. No respondí ninguno.\n\nPendientes recientes:\n${filas.join("\n")}\n\nPara responder solo uno: /sofia responder 1`);
+        const filas = pendientesMostrados.map((x, i) => `${i + 1}. ${x.fijado ? "📌 " : ""}${x.nombre || "Cliente"} · …${String(x.id).slice(-4)}\n   ${(x.ultimoMensaje || "").replace(/\s+/g, " ").slice(0, 110)}`);
+        await responderMario(`Revisé ${resultado.chats ?? 0} chats y traje ${resultado.mensajes ?? 0} mensajes. No respondí ninguno. Los chats fijados van primero.\n\nPendientes:\n${filas.join("\n")}\n\nPara responder uno: /sofia responder 1`);
         return;
       }
       const numero = Number(orden.match(/\d+/)?.[0]);
       if (!Number.isInteger(numero) || numero < 1 || numero > 8) throw new Error("Elige un número del 1 al 8. Primero usa /sofia pendientes.");
-      const resultado = await operaciones.pendientes(); // vuelve a leer los más recientes antes de enviar
-      const cliente = resultado.pendientes?.[numero - 1];
-      if (!cliente) throw new Error("Ese número ya no tiene un mensaje pendiente. Usa /sofia pendientes para actualizar la lista.");
+      const cliente = pendientesMostrados[numero - 1];
+      if (!cliente) throw new Error("Primero escribe /sofia pendientes. El número debe corresponder a esa lista.");
       await responderMario(`Voy a responder un solo chat: ${cliente.nombre || "Cliente"} · …${String(cliente.id).slice(-4)}.\nÚltimo mensaje: “${String(cliente.ultimoMensaje || "").replace(/\s+/g, " ").slice(0, 140)}”`);
       await operaciones.responderPendiente(cliente.clave);
+      pendientesMostrados.splice(numero - 1, 1);
       await responderMario(`Listo. Sofía respondió a ${cliente.nombre || "ese cliente"}. Para seguir con otro, revisa /sofia pendientes.`);
     } catch (error) {
       await responderMario(`No pude completar la orden: ${error?.message ?? error}`);
@@ -124,14 +127,15 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     if (soloMiWhatsApp) throw new Error("La importación de chats no está disponible en el modo de prueba personal.");
     const limiteAntiguedad = Date.now() / 1000 - 30 * 24 * 60 * 60;
     const chats = (await client.getChats()).filter((c) => !c.isGroup && c.lastMessage && !c.lastMessage.fromMe && c.timestamp >= limiteAntiguedad && /^\d+@c\.us$/.test(c.id?._serialized ?? ""))
-      .filter((c) => normalizar(c.id._serialized.split("@")[0]) !== normalizar(client.info?.wid?.user)).slice(0, 100);
+      .filter((c) => normalizar(c.id._serialized.split("@")[0]) !== normalizar(client.info?.wid?.user))
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.timestamp - a.timestamp).slice(0, 100);
     const changes = [];
     let mensajes = 0;
     for (const chat of chats) {
       try {
         const peer = chat.id._serialized.split("@")[0];
         const limite = Math.min(30, Math.max(5, Number(chat.unreadCount) + 3));
-        const history = await chat.fetchMessages({ limit: limite });
+        const history = (await chat.fetchMessages({ limit: limite })).sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
         const contacto = await chat.getContact().catch(() => null);
         await etiquetar({ to: peer, etiquetas: ["Prospecto"] }).catch(() => {});
         for (const m of history) {
@@ -148,7 +152,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
         }
       } catch { /* una conversación no accesible no bloquea las demás */ }
     }
-    return { body: { object: "whatsapp_business_account", entry: [{ changes }] }, chats: chats.length, mensajes };
+    return { body: { object: "whatsapp_business_account", entry: [{ changes }] }, chats: chats.length, mensajes, fijados: chats.filter((c) => c.pinned).map((c) => c.id._serialized.split("@")[0]) };
   }
   async function etiquetar({ to, etiquetas = [] }) {
     if (!conectado || soloMiWhatsApp) return [];

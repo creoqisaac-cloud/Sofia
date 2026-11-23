@@ -117,7 +117,7 @@ test("solo mi WhatsApp: responde a /sofia en chat propio, ignora notas y chats e
   await assert.doesNotReject(receptor.enviar({ to: self, text: "Sofía contesta" }));
 });
 
-test("Mario: /sofia pendientes no contesta; /sofia responder N responde un solo chat elegido", async () => {
+test("Mario: pendientes prioriza fijados y responder N usa exactamente la lista mostrada", async () => {
   const client = new EventEmitter();
   const self = "5218111112222@c.us";
   const enviados = [];
@@ -130,7 +130,7 @@ test("Mario: /sofia pendientes no contesta; /sofia responder N responde un solo 
     async pendientes() {
       sincronizaciones++;
       return { chats: 2, mensajes: 9, pendientes: [
-        { clave: "wa:528100000001", id: "528100000001", nombre: "Ana", ultimoMensaje: "Precio del Civic" },
+        { clave: "wa:528100000001", id: "528100000001", nombre: "Ana", ultimoMensaje: "Precio del Civic", fijado: true },
         { clave: "wa:528100000002", id: "528100000002", nombre: "Luis", ultimoMensaje: "¿Lo tienes disponible?" },
       ] };
     },
@@ -145,14 +145,17 @@ test("Mario: /sofia pendientes no contesta; /sofia responder N responde un solo 
   await comando("orden-1", "/sofia pendientes");
   assert.equal(sincronizaciones, 1);
   assert.equal(ordenes.length, 0, "listar pendientes nunca envía respuestas a clientes");
-  assert.match(enviados.at(-1).text, /1\. Ana/);
+  assert.match(enviados.at(-1).text, /1\. .*Ana/);
+  assert.match(enviados.at(-1).text, /📌 Ana/);
   assert.match(enviados.at(-1).text, /\/sofia responder 1/);
   await comando("orden-2", "/sofia responder 2");
-  assert.equal(sincronizaciones, 2, "refresca la lista antes de ejecutar la orden");
+  assert.equal(sincronizaciones, 1, "responder usa la lista exacta que Sofía mostró");
   assert.deepEqual(ordenes, ["wa:528100000002"]);
   assert.equal(enviados.filter(x => x.text.startsWith("Voy a responder un solo chat:")).length, 1);
   await comando("orden-3", "/sofia responder todos");
   assert.deepEqual(ordenes, ["wa:528100000002"], "no acepta respuestas masivas ambiguas");
+  await comando("orden-4", "/sofia responder 1");
+  assert.deepEqual(ordenes, ["wa:528100000002", "wa:528100000001"], "el chat fijado que apareció como 1 es el que se responde");
   client.emit("message_create", { type: "chat", body: "sofia ayuda", fromMe: true, from: self, to: "5218111112222@lid", id: { _serialized: "orden-lid" }, timestamp: Math.floor(Date.now() / 1000) });
   await new Promise(resolve => setTimeout(resolve, 15));
   assert.match(enviados.at(-1).text, /Órdenes de Sofía/);

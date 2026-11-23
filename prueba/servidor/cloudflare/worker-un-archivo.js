@@ -6719,7 +6719,7 @@ async function handle(req, envBase, store, opciones = {}) {
         if (!env.WA_WEB?.sincronizarPendientes) return fail("La sincronizaci\xF3n de chats pendientes requiere WhatsApp Web vinculado.", 409);
         const sincronizado = await env.WA_WEB.sincronizarPendientes();
         await procesarEventos(sincronizado.body, env, store, ahora, publicBase(env, baseDe(req)), { autoResponder: false });
-        return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, respondidos: 0 });
+        return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, fijados: sincronizado.fijados ?? [], respondidos: 0 });
       }
       case "POST /api/buzon/responder": {
         const clave = String(body.clave ?? "");

@@ -712,7 +712,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect((await handle(req("/api/inventario?token=mala"), env(), store)).status).toBe(401);
   });
 
-  it("WhatsApp: ficha con foto y precio, pase al asesor, prospecto caliente y silencio mientras atiende el asesor", async () => {
+  it("WhatsApp: ficha con foto y precio, pase al asesor y Sofía retoma en el siguiente mensaje", async () => {
     const store = memStore();
     const fotoId = await subirFoto(store);
     await handle(post("/api/inventario", { token: "clave", autos: [{ ...AUTOS[0], fotoId }, AUTOS[1]] }), env(), store);
@@ -735,7 +735,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
 
     calls.length = 0;
     await handle(signed(waMsg("wamid.V3", "¿sigues ahí?", mas(LUNES_10, 2))), env(), store, { ahora: mas(LUNES_10, 2) });
-    expect(waEnvios()).toHaveLength(0); // ya lo atiende Pedro
+    expect(waEnvios().length).toBeGreaterThan(0); // Sofía retoma cuando el cliente vuelve a escribir
   });
 
   it("recuerda la conversación entre mensajes: lista por número, cotización y cita", async () => {

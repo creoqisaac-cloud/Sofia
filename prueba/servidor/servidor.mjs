@@ -119,8 +119,8 @@ if (entorno.SOFIA_WHATSAPP_WEB === "1") {
       const limite = Date.now() - 30 * 24 * 60 * 60 * 1000;
       const pendientes = Object.entries(index)
         .filter(([clave, c]) => clave.startsWith("wa:") && c.lastDir === "in" && Date.parse(c.lastAt) >= limite)
-        .sort((a, b) => String(b[1].lastAt).localeCompare(String(a[1].lastAt)))
-        .map(([clave, c]) => ({ clave, id: c.id, nombre: c.name, ultimoMensaje: c.lastText, at: c.lastAt }));
+        .map(([clave, c]) => ({ clave, id: c.id, nombre: c.name, ultimoMensaje: c.lastText, at: c.lastAt, fijado: (resumen.fijados ?? []).includes(String(c.id)) }))
+        .sort((a, b) => Number(b.fijado) - Number(a.fijado) || String(b.at).localeCompare(String(a.at)));
       return { ...resumen, pendientes };
     },
     async responderPendiente(clave) {
