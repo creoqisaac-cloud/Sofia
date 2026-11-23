@@ -110,7 +110,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     await recibir({ object: "whatsapp_business_account", entry: [{ changes: [cambio] }] });
   }
   async function procesarComandoOperativo(m, propio) {
-    const match = String(m.body).trim().match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)(pendientes|ayuda|ayúdame|responder\s+\d+|etiquetar\s+no\s+le[ií]dos)\s*$/i);
+    const match = String(m.body).trim().match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)(pendientes|ayuda|ayúdame|responder\s+(?:todos|\d+(?:\s*(?:,|y)\s*\d+)*)|etiquetar\s+no\s+le[ií]dos)\s*$/i);
     if (!match || comandosOperativosVistos.has(m.id._serialized)) return;
     comandosOperativosVistos.add(m.id._serialized);
     if (comandosOperativosVistos.size > 200) comandosOperativosVistos.delete(comandosOperativosVistos.values().next().value);
@@ -119,7 +119,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
       if (!operaciones) throw new Error("Las órdenes de operación no están disponibles en este conector.");
       const orden = match[1].toLowerCase();
       if (orden === "ayuda" || orden === "ayúdame") {
-        await responderMario("Órdenes de Sofía:\n/sofia pendientes — trae chats recientes sin responderlos.\n/sofia responder 1 — responde solo al chat número 1 de la lista.\n/sofia etiquetar no leídos — agrega la etiqueta Prospecto a chats no leídos, sin mandar mensajes.");
+        await responderMario("Órdenes de Sofía:\n/sofia pendientes — trae chats recientes sin responderlos.\n/sofia responder 1 — responde solo al chat número 1 de la lista.\n/sofia responder 1,3,5 — responde esos chats de la lista.\n/sofia responder todos — responde todos los de la lista que te mostré.\n/sofia etiquetar no leídos — agrega la etiqueta Prospecto a chats no leídos, sin mandar mensajes.");
         return;
       }
       if (/^etiquetar\s+no\s+le[ií]dos$/.test(orden)) {
@@ -141,7 +141,23 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
           return;
         }
         const filas = pendientesMostrados.map((x, i) => `${i + 1}. ${x.fijado ? "📌 " : ""}${x.nombre || "Cliente"} · …${String(x.id).slice(-4)}\n   ${(x.ultimoMensaje || "").replace(/\s+/g, " ").slice(0, 110)}`);
-        await responderMario(`Revisé ${resultado.chats ?? 0} chats y traje ${resultado.mensajes ?? 0} mensajes. No respondí ninguno. Los chats fijados van primero.\n\nPendientes:\n${filas.join("\n")}\n\nPara responder uno: /sofia responder 1`);
+        await responderMario(`Revisé ${resultado.chats ?? 0} chats y traje ${resultado.mensajes ?? 0} mensajes. No respondí ninguno. Los chats fijados van primero.\n\nPendientes:\n${filas.join("\n")}\n\nPara responder uno: /sofia responder 1\nVarios: /sofia responder 1,3 · Todos: /sofia responder todos`);
+        return;
+      }
+      // Varios a la vez, solo de la lista que Mario acaba de ver: «responder todos» o «responder 1,3,5».
+      const varios = /todos/.test(orden) ? pendientesMostrados.map((_, i) => i + 1) : (orden.match(/\d+/g) ?? []).map(Number);
+      if (/todos/.test(orden) || varios.length > 1) {
+        const numeros = [...new Set(varios)];
+        if (!pendientesMostrados.length) throw new Error("Primero escribe /sofia pendientes. Solo respondo chats de esa lista.");
+        if (numeros.some((n) => !Number.isInteger(n) || n < 1 || n > pendientesMostrados.length)) throw new Error(`Usa números del 1 al ${pendientesMostrados.length} de la lista de /sofia pendientes.`);
+        const elegidos = numeros.map((n) => pendientesMostrados[n - 1]);
+        await responderMario(`Voy a responder ${elegidos.length} chats, uno por uno:\n${elegidos.map((c) => `• ${c.nombre || "Cliente"} · …${String(c.id).slice(-4)}`).join("\n")}`);
+        const fallidos = [];
+        for (const c of elegidos) {
+          try { await operaciones.responderPendiente(c.clave); } catch { fallidos.push(c); }
+        }
+        pendientesMostrados = pendientesMostrados.filter((c) => !elegidos.includes(c) || fallidos.includes(c));
+        await responderMario(`Listo: Sofía respondió ${elegidos.length - fallidos.length} de ${elegidos.length}.${fallidos.length ? ` No pude con: ${fallidos.map((c) => c.nombre || "…" + String(c.id).slice(-4)).join(", ")}.` : ""} Para ver más, /sofia pendientes.`);
         return;
       }
       const numero = Number(orden.match(/\d+/)?.[0]);

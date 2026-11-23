@@ -56,6 +56,13 @@ $iniciar = {
         $script:url = "http://127.0.0.1:$port/vincular"
         $script:log = Join-Path $data 'servidor.log'
         $env:SOFIA_BIND='127.0.0.1'; $env:PORT="$port"; $env:SOFIA_TOKEN=$secret
+        # IA de Cloudflare para esta Sofía: el asesor pega en cloudflare.txt (junto a los datos, fuera de Git)
+        # la línea 1 = Account ID y la línea 2 = API token. Sin el archivo, Sofía contesta solo con reglas.
+        $cf = Join-Path $data 'cloudflare.txt'
+        if (Test-Path $cf) {
+            $lineas = @([IO.File]::ReadAllLines($cf) | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+            if ($lineas.Count -ge 2) { $env:CF_ACCOUNT_ID=$lineas[0]; $env:CF_API_TOKEN=$lineas[1] }
+        }
         $env:SOFIA_DATA_DIR=Join-Path $data 'datos'
         # Solo las pruebas deben limitarse a un número. En modo Mario, el campo está oculto y puede conservar
         # el teléfono de prueba anterior; heredarlo bloquearía a todos los clientes reales.
