@@ -391,16 +391,21 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
   if (!cfg.activo) return false;
   if (ahora - new Date(e.at) > DIA_MS) return false; // mensaje viejo (Meta lo reenvió tarde): ya no se contesta
   const pausa = cfg.pausaMinutos * 60 * 1000;
-  if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
-  if (contestaElAsesor(cfg, e, ahora)) return false;
+  // En el chat de pruebas, un /sofia autorizado puede reanudar el flujo aunque
+  // antes hubiera ocurrido un pase al asesor o una intervención manual.
+  if (!e.pruebaLocal && pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
+  if (!e.pruebaLocal && contestaElAsesor(cfg, e, ahora)) return false;
   const inventario = await inventarioVendedora(store, publicBase(env, base), true);
   const historial = async () => ((await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
   const libres = await libresDe(store, cfg, ahora);
-  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero }, historial, ahora, libres);
+  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero, pruebaLocal: e.pruebaLocal === true }, historial, ahora, libres);
   if (r.errorIA) await anotarError(store, e, `IA: ${r.errorIA}`, ahora);
-  if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
-  if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
-  await avisarSiToca(env, store, cfg, e, r, ahora);
+  // Las pruebas del chat propio no generan prospectos, reservas ni notificaciones reales.
+  if (!e.pruebaLocal) {
+    if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
+    if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
+    await avisarSiToca(env, store, cfg, e, r, ahora);
+  }
   for (const [i, m] of r.respuestas.entries()) {
     try {
       await sendMessage(env, store, { channel: e.canal, to: e.id, text: m.texto, ...(m.foto ? { image: m.foto } : {}) },
@@ -495,7 +500,7 @@ async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
 
 // Lo que el menú resuelve siempre él mismo, aun con IA: el freno contra bucles, el silencio mientras atiende el
 // asesor, mensajes sin texto y los derechos del aviso de privacidad.
-const SIN_IA = new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"]);
+const SIN_IA = new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones", "comando-prueba-requerido"]);
 
 /**
  * Sin IA, contesta el menú. Con IA, Sofía lleva toda la plática como vendedora (el menú queda de respaldo: si la IA
@@ -682,14 +687,14 @@ async function procesarEventos(body, env, store, ahora, base) {
   const contestados = new Set(); // como mucho una respuesta automática por contacto en cada aviso de Meta
   // Cada mensaje entrante NUEVO: se guarda, se vuelve prospecto si es el primer contacto y, si toca, se contesta.
   // propio: lo mandó nuestro mismo número (no es prospecto ni se le contesta).
-  const recibido = async (canal, peer, nombre, msg, { contestable, propio = false }) => {
+  const recibido = async (canal, peer, nombre, msg, { contestable, propio = false, pruebaLocal = false }) => {
     const r = await addMessage(store, canal, peer, nombre, msg);
     if (!r || propio) return; // reintento de Meta (ya se procesó) o mensaje de nuestro propio número
-    if (!r.prev) await addLead(store, canal, peer, nombre, msg);
+    if (!r.prev && !pruebaLocal) await addLead(store, canal, peer, nombre, msg);
     const clave = `${canal}:${peer}`;
     if (!contestable || contestados.has(clave)) return;
     try {
-      const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev };
+      const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev, pruebaLocal };
       if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, base) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
     } catch (e) {
       console.error("Agente de Sofía:", e); // nunca romper el webhook: Meta reintentaría y se duplicaría el trabajo
@@ -708,8 +713,11 @@ async function procesarEventos(body, env, store, ahora, base) {
       const propio = String(v.metadata?.display_phone_number ?? "").replace(/\D/g, "");
       for (const m of v.messages ?? []) {
         const media = ["image", "video", "document", "audio", "sticker"].includes(m.type) ? { id: m[m.type]?.id, mime: m[m.type]?.mime_type, filename: m[m.type]?.filename ?? "" } : undefined;
+        // El origen de prueba solo es válido si el conector vinculado está en modo
+        // «Solo mi WhatsApp». El webhook normal no puede reactivar a Sofía.
+        const pruebaLocal = m.pruebaLocal === true && env.WA_WEB?.estado?.().modo === "solo-mi-whatsapp";
         await recibido("wa", m.from, names[m.from], { id: m.id, dir: "in", type: m.type, text: waText(m), at: fechaMeta(Number(m.timestamp) * 1000, ahora), ...(media ? { media } : {}) },
-          { contestable: !SIN_RESPUESTA.has(m.type) && !m.errors, propio: Boolean(propio) && m.from === propio });
+          { contestable: !SIN_RESPUESTA.has(m.type) && !m.errors, propio: !pruebaLocal && Boolean(propio) && m.from === propio, pruebaLocal });
       }
       for (const st of v.statuses ?? []) await setStatus(store, "wa", st.recipient_id, st.id, st.status);
     }
