@@ -160,6 +160,18 @@ if (entorno.SOFIA_WHATSAPP_WEB === "1") {
     },
     cancelarOrden() { const habia = Boolean(ordenPendiente); ordenPendiente = null; return habia; },
     async resumen() { return operacionInterna("/api/resumen/enviar"); },
+    // Nota de voz → texto con Whisper de Cloudflare (gratis). Sin llaves no existe y el audio queda como «[audio]».
+    ...(entorno.AI?.run ? {
+      async transcribir(base64) {
+        try {
+          const r = await entorno.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: base64, language: "es" });
+          return r?.text ?? "";
+        } catch {
+          const r = await entorno.AI.run("@cf/openai/whisper", { audio: [...Buffer.from(base64, "base64")] });
+          return r?.text ?? "";
+        }
+      },
+    } : {}),
   };
   let ordenPendiente = null;
   entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store), operaciones);

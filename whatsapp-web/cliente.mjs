@@ -83,7 +83,24 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     return String(c?.name || c?.pushname || "").trim().slice(0, 60);
   }
 
+  /** Nota de voz de un cliente → texto (IA de Cloudflare si hay llaves); "" si no se pudo (se queda para Mario). */
+  async function audioATexto(m) {
+    try {
+      if (!operaciones?.transcribir) return ""; // sin IA: el audio lo ve Mario en su WhatsApp
+      const media = await m.downloadMedia();
+      if (!media?.data || media.data.length > 7_000_000) return "";
+      const texto = String((await operaciones.transcribir(media.data, media.mimetype)) ?? "").trim();
+      return texto ? `🎤 ${texto.slice(0, 1000)}` : "";
+    } catch (e) {
+      console.warn(`No pude transcribir un audio: ${e?.message ?? e}`);
+      return "";
+    }
+  }
+
   async function procesar(m) {
+    if (conectado && ["ptt", "audio"].includes(m.type) && !m.fromMe && !m.isStatus && m.id?._serialized) {
+      m = Object.assign(Object.create(Object.getPrototypeOf(m)), m, { type: "chat", body: await audioATexto(m) });
+    }
     if (!conectado || m.type !== "chat" || !m.body || m.isStatus || !m.id?._serialized) return;
     const chat = m.fromMe ? m.to : m.from;
     if (!/^\d+@(c\.us|lid)$/.test(chat)) return;

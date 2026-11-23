@@ -300,3 +300,30 @@ test("Mario: «sofia háblale a…» primero enseña a quién y qué; solo manda
   assert.equal(mandadas, 1);
   assert.match(enviados.at(-1).text, /Listo: mandé 1 de 1\./);
 });
+
+test("nota de voz: con IA se vuelve texto y Sofía contesta; sin IA se queda para Mario", async () => {
+  for (const conIA of [true, false]) {
+    const datos = new Map();
+    const store = { get: async k => datos.get(k), put: async (k, v) => datos.set(k, v) };
+    const client = new EventEmitter();
+    const enviados = [];
+    const env = {};
+    const chat = "528100000001@c.us";
+    client.info = { wid: { user: "528100000002" } };
+    client.getNumberId = async n => ({ _serialized: n + "@c.us" });
+    client.getContactLidAndPhone = async () => [{ pn: chat }];
+    client.sendMessage = async (a, texto) => { enviados.push({ a, texto }); return { id: { _serialized: "r" + enviados.length } }; };
+    const operaciones = conIA ? { transcribir: async () => "Hola, ¿qué precio tiene el City?" } : {};
+    env.WA_WEB = vincular(client, e => eventoVinculado(e, env, store), "528100000001", false, { operaciones });
+    client.emit("ready");
+    client.emit("message_create", { type: "ptt", body: "", from: chat, id: { _serialized: "voz-1" }, timestamp: Math.floor(Date.now() / 1000), downloadMedia: async () => ({ data: "AAAA", mimetype: "audio/ogg" }) });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    if (conIA) {
+      assert.ok(enviados.length > 0, "con IA debe contestar el audio");
+      const conv = [...datos].find(([k]) => k.startsWith("inbox:c:wa:"))?.[1] ?? [];
+      assert.ok(conv.some(m => /^🎤 Hola/.test(m.text ?? "")));
+    } else {
+      assert.equal(enviados.length, 0, "sin IA el audio no se contesta");
+    }
+  }
+});
