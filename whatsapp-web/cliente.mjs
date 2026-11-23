@@ -298,6 +298,69 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     }
     return { noLeidos: chats.length, etiquetados, noEncontrada: chats.length > 0 && etiquetados === 0 && errores === 0, errores, limite: chats.length > 500 };
   }
+  // ── Etiquetas de WhatsApp Business: las que Mario ya tiene (nombre e id) y crear las que falten si WhatsApp lo permite ──
+  const sinAcento = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  async function etiquetas() {
+    if (!conectado || soloMiWhatsApp) return [];
+    return (await client.getLabels()).map((l) => ({ id: String(l.id), nombre: l.name }));
+  }
+  /** Intenta crear una etiqueta (WhatsApp Web no tiene función oficial; si no se puede, devuelve false y Mario la crea). */
+  async function crearEtiqueta(nombre) {
+    try {
+      return Boolean(await client.pupPage.evaluate(async (n) => {
+        const L = window.require("WAWebCollections").Label;
+        for (const f of ["addNewLabel", "createLabel", "addLabel"]) if (typeof L?.[f] === "function") { await L[f](n); return true; }
+        for (const mod of ["WAWebBizLabelAction", "WAWebLabelAction", "WAWebBizLabelActions"]) {
+          try { const m = window.require(mod); for (const f of ["addNewLabel", "createLabel", "addLabel"]) if (typeof m?.[f] === "function") { await m[f](n); return true; } } catch { /* sigue */ }
+        }
+        return false;
+      }, nombre));
+    } catch { return false; }
+  }
+  /**
+   * plan: [{ to: "52181…", etiquetas: ["Noviembre", "CR-V", …] }]. Además, a todo chat con mensajes sin leer le pone «No leído».
+   * Nunca quita las etiquetas que el chat ya tenía. alias: { "no leido": ["sin leer", …] } para reconocer las de Mario.
+   */
+  async function etiquetarTodo({ plan = [], alias = {}, crear = true, noLeido = "No leído" } = {}) {
+    if (!conectado) throw new Error("WhatsApp está desconectado.");
+    if (soloMiWhatsApp) throw new Error("Las etiquetas no están disponibles en el modo de prueba personal.");
+    let todas = await client.getLabels();
+    const buscar = (nombre) => {
+      const n = sinAcento(nombre);
+      const opciones = [n, ...(alias[n] ?? []).map(sinAcento)];
+      return todas.find((l) => opciones.includes(sinAcento(l.name))) ?? todas.find((l) => opciones.some((o) => o.length >= 4 && sinAcento(l.name).startsWith(o)));
+    };
+    // Lo que se ocupa: todas las etiquetas del plan + «No leído».
+    const chats = (await client.getChats()).filter((c) => !c.isGroup && /^\d+@(c\.us|lid)$/.test(c.id?._serialized ?? ""));
+    const porNumero = new Map();
+    for (const p of plan) porNumero.set(normalizar(p.to), [...(porNumero.get(normalizar(p.to)) ?? []), ...p.etiquetas]);
+    const sinLeer = chats.filter((c) => Number(c.unreadCount) > 0);
+    const nombres = [...new Set([...plan.flatMap((p) => p.etiquetas), ...(sinLeer.length ? [noLeido] : [])])];
+    const creadas = [], faltan = [];
+    for (const n of nombres) {
+      if (buscar(n)) continue;
+      if (crear && (await crearEtiqueta(n))) { creadas.push(n); todas = await client.getLabels(); if (buscar(n)) continue; }
+      faltan.push(n);
+    }
+    let etiquetados = 0, errores = 0;
+    const conteo = {};
+    for (const chat of chats) {
+      try {
+        const telefono = await telefonoDe(chat.id._serialized);
+        const numero = /^\d+@c\.us$/.test(telefono) ? normalizar(telefono.split("@")[0]) : "";
+        const quiere = [...(porNumero.get(numero) ?? []), ...(Number(chat.unreadCount) > 0 ? [noLeido] : [])];
+        const ids = [...new Set(quiere.map(buscar).filter(Boolean).map((l) => String(l.id)))];
+        if (!ids.length) continue;
+        const actuales = (await chat.getLabels().catch(() => [])).map((l) => String(l.id));
+        const nuevas = ids.filter((id) => !actuales.includes(id));
+        if (!nuevas.length) continue;
+        await chat.changeLabels([...actuales, ...nuevas]);
+        etiquetados++;
+        for (const id of nuevas) { const nom = todas.find((l) => String(l.id) === id)?.name ?? id; conteo[nom] = (conteo[nom] ?? 0) + 1; }
+      } catch { errores++; }
+    }
+    return { chats: chats.length, etiquetados, conteo, creadas, faltan, errores, sinLeer: sinLeer.length };
+  }
   client.on("message_create", m => {
     cola = cola.then(() => procesar(m)).catch(() => console.error("No se pudo procesar un mensaje del dispositivo vinculado."));
   });
@@ -305,6 +368,8 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     sincronizarPendientes,
     etiquetar,
     etiquetarNoLeidos,
+    etiquetas,
+    etiquetarTodo,
     estado: () => ({ configured: true, ok: conectado, phone: conectado ? client.info?.wid?.user : null, modo: soloMiWhatsApp ? "solo-mi-whatsapp" : "web" }),
     async enviar({ to, text, image, media }) {
       if (!conectado) throw new Error("El dispositivo de WhatsApp está desconectado.");

@@ -327,3 +327,24 @@ test("nota de voz: con IA se vuelve texto y Sofía contesta; sin IA se queda par
     }
   }
 });
+
+test("etiquetas: mes, modelo y «No leído» sin quitar las que ya tenía; avisa cuáles faltan", async () => {
+  const client = new EventEmitter();
+  client.info = { wid: { user: "528100000002" } };
+  client.getNumberId = async n => ({ _serialized: n + "@c.us" });
+  client.getContactLidAndPhone = async () => [];
+  const etiquetasDe = { "528111111111@c.us": ["9"], "528122222222@c.us": [] };
+  const chat = (id, unreadCount) => ({ id: { _serialized: id }, isGroup: false, unreadCount,
+    getLabels: async () => etiquetasDe[id].map((x) => ({ id: x })), changeLabels: async (ids) => { etiquetasDe[id] = ids.map(String); } });
+  client.getChats = async () => [chat("528111111111@c.us", 0), chat("528122222222@c.us", 3)];
+  client.getLabels = async () => [{ id: "1", name: "Nov" }, { id: "2", name: "CRV" }, { id: "3", name: "Sin leer" }, { id: "9", name: "Pagado" }];
+  client.pupPage = { evaluate: async () => false };
+  const wa = vincular(client, () => {}, "");
+  client.emit("ready");
+  const r = await wa.etiquetarTodo({ plan: [{ to: "528111111111", etiquetas: ["Noviembre", "CR-V", "Caliente"] }, { to: "528122222222", etiquetas: ["Noviembre"] }],
+    alias: { noviembre: ["nov"], "cr v": ["crv"], "no leido": ["sin leer"] } });
+  assert.deepEqual(etiquetasDe["528111111111@c.us"].sort(), ["1", "2", "9"]); // «Pagado» se conserva
+  assert.deepEqual(etiquetasDe["528122222222@c.us"].sort(), ["1", "3"]);
+  assert.deepEqual(r.faltan, ["Caliente"]);
+  assert.equal(r.etiquetados, 2);
+});

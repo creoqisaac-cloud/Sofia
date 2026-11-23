@@ -1455,6 +1455,41 @@ export async function trabajoDeFondo(env, store, ahora = new Date(), { max = 1 }
   return { revisados };
 }
 
+// ───────── Etiquetas de WhatsApp Business por mes, modelo y estado ─────────
+const MESES_ES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+// Cómo pueden llamarse en el WhatsApp de Mario (sin acentos ni guiones): así se reconocen las que ya tiene.
+export const ALIAS_ETIQUETAS = {
+  "no leido": ["no leidos", "sin leer", "nuevo mensaje", "mensajes nuevos"],
+  "cr v": ["crv"], "hr v": ["hrv"], "br v": ["brv"],
+  "postventa": ["post venta", "servicio", "tramite"], "caliente": ["interes caliente", "prioridad"], "cita": ["cita agendada", "visita"],
+  ...Object.fromEntries(MESES_ES.map((m) => [m.toLowerCase(), [m.slice(0, 3).toLowerCase(), `${m.toLowerCase()} 2026`, `leads ${m.toLowerCase()}`, `clientes ${m.toLowerCase()}`]])),
+};
+
+/** [{ to, etiquetas }] para cada chat que no es personal. El mes es el de su primer mensaje (hora de Monterrey). */
+export async function planDeEtiquetas(store, cfg, ahora = new Date()) {
+  const [leads, index, citas] = await Promise.all([store.get("leads:index"), store.get("inbox:index"), store.get("agenda:citas")]);
+  const conCita = new Set((citas ?? []).filter((x) => x.estado !== "cancelada" && Date.parse(x.id) > ahora.getTime() - 864e5).map((x) => `${x.canal || "wa"}:${x.cliente}`));
+  const mesDe = (iso) => { const n = Number(new Intl.DateTimeFormat("en-US", { timeZone: cfg.zonaHoraria || "America/Monterrey", month: "numeric" }).format(new Date(iso))); return MESES_ES[n - 1]; };
+  const plan = [];
+  for (const [clave, c] of Object.entries(index ?? {})) {
+    if (!clave.startsWith("wa:")) continue;
+    const l = leads?.[clave] ?? {};
+    if (l.personal || l.tipo === "personal" || l.tipo === "otro") continue;
+    const msgs = (await store.get(`inbox:c:${clave}`)) ?? [];
+    const primero = [l.at, msgs[0]?.at].filter(Boolean).sort()[0];
+    const modelo = modeloEn(l.interes || "") || modeloEn(msgs.filter((m) => m.dir === "in").map((m) => m.text).join(" "));
+    const etiquetas = [
+      primero && mesDe(primero),
+      modelo,
+      (l.postventa || l.tipo === "postventa") && "Postventa",
+      !l.postventa && l.calor === "caliente" && "Caliente",
+      conCita.has(clave) && "Cita",
+    ].filter(Boolean);
+    if (etiquetas.length) plan.push({ to: clave.slice(3), etiquetas });
+  }
+  return plan;
+}
+
 // ───────── Revivir clientes: escribirle a quien se enfrió para sacar citas ─────────
 // Mario la arranca desde la app (con la lista a la vista). Uno por minuto, en horario de trabajo, con tope diario.
 // Antes de escribir, la IA lee el chat: si no es cliente (amigo, postventa…) se lo salta. El mensaje lleva dos horarios
@@ -1719,6 +1754,22 @@ export async function handle(req, envBase, store, opciones = {}) {
         const sincronizado = await env.WA_WEB.sincronizarPendientes({ todos: body.todos === true });
         await procesarEventos(sincronizado.body, env, store, ahora, publicBase(env, baseDe(req)), { autoResponder: false });
         return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, fijados: sincronizado.fijados ?? [], respondidos: 0 });
+      }
+      case "GET /api/whatsapp/etiquetas": {
+        if (!env.WA_WEB?.etiquetas) return fail("Requiere WhatsApp Web vinculado.", 409);
+        return json({ ok: true, etiquetas: await env.WA_WEB.etiquetas() });
+      }
+      case "POST /api/whatsapp/etiquetar-todo": {
+        // Cada chat con: el MES en que llegó, su MODELO, y Postventa / Caliente / Cita; «No leído» a los que tienen sin leer.
+        // Nunca quita etiquetas. ver=true solo cuenta lo que pondría.
+        if (!env.WA_WEB?.etiquetarTodo) return fail("Requiere WhatsApp Web vinculado.", 409);
+        const plan = await planDeEtiquetas(store, await leerConfig(store), ahora);
+        if (body.ver) {
+          const cuenta = {};
+          for (const p of plan) for (const n of p.etiquetas) cuenta[n] = (cuenta[n] ?? 0) + 1;
+          return json({ ok: true, chats: plan.length, cuenta, existentes: (await env.WA_WEB.etiquetas()).map((l) => l.nombre) });
+        }
+        return json({ ok: true, ...(await env.WA_WEB.etiquetarTodo({ plan, alias: ALIAS_ETIQUETAS, crear: body.crear !== false })) });
       }
       case "POST /api/revivir": {
         // ver: a quién y qué se le mandaría · iniciar: arranca (tope por día) · parar: se detiene en el acto.

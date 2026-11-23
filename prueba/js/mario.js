@@ -7,7 +7,7 @@ import { serverBase } from "./store.js";
 import {
   connectorReady, refreshStatus, lastStatus, inbox, conversation, syncPendingChats, replyToPending, sendMessage,
   listLeads, updateLead, getAgenda, salesInventory, saveInventory, uploadCarPhoto, getConnection, saveConnection,
-  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig, revivir,
+  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig, revivir, etiquetarTodo,
 } from "./connector.js";
 import { interpretarOrden, mensajePara, modeloEn, MODELOS } from "./ordenes.js";
 
@@ -65,7 +65,16 @@ function cajaRevivir() {
           if (!(await confirmBox("¿Arranco a revivir clientes?", `Sofía le va a escribir a ${Math.min(r.total, Number(tope.value))} clientes hoy (de ${r.total}), uno por minuto, de 10 am a 7 pm. Puedes pararla cuando quieras.`, "Sí, arrancar"))) return;
           await revivir("iniciar", { tope: Number(tope.value) }); toast("Arrancó: uno por minuto"); pintar();
         } }, "▶ Arrancar")) : null,
-      h("p", { class: "m-dim m-small" }, `Enviados en total: ${e.enviados} · saltados por no ser clientes: ${e.saltados}`));
+      h("p", { class: "m-dim m-small" }, `Enviados en total: ${e.enviados} · saltados por no ser clientes: ${e.saltados}`),
+      h("button", { class: "m-btn small", onclick: async (ev) => {
+        ev.target.disabled = true; ev.target.textContent = "Etiquetando… (tarda unos minutos)";
+        try {
+          const x = await etiquetarTodo();
+          toast(`🏷️ ${x.etiquetados} chats etiquetados${x.faltan.length ? ` · Crea en WhatsApp: ${x.faltan.join(", ")}` : ""}`, 9000);
+          ev.target.textContent = `🏷️ Listo: ${x.etiquetados} chats${x.faltan.length ? ` · faltan: ${x.faltan.join(", ")}` : ""}`;
+        } catch (err) { toast(err.message, 6000); ev.target.textContent = "🏷️ Etiquetar chats (mes, modelo, no leído)"; }
+        ev.target.disabled = false;
+      } }, "🏷️ Etiquetar chats (mes, modelo, no leído)"));
   };
   pintar().catch((e) => caja.replaceChildren(h("p", { class: "m-dim" }, `Revivir: ${e.message}`)));
   return caja;

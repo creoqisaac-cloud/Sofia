@@ -48,6 +48,7 @@ export const conversation = async (key) => (await call("/api/buzon/conversacion"
 export const syncPendingChats = () => call("/api/buzon/sincronizar", { method: "POST", body: {} });
 export const replyToPending = (clave) => call("/api/buzon/responder", { method: "POST", body: { clave } });
 export const revivir = (accion = "ver", extra = {}) => call("/api/revivir", { method: "POST", body: { accion, ...extra } });
+export const etiquetarTodo = (extra = {}) => call("/api/whatsapp/etiquetar-todo", { method: "POST", body: extra });
 export const labelConversation = (clave, etiquetas) => call("/api/whatsapp/etiquetar", { method: "POST", body: { clave, etiquetas } });
 export const labelUnreadChats = () => call("/api/whatsapp/etiquetar-no-leidos", { method: "POST", body: {} });
 export const sendMessage = (msg) => call("/api/enviar", { method: "POST", body: msg });
