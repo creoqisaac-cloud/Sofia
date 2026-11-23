@@ -259,7 +259,11 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   const now = ahora instanceof Date ? ahora : new Date(ahora);
   const c = { ...conv, autos: (conv.autos ?? []).filter((x) => now - new Date(x) < HORA), fallos: conv.fallos ?? 0 };
   const lead = {};
-  const texto = String(msg.texto ?? "");
+  const bruto = String(msg.texto ?? "");
+  // El comando es un privilegio EXCLUSIVO del conector local y solo si éste verificó que
+  // vino del chat «Tú». Un cliente normal jamás puede reiniciar el pase al asesor.
+  const comandoPrueba = msg.pruebaLocal === true ? /^\/sofia(?:\s+([\s\S]*))?$/i.exec(bruto.trim()) : null;
+  const texto = comandoPrueba ? (comandoPrueba[1]?.trim() || "menú") : bruto;
   const t = sinAcentos(texto);
   const vars = { nombre: primerNombre(msg.nombre), asesor: cfg.asesor || "tu asesor", agencia: cfg.agencia || "la agencia" };
   const asesor = cfg.asesor ? asesorCon(cfg.asesor) : "un asesor"; // «el Lic. Mario Abarca»
@@ -269,6 +273,13 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   const autos = disponibles(inventario);
   const porId = (id) => autos.find((a) => a.id === id);
   const quedar = (motivo) => ({ respuestas: [], conv: c, lead, motivo });
+
+  if (msg.pruebaLocal && !comandoPrueba) return quedar("comando-prueba-requerido");
+  // Al reanudar una prueba se limpia el bloqueo «asesor», sin quitar memoria comercial
+  // ni alterar la regla de silencio de las conversaciones reales.
+  if (comandoPrueba && c.paso === "asesor") {
+    Object.assign(c, { paso: "menu", desde: now.toISOString(), opciones: null, fallos: 0 });
+  }
 
   if (c.autos.length >= MAX_POR_HORA) return quedar("freno");
   const pideMenu = t.trim() === "0" || (texto.trim().split(/\s+/).length <= 3 && tieneAlguna(t, MENU));
