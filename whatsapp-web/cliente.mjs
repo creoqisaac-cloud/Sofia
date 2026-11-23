@@ -37,6 +37,32 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
   // WhatsApp puede conservar el prefijo móvil mexicano 521 en contactos antiguos.
   const normalizar = n => String(n ?? "").replace(/^521(\d{10})$/, "52$1");
   const permitido = n => !prueba || normalizar(n) === normalizar(prueba);
+  // WhatsApp identifica a muchos contactos nuevos con un LID («123@lid») en vez de su número.
+  // Devuelve «número@c.us»; si no logra resolverlo, regresa el mismo LID.
+  const lidResueltos = new Map();
+  async function telefonoDe(jid) {
+    if (!String(jid).endsWith("@lid")) return jid;
+    if (lidResueltos.has(jid)) return lidResueltos.get(jid);
+    const aCus = (v) => {
+      const s = String(v ?? "");
+      if (/^\d+@c\.us$/.test(s)) return s;
+      return /^\d{6,15}$/.test(s) ? s + "@c.us" : "";
+    };
+    let telefono = "";
+    for (let intento = 0; intento < 2 && !telefono; intento++) {
+      if (intento) await new Promise((listo) => setTimeout(listo, 1500)); // WhatsApp a veces tarda en asociar el número
+      const [contacto] = client.getContactLidAndPhone ? await client.getContactLidAndPhone([jid]).catch(() => []) : [];
+      telefono = aCus(contacto?.pn);
+    }
+    if (!telefono && client.getContactById) {
+      const c = await client.getContactById(jid).catch(() => null);
+      telefono = aCus(c?.id?.server === "c.us" ? c.id._serialized : "") || aCus(c?.phoneNumber);
+    }
+    if (!telefono) return jid;
+    lidResueltos.set(jid, telefono);
+    if (lidResueltos.size > 2000) lidResueltos.delete(lidResueltos.keys().next().value);
+    return telefono;
+  }
   let qr = "";
   let conectado = false;
   let cola = Promise.resolve();
@@ -54,12 +80,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     const chat = m.fromMe ? m.to : m.from;
     if (!/^\d+@(c\.us|lid)$/.test(chat)) return;
     const propio = client.info?.wid?._serialized || (client.info?.wid?.user ? client.info.wid.user + "@c.us" : "");
-    let telefono = chat;
-    if (chat.endsWith("@lid")) {
-      const contactos = client.getContactLidAndPhone ? await client.getContactLidAndPhone([chat]).catch(() => []) : [];
-      const [contacto] = contactos;
-      telefono = contacto?.pn || chat;
-    }
+    const telefono = await telefonoDe(chat);
     const numeroJid = (jid) => String(jid ?? "").match(/^(\d+)@c\.us$/)?.[1] ?? "";
     const propioUser = client.info?.wid?.user || numeroJid(propio);
     const telefonoUser = numeroJid(telefono);
@@ -75,7 +96,11 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     // por el dueño en el chat «Tú»; nunca escucha notas ni sus propias respuestas.
     if (soloMiWhatsApp && (!esChatPropio || !m.fromMe || !/^\/sofia(?:\s|$)/i.test(m.body.trim()))) return;
     if (!soloMiWhatsApp && esChatPropio) return;
-    if (!/^\d+@c\.us$/.test(telefono)) return;
+    if (!/^\d+@c\.us$/.test(telefono)) {
+      // Antes se descartaba en silencio: así se perdían clientes nuevos que WhatsApp identifica por LID.
+      console.warn(`Mensaje sin número de teléfono (LID …${chat.split("@")[0].slice(-4)}); no se pudo registrar.`);
+      return;
+    }
     const peer = telefono.split("@")[0];
     if ((!soloMiWhatsApp && peer === client.info?.wid?.user) || !permitido(peer)) return;
     const mensaje = { id: m.id._serialized, type: "text", timestamp: m.timestamp, text: { body: m.body }, ...(soloMiWhatsApp && esChatPropio ? { pruebaLocal: true } : {}) };
@@ -136,14 +161,18 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     if (!conectado) throw new Error("WhatsApp está desconectado.");
     if (soloMiWhatsApp) throw new Error("La importación de chats no está disponible en el modo de prueba personal.");
     const limiteAntiguedad = Date.now() / 1000 - 30 * 24 * 60 * 60;
-    const chats = (await client.getChats()).filter((c) => !c.isGroup && c.lastMessage && !c.lastMessage.fromMe && c.timestamp >= limiteAntiguedad && /^\d+@c\.us$/.test(c.id?._serialized ?? ""))
-      .filter((c) => normalizar(c.id._serialized.split("@")[0]) !== normalizar(client.info?.wid?.user))
+    const chats = (await client.getChats()).filter((c) => !c.isGroup && c.lastMessage && !c.lastMessage.fromMe && c.timestamp >= limiteAntiguedad && /^\d+@(c\.us|lid)$/.test(c.id?._serialized ?? ""))
       .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.timestamp - a.timestamp).slice(0, 100);
     const changes = [];
     let mensajes = 0;
+    const fijados = [];
     for (const chat of chats) {
       try {
-        const peer = chat.id._serialized.split("@")[0];
+        const telefono = await telefonoDe(chat.id._serialized);
+        if (!/^\d+@c\.us$/.test(telefono)) continue; // LID sin número: no se puede guardar ni contestar
+        const peer = telefono.split("@")[0];
+        if (normalizar(peer) === normalizar(client.info?.wid?.user)) continue;
+        if (chat.pinned) fijados.push(peer);
         const limite = Math.min(30, Math.max(5, Number(chat.unreadCount) + 3));
         const history = (await chat.fetchMessages({ limit: limite })).sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
         const contacto = await chat.getContact().catch(() => null);
@@ -161,7 +190,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
         }
       } catch { /* una conversación no accesible no bloquea las demás */ }
     }
-    return { body: { object: "whatsapp_business_account", entry: [{ changes }] }, chats: chats.length, mensajes, fijados: chats.filter((c) => c.pinned).map((c) => c.id._serialized.split("@")[0]) };
+    return { body: { object: "whatsapp_business_account", entry: [{ changes }] }, chats: chats.length, mensajes, fijados };
   }
   async function etiquetar({ to, etiquetas = [] }) {
     if (!conectado || soloMiWhatsApp) return [];
@@ -180,12 +209,14 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
   async function etiquetarNoLeidos() {
     if (!conectado) throw new Error("WhatsApp está desconectado.");
     if (soloMiWhatsApp) throw new Error("Esta orden no está disponible en el modo de prueba personal.");
-    const chats = (await client.getChats()).filter((c) => !c.isGroup && Number(c.unreadCount) > 0 && /^\d+@c\.us$/.test(c.id?._serialized ?? ""));
+    const chats = (await client.getChats()).filter((c) => !c.isGroup && Number(c.unreadCount) > 0 && /^\d+@(c\.us|lid)$/.test(c.id?._serialized ?? ""));
     let etiquetados = 0;
     let errores = 0;
     for (const chat of chats.slice(0, 500)) {
       try {
-        const etiquetas = await etiquetar({ to: chat.id._serialized.split("@")[0], etiquetas: ["Prospecto"] });
+        const telefono = await telefonoDe(chat.id._serialized);
+        if (!/^\d+@c\.us$/.test(telefono)) { errores++; continue; }
+        const etiquetas = await etiquetar({ to: telefono.split("@")[0], etiquetas: ["Prospecto"] });
         if (etiquetas.some((x) => x.toLowerCase() === "prospecto")) etiquetados++;
       } catch { errores++; }
     }

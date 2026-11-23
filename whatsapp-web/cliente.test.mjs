@@ -226,3 +226,30 @@ test("navegador: si falta el de puppeteer, usa el Chrome o el Edge que ya tiene 
   assert.equal(rutaNavegador(env, () => false, "win32"), undefined);
 });
 
+
+test("cliente nuevo con LID: si falla la primera consulta, usa el contacto y sí lo registra", async () => {
+  const client = new EventEmitter();
+  const self = "528100000003";
+  client.info = { wid: { user: self, _serialized: self + "@c.us" } };
+  client.getContactLidAndPhone = async (lids) => lids.map((lid) => ({ lid, pn: undefined }));
+  client.getContactById = async () => ({ id: { server: "lid", _serialized: "77@lid" }, phoneNumber: "528100000777" });
+  const eventos = [];
+  vincular(client, async (e) => { eventos.push(e); }, "", false, { pausa: () => 0 });
+  client.emit("ready");
+  client.emit("message_create", { type: "chat", body: "Hola, ¿precio del City?", from: "77@lid", id: { _serialized: "lid-1" }, timestamp: Math.floor(Date.now() / 1000) });
+  await new Promise((listo) => setTimeout(listo, 2000));
+  assert.equal(eventos.length, 1);
+  assert.equal(eventos[0].entry[0].changes[0].value.messages[0].from, "528100000777");
+});
+
+test("LID sin número: no se registra ni truena, solo deja aviso", async () => {
+  const client = new EventEmitter();
+  client.info = { wid: { user: "528100000004", _serialized: "528100000004@c.us" } };
+  client.getContactLidAndPhone = async () => [];
+  const eventos = [];
+  vincular(client, async (e) => { eventos.push(e); }, "", false, { pausa: () => 0 });
+  client.emit("ready");
+  client.emit("message_create", { type: "chat", body: "Hola", from: "88@lid", id: { _serialized: "lid-2" }, timestamp: Math.floor(Date.now() / 1000) });
+  await new Promise((listo) => setTimeout(listo, 2000));
+  assert.equal(eventos.length, 0);
+});
