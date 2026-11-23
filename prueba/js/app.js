@@ -16,6 +16,7 @@ import { renderConnections } from "./v-connections.js";
 import { renderStyle } from "./v-style.js";
 import { renderSocial } from "./v-social.js";
 import { renderInventory, renderCarForm, renderSimulator } from "./v-inventory.js";
+import { renderSalesDesk } from "./v-sales-desk.js";
 import { connectorReady, inbox, refreshStatus } from "./connector.js";
 import { googleReady, googleStatus, saveEvent, deleteEvent, closeEmailCase } from "./google.js";
 import { isNative, nativeNotifications, syncNativeReminders, onNotificationTap, webNotify } from "./native.js";
@@ -43,7 +44,7 @@ const NAV = [
 // Pantallas que se abren desde "Más" (la pestaña Más queda marcada).
 const UNDER_MORE = ["/mas", "/recordatorios", "/ajustes", "/conexiones", "/estilo"];
 // Pantallas de la vendedora (la pestaña WhatsApp queda marcada).
-const UNDER_WA = ["/inventario", "/probar"];
+const UNDER_WA = ["/inventario", "/probar", "/ventas"];
 
 function screenName(path) {
   if (path === "/") return "Hoy";
@@ -57,6 +58,7 @@ function screenName(path) {
   if (path === "/ajustes") return "Ajustes";
   if (path.startsWith("/inventario")) return "Inventario";
   if (path === "/probar") return "Probar a Sofía";
+  if (path === "/ventas") return "Operación de ventas";
   return NAV.find((n) => path.startsWith(n[0]) && n[0] !== "/")?.[1] ?? path;
 }
 
@@ -79,6 +81,7 @@ function render() {
     else if (seg[0] === "inventario" && seg[1]) renderCarForm(view, decodeURIComponent(seg[1]));
     else if (seg[0] === "inventario") renderInventory(view);
     else if (seg[0] === "probar") renderSimulator(view);
+    else if (seg[0] === "ventas") renderSalesDesk(view);
     else if (seg[0] === "mas") renderMore(view);
     else if (seg[0] === "conexiones") renderConnections(view);
     else if (seg[0] === "estilo") renderStyle(view);

@@ -79,6 +79,12 @@ Pantallas principales:
 - **Redes:** publicaciones y agenda social.
 - **Mi estilo de venta:** ejemplos importados y preferencias para borradores.
 
+#### Operación de ventas (integrada en `prueba/`)
+
+Desde **WhatsApp → Operar ventas** se abre el tablero conectado al mismo CRM local de esa instalación. Permite filtrar clientes por mes y modelo, asignar temperatura y etiquetas, crear etapas propias, guardar permiso de promociones y programar el próximo seguimiento. **Chat pegado** importa un texto copiado/exportado de WhatsApp al historial del cliente, aprende ejemplos escritos por el asesor y puede proponer un borrador determinista cuando el último mensaje fue del cliente. **Indicaciones** interpreta filtros sencillos (temperatura, modelo, mes, cita o nombre), muestra la lista de destinatarios y prepara un borrador por persona. **Envíos** guarda esos borradores, seguimiento vencido y permite revisar y confirmar uno por uno. No se hacen difusiones silenciosas; para promoción se excluye a quien no tenga permiso marcado.
+
+Los borradores manuales abren `wa.me` para que el asesor pulse Enviar. Si la conexión reporta el modo WhatsApp Web vinculado, el botón ofrece enviar por el conector tras una confirmación por destinatario. Para adjuntar foto, se requiere una foto sincronizada en Inventario y ese mismo conector activo. La apertura manual no adjunta fotos, y videos/flyers todavía requieren compartirse manualmente. El tablero y la cola viven en el almacenamiento local del navegador, por lo que no aparecen automáticamente en otro dispositivo. Las conversaciones antiguas no se descargan solas: se pegan/importan o se traen desde la bandeja conectada.
+
 Una PWA instalada en dos dispositivos tiene dos `localStorage` distintos. El respaldo por Google/servidor ayuda a compartir ciertos datos, pero no es una transmisión en vivo de la bandeja WhatsApp.
 
 ### 2. Cerebro y API (`prueba/servidor/core.mjs`)

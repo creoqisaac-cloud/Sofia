@@ -23,7 +23,7 @@ export function renderWhatsApp(root) {
   const tab = q.get("tab") ?? (cid ? "escribir" : connectorReady() ? "bandeja" : "pendientes");
   const body = h("div", { class: "page" },
     h("div", { class: "tabs", role: "tablist" }, TABS.map(([id, label]) => h("button", { role: "tab", "aria-selected": String(tab === id), class: tab === id ? "on" : "", onclick: () => go(`/whatsapp?tab=${id}${cid ? `&c=${cid}` : ""}`) }, label))));
-  root.append(header("WhatsApp", { back: cid ? `/cliente/${cid}` : undefined }), body);
+  root.append(header("WhatsApp", { back: cid ? `/cliente/${cid}` : undefined, actions: [btn("Operar ventas", () => go("/ventas"), "small ghost")] }), body);
   ({ bandeja: inboxTab, auto: autoTab, escribir: write, responder: reply, pendientes: pending, plantillas: templates }[tab] ?? pending)(body, cid);
 }
 

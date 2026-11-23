@@ -61,6 +61,11 @@ const emptyState = () => ({
     server: { url: "", token: "", auto: false, lastSync: null },
     google: { url: "", token: "", status: null },
     style: { myName: "", examples: [], notes: "", profile: null, analyzedAt: null },
+    salesDesk: { tone: "tu", columns: [
+      { id: "caliente", name: "Caliente", temperature: "caliente" },
+      { id: "tibio", name: "Tibio", temperature: "tibio" },
+      { id: "frio", name: "Frío", temperature: "frio" },
+    ], cadenceDays: [1, 3, 7, 15, 30] },
     bankForms: {},
     feedbackTo: "",
     onboarded: false,
@@ -68,6 +73,7 @@ const emptyState = () => ({
   customers: [],
   activity: [],
   reminders: [],
+  outbox: [], // borradores/seguimientos; ningún envío sale sin acción del asesor
   feedback: [],
   posts: [],
   waSeen: {},
@@ -83,7 +89,7 @@ export const onChange = (fn) => { listeners.add(fn); return () => listeners.dele
 function withDefaults(saved) {
   const base = emptyState();
   const ss = saved.settings ?? {};
-  return { ...base, ...saved, calTrash: saved.calTrash ?? [], inventory: saved.inventory ?? [], settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, google: { ...base.settings.google, ...ss.google }, style: { ...base.settings.style, ...ss.style }, bankForms: { ...ss.bankForms } } };
+  return { ...base, ...saved, calTrash: saved.calTrash ?? [], inventory: saved.inventory ?? [], outbox: saved.outbox ?? [], settings: { ...base.settings, ...ss, ai: { ...base.settings.ai, ...ss.ai }, server: { ...base.settings.server, ...ss.server }, google: { ...base.settings.google, ...ss.google }, style: { ...base.settings.style, ...ss.style }, salesDesk: { ...base.settings.salesDesk, ...ss.salesDesk, columns: ss.salesDesk?.columns ?? base.settings.salesDesk.columns }, bankForms: { ...ss.bankForms } } };
 }
 
 export async function load() {
