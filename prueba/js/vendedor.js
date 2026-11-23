@@ -108,8 +108,11 @@ export function mensualidad(monto, tasaAnual, meses) {
  * Enganche que escribió el cliente: "20%", "el 30", "150 mil", "$80,000", "1.2 millones", "nada".
  * Sin unidad: menos de 100 es porcentaje y de 100 a 9,999 son miles ("150" → 150 mil). null si no hay monto.
  */
+/** Quita los años («modelo 2026», «para 2027») para que no se lean como dinero; «$2,026» o «2026 pesos» sí cuentan. */
+export const sinAnios = (texto) => String(texto ?? "").replace(/(^|[^\d$,.])(?:19[89]\d|20[0-4]\d)(?![\d,.]|\s*(?:mil\b|k\b|pesos|mxn))/gi, "$1 ");
+
 export function leerEnganche(texto, precio) {
-  const t = sinAcentos(texto).replace(/\$/g, " ");
+  const t = sinAnios(sinAcentos(texto)).replace(/\$/g, " ");
   if (/\b(nada|sin enganche|cero)\b/.test(t)) return 0;
   const pct = /(\d{1,2}(?:[.,]\d+)?)\s*(%|por\s*ciento)/.exec(t);
   if (pct) return (precio * Number(pct[1].replace(",", "."))) / 100;
@@ -121,6 +124,7 @@ export function leerEnganche(texto, precio) {
   if (!n) return null;
   const v = Number(n[1].replace(/[,. ]/g, ""));
   if (v < 100) return (precio * v) / 100;
+  if (/[,. ]/.test(n[1])) return v; // «4,785» ya viene en pesos: no son 4.7 millones
   return v < 10000 ? v * 1000 : v;
 }
 
@@ -248,7 +252,7 @@ function numeroElegido(texto) {
   return NUMEROS[m[1]] ?? Number(m[1]);
 }
 /** El cliente ya dijo cuánto daría ("tengo 150 mil", "el 30%", "$80,000"), no un número suelto de menú. */
-const montoExplicito = (texto) => /(\d\s*(%|por\s*ciento|mil\b|k\b|millon|mdp))|\$\s*\d|\d{1,3}([,.]\d{3})+|\d{4,}/.test(sinAcentos(texto));
+const montoExplicito = (texto) => /(\d\s*(%|por\s*ciento|mil\b|k\b|millon|mdp))|\$\s*\d|\d{1,3}([,.]\d{3})+|\d{4,}/.test(sinAnios(sinAcentos(texto)));
 const pareceFecha = (t) => /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoy|manana|pasado|fin de semana|finde|semana|tarde|noche|mediodia|\d{1,2}\s*(:\d{2})?\s*(am|pm|hrs?|h)\b|\d{1,2}[/-]\d{1,2}|\d{1,2} de \w+)/.test(sinAcentos(t));
 
 /** «a las 11», «a la 1», «11:30 am», «5pm» → minutos del día (horario de agencia: 1 a 7 sin am/pm es de la tarde); si no, null. */
@@ -651,10 +655,11 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       return r("llamada", "¡Claro! Márcame a este mismo número cuando gustes 📞 Si no te contesto es que estoy con un cliente y te regreso la llamada.");
     }
     // Auto a cuenta
-    if (/\b(a cuenta|toma de (mi )?(auto|carro|coche)|me (lo|la) (reciben|toman|aceptan|recibes|tomas)|recibe[ns]? (autos?|carros?|coches?|seminuevos?)|(dar|dejar) (mi|el) (auto|carro|coche|camioneta)|cambiar mi (auto|carro|coche|camioneta)|tengo (un|mi) (auto|carro|coche|camioneta) para)\b/.test(t)) {
+    if (/\b(a cuenta|toma de (mi )?(auto|carro|coche)|me (lo|la) (reciben|toman|aceptan|recibes|tomas)|(recibe[ns]?|toman?|aceptan?) (mi |un |tu )?(autos?|carros?|coches?|camionetas?|seminuevos?)|(dar|dejar) (mi|el) (auto|carro|coche|camioneta)|cambiar mi (auto|carro|coche|camioneta)|tengo (un|mi) (auto|carro|coche|camioneta) para|con adeudo)\b/.test(t)) {
       calentar("tibio");
       ir("toma");
-      return r("toma", "¡Claro que sí! Recibo tu auto a cuenta 🙌 Pásame marca, modelo, año y kilometraje (y si puedes unas fotos) y te digo en cuánto te lo tomo.");
+      const adeudo = /\b(adeudo|debo|deuda|lo estoy pagando|la estoy pagando|financiad[oa]|todavia (lo|la) pago)\b/.test(t);
+      return r("toma", `¡Claro que sí! Recibo tu auto a cuenta 🙌 ${adeudo ? "Aunque tenga adeudo: lo liquidamos con la financiera y lo que sobre se va a tu enganche. " : ""}Pásame marca, modelo, año y kilometraje (y si puedes unas fotos) y te digo en cuánto te lo tomo.`);
     }
     // Requisitos y documentos del crédito
     if (/\b(requisitos|que (necesito|piden|ocupo|me piden|documentos)|papeles|documentacion|documentos)\b/.test(t)) {
@@ -745,9 +750,12 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
         const desc = sinAcentos(`${objetivo.descripcion ?? ""} ${objetivo.transmision ?? ""} ${(objetivo.palabras ?? []).join(" ")}`);
         const sabe = tema[0].test(desc);
         const primeraVez = c.autoId !== objetivo.id || !c.paso || !["auto", "cotizado", "enganche"].includes(c.paso);
-        const respuesta = sabe
+        // Honda no vende híbridos enchufables: sus e:HEV se cargan solos al manejar (dato de marca, no inventado).
+        const enchufe = /\b(enchufable|enchufar|se enchufa|cargador|plug)\b/.test(t) ? " Y no se enchufa: los híbridos Honda se cargan solos mientras manejas 🔋" : "";
+        const precio = tieneAlguna(t, DICE.precio) && objetivo.precio > 0 ? ` ${mayus(la(objetivo))} está en *${pesos(objetivo.precio)}* de contado.` : "";
+        const respuesta = (sabe
           ? `Sí 👌 ${objetivo.transmision && /transmision|automatic|estandar|manual|cvt/.test(t) ? `${la(objetivo)} es ${objetivo.transmision}.` : objetivo.descripcion}`
-          : confirmo(`Buena pregunta 👌 ${mayus(dela(objetivo))} te confirmo ${tema[1]} en un momento.`);
+          : confirmo(`Buena pregunta 👌 ${mayus(dela(objetivo))} te confirmo ${tema[1]} en un momento.`)) + precio + enchufe;
         if (primeraVez) { const f = ficha(objetivo); return r("dato", `${respuesta} Mientras, te paso la info:\n\n${f}`, objetivo.foto); }
         return r("dato", `${respuesta} ${siguePaso(objetivo)}`);
       }
@@ -776,8 +784,25 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       return r("objecion-pensar", variar("pensar", ["Claro, sin presión 🙂 Si quieres te mando la corrida por escrito para que lo platiques con calma. ¿Te la armo?", "Va, tómate tu tiempo 🙂 ¿Te ayudo con algo para decidir? Si quieres te armo la corrida para que la tengas a la mano."]));
     }
     // Está comparando con otra marca
-    if (/\b(rav ?4|toyota|mazda|cx ?5|cx ?30|cx ?50|nissan|kia|hyundai|chevrolet|chevy|volkswagen|vw|tiguan|taos|tucson|sportage|x ?trail|kicks|chirey|tiggo|byd|jetta|sentra|versa|corolla|yaris|mg|seltos|creta)\b/.test(t)) {
+    if (/\b(rav ?4?|toyota|mazda|cx ?5|cx ?30|cx ?50|cx ?90|nissan|kia|hyundai|chevrolet|chevy|volkswagen|vw|tiguan|taos|tucson|sportage|x ?trail|kicks|chirey|tiggo|byd|jetta|sentra|versa|corolla|camry|yaris|mg|seltos|creta|sienna|highlander|prius|forester|subaru|jeep|compass|ford|escape|bronco|territory|jac|geely|omoda|jaecoo)\b/.test(t)) {
       calentar("tibio");
+      // Lo que busca en la otra marca → su Honda equivalente del inventario (híbrida si pidió híbrida).
+      const tipo = /\b(sienna|odyssey|minivan|van)\b/.test(t) ? "van"
+        : /\b(jetta|sentra|versa|corolla|camry|yaris|mazda ?3|mazda ?2|prius|sedan|aveo|virtus|elantra|accent|rio|k3|forte)\b/.test(t) ? "sedan" : "suv";
+      const DE = { van: ["Odyssey"], sedan: ["City", "Civic", "Accord"], suv: ["CR-V", "HR-V", "BR-V", "Pilot"] };
+      const quiereHibrida = /\b(hibrid\w*|hev|enchufable|electric\w*)\b/.test(t);
+      const igual = autos.filter((x) => DE[tipo].some((m) => compacto(x.modelo) === compacto(m)))
+        .sort((x, y) => Number(quiereHibrida && /hibrid|hev/i.test(sinAcentos(`${y.version} ${y.descripcion}`))) - Number(quiereHibrida && /hibrid|hev/i.test(sinAcentos(`${x.version} ${x.descripcion}`))) || DE[tipo].indexOf(x.modelo) - DE[tipo].indexOf(y.modelo));
+      if (!a && igual[0]) {
+        const h = igual[0];
+        elegirAuto(h);
+        ir("auto");
+        if (quiereHibrida) lead.duda = `Busca híbrida (compara con otra marca): ${texto.trim().slice(0, 120)}`;
+        const intro = quiereHibrida
+          ? `Si buscas híbrida, te recomiendo ${la(h)}: ${/hibrid|hev/i.test(sinAcentos(`${h.version} ${h.descripcion}`)) ? "la tengo en híbrida 🔋" : "te confirmo ahorita la versión híbrida 🔋"}, y no tienes que enchufarla, se carga sola.`
+          : `Está bien comparar 👌 En Honda lo equivalente es ${la(h)}, y te va a gustar.`;
+        return r("competencia", `${intro}\n\n${ficha(h)}`, h.foto);
+      }
       return r("competencia", `Está bien comparar 👌 ${a ? `Si quieres te armo la corrida ${dela(a)} para que compares números lado a lado, y la manejas sin compromiso. ${siguePaso(a)}` : "¿Qué Honda te gustaría comparar? Te paso precio, fotos y corrida."}`);
     }
     return null;
@@ -807,6 +832,32 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
 
     // 0. Solo emojis o una reacción a media plática: no hace falta contestar.
     if (!limpio && !/\d/.test(texto) && c.paso && !primero) return quedar("emoji");
+
+    // 0b. Primer mensaje que no es de venta y suena a alguien que ya trata con Mario (un cliente en trámite,
+    // un amigo, la familia): «ya tienes novedades», «gracias Mario», «te pido de favor mañana…», «te amo mijo».
+    // Sofía no le suelta el menú de ventas: se queda callada y lo atiende Mario.
+    const deVenta = mencionados.length || modelo || dice.cita || dice.credito || dice.contado || dice.lista || dice.precio || dice.asesor
+      || /\b(autos?|carros?|coches?|camionetas?|vehiculos?|honda|seminuev\w*|promo\w*|cotiz\w*|disponib\w*|versi\w*|hibrid\w*|modelos?|interesa\w*|informes|busco|buscando|quiero|necesito|me gustaria|ofertas?|bonos?|precio\w*|a cuenta|ubicacion|direccion|donde (estan|quedan|se ubican)|horarios?|abren|cierran|financ\w*|enganche|mensualidad\w*|prueba)\b/.test(t);
+    const deConfianza = /\b(novedad(es)?|me comentaste|me dijiste|quedaste|lo que te|lo del|lo de mi|como va|como vamos|ya me (lo|la)|te pido|sin falta|al pendiente|pendiente|vendiste|ya quedo|el tramite|la entrada|mi credito|valuador|valuacion|placas|gestor|te amo|mijo|mija|carnal|compadre|compa|bro|amor|mama|papa|tio|tia|primo|prima)\b/.test(t);
+    const suelto = limpio.split(" ").length <= 2 && !/\?/.test(texto) && !dice.saludo; // «ven», «ok», «Mario»
+    if (primero && !deVenta && limpio && (deConfianza || dice.gracias || suelto)) return quedar("personal");
+
+    // 0c. Dice su nombre («me llamo Rosaura», «mi nombre es…», «soy Carlos»): lo guardo y le hablo por su nombre.
+    const nombreDicho = /\b(?:me llamo|mi nombre es)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i.exec(texto)?.[1]
+      ?? (texto.trim().split(/\s+/).length <= 4 ? /^\s*(?:hola[,!]?\s+)?soy\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\b/.exec(texto)?.[1] : undefined);
+    if (nombreDicho && !/^(de|del|el|la|cliente|nuevo|nueva|yo|una|un)$/i.test(nombreDicho)) {
+      lead.nombreCliente = nombreDicho.replace(/\b\w/g, (l) => l.toUpperCase()).slice(0, 60);
+      c.nombre = lead.nombreCliente;
+    }
+    const soloNombre = nombreDicho && texto.replace(/\b(?:me llamo|mi nombre es|soy|hola|buen[oa]s?( dias| tardes| noches)?)\b/gi, "").replace(new RegExp(nombreDicho, "i"), "").replace(/[^\p{L}\d]/gu, "").length === 0;
+    if (soloNombre && lead.nombreCliente && c.paso !== "nombre") {
+      motivo = "nombre-dicho";
+      decir(`Mucho gusto, ${primerNombre(lead.nombreCliente)} 🙌 ${actual ? siguePaso(actual) : autos.length ? "¿Qué auto andas buscando? Te paso precio, fotos y la corrida." : "¿Qué modelo traes en mente?"}`);
+      c.fallos = 0;
+      c.autos = [...c.autos, now.toISOString()];
+      c.ultimo = now.toISOString();
+      return { respuestas: resp, conv: c, lead, motivo };
+    }
 
     // 1. Lo que contesta a la pregunta anterior de Sofía.
     if (pideMenu) { motivo = "menu"; decir(menu()); }
@@ -884,7 +935,18 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       motivo = "lista-precio"; // ya vio la lista con precios: no se la repite
       decir(variar("lista-precio", ["El precio viene junto a cada uno 👆 ¿Cuál te late? Te mando fotos y te armo la corrida.", "Ahí arriba te puse los precios. ¿Cuál te interesa más?"]));
     }
-    else if (mencionados.length === 1) { motivo = "auto"; const a = mencionados[0]; decir(ficha(a), a.foto || undefined); }
+    else if (mencionados.length === 1) {
+      motivo = "auto";
+      const a = mencionados[0];
+      // «CR-V o Accord» y el Accord no está: lo dice en vez de ignorarlo.
+      const falta = MODELOS_HONDA.map(([k, m]) => m).find((m) => contienePalabra(compacto(texto), compacto(m)) && compacto(m) !== compacto(a.modelo) && !autos.some((x) => compacto(x.modelo) === compacto(m)));
+      const nota = falta ? `${femenino(falta) ? "La" : "El"} ${falta} ahorita no ${femenino(falta) ? "la" : "lo"} tengo en piso, te checo y te aviso. ` : "";
+      if (falta) lead.duda = `Pregunta por ${falta} (no está en inventario)`;
+      // Ya le mandé la ficha de este auto hace poco: no se la repito, sigo la plática.
+      const yaVista = conv.autoId === a.id && ["auto", "cotizado", "enganche", "cita"].includes(conv.paso);
+      if (yaVista) decir(`${nota}${mayus(siguePaso(a))}`);
+      else decir(`${nota}${ficha(a)}`, a.foto || undefined);
+    }
     else if (mencionados.length > 1) { motivo = "lista"; decir(lista(mencionados, null, "Tengo estas opciones:")); }
     else {
       // 3. Las respuestas propias del asesor (ubicación, garantía…) y lo general.

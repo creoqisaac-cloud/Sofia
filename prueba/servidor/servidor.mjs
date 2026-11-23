@@ -96,6 +96,16 @@ function readBody(req) {
 }
 
 const entorno = { ...process.env };
+// Llaves de IA en archivos junto a los datos (fuera de Git); cada línea sin «#» es un valor, en este orden:
+//   cloudflare.txt → Account ID · API token        ia-local.txt → URL · modelo · llave (opcional)
+const lineasDe = (nombre) => {
+  try { return fs.readFileSync(path.join(path.dirname(DATA_DIR), nombre), "utf8").split(/\r?\n/).map((x) => x.trim()).filter((x) => x && !x.startsWith("#")); }
+  catch { return []; }
+};
+const [cfCuenta, cfLlave] = lineasDe("cloudflare.txt");
+if (cfCuenta && cfLlave && !entorno.CF_API_TOKEN) Object.assign(entorno, { CF_ACCOUNT_ID: cfCuenta, CF_API_TOKEN: cfLlave });
+const [localUrl, localModelo, localLlave] = lineasDe("ia-local.txt");
+if (localUrl && !entorno.LOCAL_AI_URL) Object.assign(entorno, { LOCAL_AI_URL: localUrl, ...(localModelo ? { LOCAL_AI_MODEL: localModelo } : {}), ...(localLlave ? { LOCAL_AI_KEY: localLlave } : {}) });
 // IA gratis de Cloudflare por su API (en el Worker se usa el enlace «AI»): Sofía platica natural en vez de por reglas.
 const iaGratis = iaPorApi({ cuenta: entorno.CF_ACCOUNT_ID, llave: entorno.CF_API_TOKEN, url: entorno.CF_API_URL });
 if (iaGratis) entorno.AI = iaGratis;
@@ -254,6 +264,7 @@ server.listen(PORT, process.env.SOFIA_BIND || "0.0.0.0", () => {
   for (const ip of ips) console.log(`  En la misma red Wi-Fi: http://${ip}:${PORT}`);
   console.log(`\nEn la app → Más → Conexiones → Servidor:\n  Dirección: https://<tu-dominio-o-túnel>   (o http://<IP>:${PORT} si abres la app desde aquí)\n  Clave:     ${claveGenerada ? e.SOFIA_TOKEN : `(la de SOFIA_TOKEN, termina en …${e.SOFIA_TOKEN.slice(-4)})`}`);
   console.log(`\nWhatsApp:  ${e.WA_TOKEN && e.WA_PHONE_NUMBER_ID ? "configurado" : "sin configurar"} · Facebook: ${e.FB_PAGE_ID && e.FB_PAGE_TOKEN ? "configurado" : "sin configurar"} · Webhook: ${e.META_APP_SECRET && e.META_VERIFY_TOKEN ? "listo en /webhook/meta" : "falta META_APP_SECRET / META_VERIFY_TOKEN"}`);
-  console.log(`IA:        ${e.ANTHROPIC_API_KEY ? "Claude" : iaGratis ? "gratis de Cloudflare" : "sin IA (contesta con reglas)"}`);
+  const motores = [iaGratis && "Cloudflare", entorno.LOCAL_AI_URL && `local (${entorno.LOCAL_AI_MODEL || "qwen2.5:7b"})`, e.ANTHROPIC_API_KEY && "Claude"].filter(Boolean);
+  console.log(`IA:        ${motores.length ? `reglas primero; si no entienden → ${motores.join(" → ")}` : "sin IA (contesta con reglas)"}`);
   console.log(`Datos en: ${DATA_DIR}\n`);
 });

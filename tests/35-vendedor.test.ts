@@ -468,3 +468,53 @@ describe("vendedora · contesta como experto sin inventar", () => {
     expect(r.respuestas[0]!.texto).toContain("El Accord ahorita no lo tengo en piso");
   });
 });
+
+describe("vendedora · casos reales que fallaban", () => {
+  const inv = [
+    { id: "city", marca: "Honda", modelo: "City", anio: 2026, precio: 401900, tipo: "nuevo", palabras: ["city", "sedan"], foto: "https://x/media/city" },
+    { id: "crv", marca: "Honda", modelo: "CR-V", anio: 2027, precio: 830900, tipo: "nuevo", palabras: ["crv", "camioneta"], descripcion: "SUV con gran espacio.", foto: "https://x/media/crv" },
+  ];
+  const charla = (msgs: string[]) => {
+    let conv = {};
+    return msgs.map((texto, i) => {
+      const r = decidir({ cfg: { asesor: "Mario Abarca" }, inventario: inv, conv, msg: { texto, nombre: "Laura", primero: i === 0 }, ahora: new Date(Date.parse("2026-11-23T18:00:00Z") + i * 60000), libres: [] }) as Resultado;
+      conv = r.conv;
+      return r;
+    });
+  };
+  const texto = (r: Resultado) => r.respuestas.map((x) => x.texto).join("\n");
+  it("un año («modelo 2026», «para 2027») no es dinero", () => {
+    expect(leerEnganche("modelo 2026", 830900)).toBeNull();
+    expect(leerEnganche("4,785", 830900)).toBe(4785);
+    expect(leerEnganche("$2,026", 830900)).toBe(2026);
+    expect(texto(charla(["crv", "Modelo 2026 tienes pero hibrida"])[1]!)).not.toMatch(/contado! 🎉/);
+  });
+  it("clientes en trámite, amigos y familia: en su primer mensaje no les suelta el menú de ventas", () => {
+    for (const m of ["Muchas gracias Mario", "Hola buenas tardes ya tienes novedades de lo que ofrece la agencia", "Mario te pido de favor mañana sin falta la entrada", "Te amo mijo", "ven", "Ya me lo vendiste.."]) {
+      expect(charla([m])[0]!, m).toMatchObject({ motivo: "personal", respuestas: [] });
+    }
+    // Lo que sí es de venta se contesta aunque no salude
+    for (const m of ["cuanto tardan en entregar?", "que me recomiendas para uber", "incluye seguro?", "Hola", "¡Hola! Quiero más información"]) {
+      expect(charla([m])[0]!.respuestas.length, m).toBeGreaterThan(0);
+    }
+  });
+  it("«me llamo Rosaura»: guarda el nombre y sigue la venta", () => {
+    const r = charla(["City 2026 en automático", "Me llamo Rosaura"])[1]!;
+    expect(r.lead.nombreCliente).toBe("Rosaura");
+    expect(texto(r)).toMatch(/^Mucho gusto, Rosaura 🙌/);
+  });
+  it("«toman carro con adeudo?» es auto a cuenta", () => {
+    const r = charla(["Hola", "Toman carro con adeudo se paga y el resto de enganche"])[1]!;
+    expect(r.motivo).toBe("toma");
+    expect(texto(r)).toContain("Aunque tenga adeudo");
+  });
+  it("otra marca (RAV híbrida) → su Honda equivalente; «CR-V o Accord» dice que el Accord no está y no repite la ficha", () => {
+    const r = charla(["Hola", "Me interesa una RAV híbrida 2026"])[1]!;
+    expect(r.motivo).toBe("competencia");
+    expect(r.lead.autoId).toBe("crv");
+    expect(texto(r)).toContain("no tienes que enchufarla");
+    const [, , o] = charla(["Hola", "crv", "Crv o accord"]);
+    expect(texto(o!)).toMatch(/^El Accord ahorita no lo tengo en piso/);
+    expect(texto(o!)).not.toContain("🚗");
+  });
+});

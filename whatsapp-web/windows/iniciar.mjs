@@ -1,4 +1,4 @@
-import { existsSync, appendFileSync } from "node:fs";
+import { existsSync, appendFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -34,3 +34,9 @@ async function actualizar() {
 if (/SofiaWhatsAppMario/i.test(process.env.SOFIA_DATA_DIR ?? "") && process.env.SOFIA_AUTO_ACTUALIZAR !== "0") {
   setInterval(() => actualizar().catch(() => {}), 10 * 60_000).unref();
 }
+
+// Si Mario pega o cambia las llaves de IA (cloudflare.txt, ia-local.txt), Sofía se reinicia sola en ≤1 min para usarlas.
+const llaves = ["cloudflare.txt", "ia-local.txt"].map((n) => join(process.env.SOFIA_DATA_DIR ?? ".", "..", n));
+const firma = () => llaves.map((f) => { try { return statSync(f).mtimeMs; } catch { return 0; } }).join("|");
+const firmaInicial = firma();
+setInterval(() => { if (firma() !== firmaInicial) { console.log("Cambiaron las llaves de IA; reiniciando…"); process.emit("SIGTERM"); } }, 60_000).unref();

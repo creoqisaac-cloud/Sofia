@@ -552,7 +552,8 @@ const SIN_IA = new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-pro
  */
 async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora, libres = []) {
   const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora, libres });
-  if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !motorIA(env)) return r;
+  // Las reglas son el cerebro (precisas, no inventan). La IA solo entra cuando las reglas no entendieron.
+  if (SIN_IA.has(r.motivo) || r.motivo !== "no-entendi" || !cfg.ventas.ia || !motorIA(env)) return r;
   try {
     const h = await historial();
     return aplicarIA(r, await preguntarIA(env, promptIA({ cfg, inventario, historial: h, libres })), { inventario, antes, ahora, libres, cfg, historial: h });
@@ -617,15 +618,49 @@ async function preguntarCloudflare(env, { system, messages }) {
   return r && typeof r === "object" ? r : leerJson(r);
 }
 
-/** Cloudflare va primero para que Sofía use la cuota gratis si ambos proveedores están conectados. */
-const motorIA = (env) => (env.AI?.run || iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN }) ? "cloudflare" : env.ANTHROPIC_API_KEY ? "claude" : null);
+// IA LOCAL en otro equipo (Ollama, LM Studio o cualquier servidor compatible con OpenAI):
+// LOCAL_AI_URL (p. ej. http://192.168.1.50:11434), LOCAL_AI_MODEL (p. ej. qwen2.5:7b) y LOCAL_AI_KEY opcional.
+async function preguntarLocal(env, { system, messages }) {
+  const base = String(env.LOCAL_AI_URL ?? "").replace(/\/+$/, "").replace(/\/v1$/, "");
+  const formato = `\n\nContesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
+  const control = new AbortController();
+  const limite = setTimeout(() => control.abort(), 45_000);
+  try {
+    const res = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      signal: control.signal,
+      headers: { "content-type": "application/json", ...(env.LOCAL_AI_KEY ? { authorization: `Bearer ${env.LOCAL_AI_KEY}` } : {}) },
+      body: JSON.stringify({ model: env.LOCAL_AI_MODEL || "qwen2.5:7b", messages: [{ role: "system", content: system + formato }, ...messages], response_format: { type: "json_object" }, temperature: 0.6, max_tokens: 600 }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error?.message || data.error || `la IA local respondió ${res.status}`);
+    return leerJson(data.choices?.[0]?.message?.content);
+  } catch (e) {
+    throw new Error(e.name === "AbortError" ? "la IA local tardó demasiado" : `IA local: ${e.message ?? e}`);
+  } finally { clearTimeout(limite); }
+}
+
+/** Motores conectados, en orden: Cloudflare (gratis y potente) → IA local (respaldo) → Claude. */
+const motoresIA = (env) => [
+  (env.AI?.run || iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN })) && "cloudflare",
+  /^https?:\/\/\S+$/.test(String(env.LOCAL_AI_URL ?? "")) && "local",
+  env.ANTHROPIC_API_KEY && "claude",
+].filter(Boolean);
+const motorIA = (env) => motoresIA(env)[0] ?? null;
 
 async function preguntarIA(env, prompt) {
   if (!prompt.messages.length) throw new Error("sin mensajes del cliente");
-  const motor = motorIA(env);
-  if (motor === "claude") return preguntarClaude(env, prompt);
-  if (motor === "cloudflare") return preguntarCloudflare(env, prompt);
-  throw new Error("no hay IA conectada en el servidor");
+  const motores = motoresIA(env);
+  if (!motores.length) throw new Error("no hay IA conectada en el servidor");
+  const errores = [];
+  for (const motor of motores) {
+    try {
+      if (motor === "cloudflare") return await preguntarCloudflare(env, prompt);
+      if (motor === "local") return await preguntarLocal(env, prompt);
+      if (motor === "claude") return await preguntarClaude(env, prompt);
+    } catch (e) { errores.push(`${motor}: ${e.message ?? e}`); }
+  }
+  throw new Error(errores.join(" · "));
 }
 
 /** Lo que el cliente fue diciendo (auto, crédito, enganche, cita…) se guarda en su prospecto para la app. */

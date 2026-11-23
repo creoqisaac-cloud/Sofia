@@ -1,5 +1,5 @@
 // Modo sin conexión: primero la red (para recibir actualizaciones), si no hay, la copia guardada.
-const CACHE = "sofia-prueba-v7";
+const CACHE = "sofia-prueba-v8";
 const SHELL = [
   "./", "index.html", "app.css", "manifest.webmanifest", "icon.svg", "icon-192.png", "apple-touch-icon.png", "vendor/pdf-lib.min.js",
   "js/app.js", "js/util.js", "js/db.js", "js/store.js", "js/ui.js", "js/native.js", "js/rules.js", "js/ai.js", "js/credit.js",

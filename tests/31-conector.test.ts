@@ -19,7 +19,7 @@ type Rec = { method: string; path: string; auth?: string; body: string; type?: s
 const calls: Rec[] = [];
 let enviados = 0; // cada envío simulado recibe un id distinto, como en Meta
 let fake: http.Server;
-const ia = { peticiones: [] as Record<string, unknown>[], salida: {} as Record<string, unknown>, stop: "end_turn" };
+const ia = { peticiones: [] as Record<string, unknown>[], salida: {} as Record<string, unknown>, stop: "end_turn", localFalla: false };
 let G = "";
 const NEGOCIO = "tok-negocio-0123456789abcdef"; // llave del negocio que da el registro integrado de Meta
 const CUENTA_CF = "0123456789abcdef0123456789abcdef"; // cuenta de Cloudflare (IA gratis por su API)
@@ -55,6 +55,13 @@ beforeAll(async () => {
       if (path.startsWith(`/cf/accounts/${CUENTA_CF}/ai/run/`)) {
         if (req.headers.authorization !== "Bearer cf-token") return send({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, 401);
         return send({ success: true, errors: [], result: { response: { respuesta: "Claro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?", pasar_a_asesor: false, auto_id: "", resumen: "Pide corrida del Civic", forma_pago: "credito", cita: "", reservar: "", nombre: "", modelo: "Civic" } } });
+      }
+      // IA local en otro equipo (Ollama / LM Studio: API compatible con OpenAI)
+      if (path === "/local/v1/chat/completions") {
+        const b = JSON.parse(body);
+        ia.peticiones.push(b);
+        if (ia.localFalla) return send({ error: { message: "modelo no encontrado" } }, 404);
+        return send({ choices: [{ message: { role: "assistant", content: 'Claro: {"respuesta":"Te entiendo, ¿buscas sedán o camioneta?","pasar_a_asesor":false,"auto_id":"","resumen":"","forma_pago":"","cita":""}' } }] });
       }
       // Registro integrado de Meta (coexistencia): código → llave del negocio, cuenta, número y sincronización.
       if (path.startsWith("/v/oauth/access_token")) {
@@ -813,19 +820,20 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     ia.stop = "end_turn";
     calls.length = 0;
     await handle(signed(waMsg("wamid.I2", "oye y el versa trae camarita atrás o nel", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
-    // Con IA, Sofía lleva toda la plática: también lo que el menú sí entiende.
-    expect(ia.peticiones).toHaveLength(1);
-    expect(waEnvios()[0]!.text.body).toBe(ia.salida.respuesta);
+    // Las reglas son el cerebro: lo que entienden lo contestan ellas, sin gastar IA.
+    expect(ia.peticiones).toHaveLength(0);
+    expect(waEnvios().length).toBeGreaterThan(0);
     ia.peticiones.length = 0;
     calls.length = 0;
-    await handle(signed(waMsg("wamid.I3", "y aceptan mi carro a cuenta?", mas(LUNES_10, 2))), e, store, { ahora: mas(LUNES_10, 2) });
+    // Solo lo que las reglas no entienden pasa a la IA.
+    await handle(signed(waMsg("wamid.I3", "blorp fiuuu xd?", mas(LUNES_10, 2))), e, store, { ahora: mas(LUNES_10, 2) });
     expect(ia.peticiones).toHaveLength(1);
     const p = ia.peticiones[0] as { model: string; system: string; messages: { role: string; content: string }[]; output_config: { effort: string; format: { type: string } }; fallbacks: string };
     expect(p).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "low", format: { type: "json_schema" } }, fallbacks: "default" });
     expect(p.system).toContain("Honda CR-V Touring 2026");
     expect(p.system).toContain("$689,900");
     expect(p.messages[0]).toEqual({ role: "user", content: "Hola" });
-    expect(p.messages.at(-1)).toEqual({ role: "user", content: "y aceptan mi carro a cuenta?" });
+    expect(p.messages.at(-1)).toEqual({ role: "user", content: "blorp fiuuu xd?" });
     expect(p.system).toContain("Si preguntan directamente si eres una IA, responde con honestidad");
     expect(waEnvios().map((m) => m.text.body)).toEqual([ia.salida.respuesta]);
     expect(await leadDe(store)).toMatchObject({ autoId: "versa" });
@@ -850,7 +858,9 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     let respuesta: unknown = { response: { respuesta: "va, la Versa está bien para empezar. ¿la quieres a crédito?", pasar_a_asesor: false, auto_id: "versa", resumen: "Busca algo económico", forma_pago: "", cita: "" } };
     const AI = { run: async (modelo: string, entrada: (typeof corridas)[number]["entrada"]) => { corridas.push({ modelo, entrada }); return respuesta; } };
     const e = { ...env(), AI };
-    await handle(signed(waMsg("wamid.CF1", "hola busco algo barato", LUNES_10)), e, store, { ahora: LUNES_10 });
+    await handle(signed(waMsg("wamid.CF0", "hola busco algo barato", LUNES_10)), e, store, { ahora: LUNES_10 });
+    expect(corridas).toHaveLength(0); // eso lo entienden las reglas
+    await handle(signed(waMsg("wamid.CF1", "blorp fiuuu xd?", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
     expect(corridas[0]!.modelo).toBe("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
     expect(corridas[0]!.entrada.response_format.type).toBe("json_schema");
     const sistema = corridas[0]!.entrada.messages[0]!;
@@ -863,7 +873,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     // Algunos modelos regresan texto con algo antes del JSON: se lee igual.
     respuesta = { response: 'Aquí está: {"respuesta":"sale, ¿qué día puedes venir?","pasar_a_asesor":false,"auto_id":"","resumen":"","forma_pago":"credito","cita":""}' };
     calls.length = 0;
-    await handle(signed(waMsg("wamid.CF2", "si a credito", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
+    await handle(signed(waMsg("wamid.CF2", "ñeee pff jsjs", mas(LUNES_10, 2))), e, store, { ahora: mas(LUNES_10, 2) });
     expect(waEnvios()[0]!.text.body).toBe("sale, ¿qué día puedes venir?");
     expect((await (await handle(req("/api/estado?token=clave"), e, store)).json()).agente.ventas.ia).toMatchObject({ activa: true, motor: "cloudflare", modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" });
     // Cloudflare tiene prioridad para conservar la cuota gratis, pero Claude queda como motor si Cloudflare no está configurado.
@@ -877,21 +887,49 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     const store = memStore();
     await configurar(store, vendedora({ ventas: { ia: true } }));
     const e = { ...env(), AI: iaPorApi({ cuenta: CUENTA_CF, llave: "cf-token", url: `${G}/cf` }) };
+    await handle(signed(waMsg("wamid.CF0", "Hola", LUNES_10)), e, store, { ahora: LUNES_10 });
     calls.length = 0;
-    await handle(signed(waMsg("wamid.CF1", "Hola precio del civic", LUNES_10)), e, store, { ahora: LUNES_10 });
+    await handle(signed(waMsg("wamid.CF1", "blorp fiuuu xd?", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
     expect(waEnvios()[0]!.text.body).toBe("Claro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?");
     const pet = calls.find((c) => c.path.startsWith("/cf/"))!;
     expect(pet.path).toBe(`/cf/accounts/${CUENTA_CF}/ai/run/@cf/meta/llama-3.3-70b-instruct-fp8-fast`);
-    expect(JSON.parse(pet.body)).toMatchObject({ messages: [{ role: "system" }, { role: "user", content: "Hola precio del civic" }], response_format: { type: "json_schema" } });
+    expect(JSON.parse(pet.body)).toMatchObject({ messages: [{ role: "system" }, { role: "user", content: "Hola" }, { role: "assistant" }, { role: "user", content: "blorp fiuuu xd?" }], response_format: { type: "json_schema" } });
     expect(await leadDe(store)).toMatchObject({ resumen: "Pide corrida del Civic", formaPago: "credito", interes: "Civic" });
     expect((await (await handle(req("/api/estado?token=clave"), e, store)).json()).agente.ventas.ia).toMatchObject({ motor: "cloudflare", llave: true });
     // Con un token equivocado no se queda callada: contesta el menú y el error queda para la app.
     const otro = memStore();
     await configurar(otro, vendedora({ ventas: { ia: true } }));
+    const malo = { ...env(), AI: iaPorApi({ cuenta: CUENTA_CF, llave: "token-malo", url: `${G}/cf` }) };
+    await handle(signed(waMsg("wamid.CF1b", "Hola", LUNES_10)), malo, otro, { ahora: LUNES_10 });
     calls.length = 0;
-    await handle(signed(waMsg("wamid.CF2", "Hola precio del civic", LUNES_10)), { ...env(), AI: iaPorApi({ cuenta: CUENTA_CF, llave: "token-malo", url: `${G}/cf` }) }, otro, { ahora: LUNES_10 });
-    expect(waEnvios()[0]!.text.body).toContain("Claro, te hago una corrida del Civic.");
-    expect(((await otro.get("agente:errores")) as { error: string }[])[0]!.error).toBe("IA: Authentication error");
+    await handle(signed(waMsg("wamid.CF2", "blorp fiuuu xd?", mas(LUNES_10, 1))), malo, otro, { ahora: mas(LUNES_10, 1) });
+    expect(waEnvios()[0]!.text.body).toBeTruthy(); // contesta la regla de respaldo
+    expect(((await otro.get("agente:errores")) as { error: string }[])[0]!.error).toBe("IA: cloudflare: Authentication error");
+  });
+
+  it("IA local en otro equipo (Ollama): respaldo cuando Cloudflare falla; si ambas fallan contestan las reglas", async () => {
+    const store = memStore();
+    await configurar(store, vendedora({ ventas: { ia: true } }));
+    const local = { LOCAL_AI_URL: `${G}/local`, LOCAL_AI_MODEL: "qwen2.5:7b" };
+    await handle(signed(waMsg("wamid.L0", "Hola", LUNES_10)), { ...env(), ...local }, store, { ahora: LUNES_10 });
+    ia.peticiones.length = 0;
+    calls.length = 0;
+    // Solo IA local
+    await handle(signed(waMsg("wamid.L1", "blorp fiuuu xd?", mas(LUNES_10, 1))), { ...env(), ...local }, store, { ahora: mas(LUNES_10, 1) });
+    expect(ia.peticiones[0]).toMatchObject({ model: "qwen2.5:7b", response_format: { type: "json_object" } });
+    expect(waEnvios()[0]!.text.body).toBe("Te entiendo, ¿buscas sedán o camioneta?");
+    // Cloudflare con token malo → pasa a la local
+    calls.length = 0;
+    const conCf = { ...env(), ...local, AI: iaPorApi({ cuenta: CUENTA_CF, llave: "token-malo", url: `${G}/cf` }) };
+    await handle(signed(waMsg("wamid.L2", "ñeee pff jsjs", mas(LUNES_10, 2))), conCf, store, { ahora: mas(LUNES_10, 2) });
+    expect(waEnvios()[0]!.text.body).toBe("Te entiendo, ¿buscas sedán o camioneta?");
+    // Las dos fallan → contestan las reglas y queda el error
+    ia.localFalla = true;
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.L3", "zzzt prrr", mas(LUNES_10, 3))), conCf, store, { ahora: mas(LUNES_10, 3) });
+    ia.localFalla = false;
+    expect(waEnvios()[0]!.text.body).not.toBe("Te entiendo, ¿buscas sedán o camioneta?");
+    expect(((await store.get("agente:errores")) as { error: string }[])[0]!.error).toMatch(/cloudflare: .*local: /);
   });
 
   it("una configuración guardada antes pasa a contestar por Mario Abarca en Honda, con IA", async () => {
@@ -975,7 +1013,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect(r2).toMatchObject({ motivo: "auto", lead: { autoId: "versa" } });
     ia.salida = { respuesta: "Con gusto, el asesor revisa tu auto a cuenta.", pasar_a_asesor: true, auto_id: "" };
     ia.stop = "end_turn";
-    const r3 = await probar({ texto: "¿toman mi carro a cuenta?", conv: r2.conv, historial: [{ dir: "in", text: "Hola" }, { dir: "in", text: "¿toman mi carro a cuenta?" }] });
+    const r3 = await probar({ texto: "blorp fiuuu xd?", conv: r2.conv, historial: [{ dir: "in", text: "Hola" }, { dir: "in", text: "blorp fiuuu xd?" }] });
     expect(r3).toMatchObject({ motivo: "ia", lead: { quiereAsesor: true }, respuestas: [{ texto: "Con gusto, el asesor revisa tu auto a cuenta." }] });
     expect(store.escrituras).toBe(antes);
     expect(calls.filter((c) => c.path.startsWith("/v/"))).toHaveLength(0);
