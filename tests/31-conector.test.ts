@@ -796,7 +796,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
   it("configuración de la vendedora: valores por defecto y límites", async () => {
     const store = memStore();
     const def = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
-    expect(def.ventas).toEqual({ activo: true, tasaAnual: 15.9, engancheMinimo: 20, plazos: [24, 36, 48, 60], horasConAsesor: 12, presentacion: "", ia: true });
+    expect(def.ventas).toEqual({ activo: true, tasaAnual: 15.9, engancheMinimo: 20, plazos: [24, 36, 48, 60], horasConAsesor: 0, presentacion: "", ia: true });
     const r = await (await configurar(store, { ventas: { tasaAnual: 12.5, plazos: [12, 72, 500, "x", 12] } })).json();
     expect(r.config.ventas).toMatchObject({ activo: true, tasaAnual: 12.5, plazos: [12, 72], engancheMinimo: 20 });
     const off = await (await configurar(store, { ventas: { activo: false } })).json();
@@ -898,7 +898,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     const store = memStore();
     await store.put("agente:config", { activo: false, asesor: "", agencia: "", reglas: [], ventas: { activo: true, ia: false } });
     const cfg = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
-    expect(cfg).toMatchObject({ activo: true, asesor: "Mario Abarca", agencia: "Honda", marca: "Honda", ventas: { activo: true, ia: true }, perfil: 4 });
+    expect(cfg).toMatchObject({ activo: true, asesor: "Mario Abarca", agencia: "Honda", marca: "Honda", ventas: { activo: true, ia: true, horasConAsesor: 0 }, perfil: 5 });
     await store.put("agente:config", { ...cfg, ventas: { ...cfg.ventas, ia: false } }); // ya con marca: se respeta lo que elija
     expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config.ventas.ia).toBe(false);
     // La de «Mario» (perfil 1, con la presentación «Soy Sofía…») o la de «Lic. Mario Abarca» (perfil 2): pasan a Mario Abarca; otro asesor se respeta.
@@ -906,11 +906,11 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     const mario = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
     expect(mario).toMatchObject({ asesor: "Mario Abarca", ventas: { presentacion: "" } });
     await store.put("agente:config", { ...cfg, perfil: 2, asesor: "Lic. Mario Abarca" });
-    expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config).toMatchObject({ asesor: "Mario Abarca", perfil: 4 });
+    expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config).toMatchObject({ asesor: "Mario Abarca", perfil: 5 });
     await store.put("agente:config", { ...cfg, perfil: undefined, asesor: "Pedro" });
     expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config.asesor).toBe("Pedro");
     // Al guardar desde la app ya queda en el perfil nuevo.
-    expect((await (await configurar(store, { agencia: "Honda Valle" })).json()).config).toMatchObject({ perfil: 4, asesor: "Pedro" });
+    expect((await (await configurar(store, { agencia: "Honda Valle" })).json()).config).toMatchObject({ perfil: 5, asesor: "Pedro", ventas: { horasConAsesor: 0 } });
   });
 
   it("corridas: se pegan desde la app como texto, se guardan aparte de lo demás y la IA las recibe tal cual", async () => {
@@ -1063,7 +1063,7 @@ describe("conector · coexistencia (el WhatsApp Business que el asesor ya usa en
     expect(mal.error).toContain("Invalid verification code");
   });
 
-  it("si Mario contesta desde su celular, Sofía se calla en ese chat (12 h) y su mensaje queda en la plática", async () => {
+  it("si Mario contesta desde su celular, Sofía espera la pausa breve y luego retoma", async () => {
     const store = memStore();
     await configurar(store, { activo: true, asesor: "Mario Abarca", agencia: "Honda" });
     const decir = async (id: string, texto: string, iso: string) => { calls.length = 0; await handle(signed(waMsg(id, texto, iso)), env(), store, { ahora: iso }); return waEnvios().filter((m) => m.to === CLIENTA); };
@@ -1073,8 +1073,7 @@ describe("conector · coexistencia (el WhatsApp Business que el asesor ya usa en
       message_echoes: [{ from: NEGOCIO_TEL, to: CLIENTA.replace(/^521/, "52"), id: "wamid.ECO1", timestamp: String(Date.parse(mas(LUNES_10, 2)) / 1000), type: "text", text: { body: "Qué onda, aquí Mario. ¿Qué modelo buscas?" } }] }), env(), store, { ahora: mas(LUNES_10, 2) });
     expect((await charla(store)).at(-1)).toMatchObject({ dir: "out", text: "Qué onda, aquí Mario. ¿Qué modelo buscas?" });
     expect(await decir("wamid.C2", "La CR-V", mas(LUNES_10, 3))).toHaveLength(0); // ya lo atiende Mario
-    expect(await decir("wamid.C3", "¿sigues?", mas(LUNES_10, 11 * 60))).toHaveLength(0);
-    expect(await decir("wamid.C4", "Hola otra vez", mas(LUNES_10, 13 * 60))).toHaveLength(1); // pasó el día: Sofía vuelve
+    expect(await decir("wamid.C3", "¿sigues?", mas(LUNES_10, 45))).toHaveLength(1); // tras la pausa manual de 30 minutos, retoma
     // Ediciones y borrados desde el celular no cuentan como mensaje nuevo.
     await handle(webhookDe("smb_message_echoes", { message_echoes: [{ from: NEGOCIO_TEL, to: CLIENTA, id: "wamid.ECO2", timestamp: "1", type: "revoke", revoke: { original_message_id: "wamid.ECO1" } }] }), env(), store);
     expect((await charla(store)).filter((m) => m.text.includes("revoke"))).toHaveLength(0);

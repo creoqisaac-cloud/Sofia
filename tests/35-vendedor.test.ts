@@ -98,11 +98,12 @@ describe("vendedora · conversación", () => {
     expect(todo.lead).toMatchObject({ formaPago: "contado" });
   });
 
-  it("pedir asesor lo pasa a la persona y Sofía se calla en esa conversación (salvo «menú»)", () => {
+  it("pasa el prospecto a Pedro y Sofía retoma si el cliente vuelve a escribir", () => {
     const r = charla(["Hola", "quiero hablar con un asesor", "¿sigues ahí?", "menú"]);
     expect(r.paso(1).motivo).toBe("asesor");
     expect(r.txt(1)).toBe("Va, ahorita le aviso a Pedro para que te escriba.");
-    expect(r.paso(2)).toMatchObject({ motivo: "con-asesor", respuestas: [] });
+    expect(r.paso(2).motivo).not.toBe("con-asesor");
+    expect(r.paso(2).respuestas.length).toBeGreaterThan(0);
     expect(r.ultimo.motivo).toBe("menu");
     expect(r.lead).toMatchObject({ quiereAsesor: true, calor: "caliente" });
   });

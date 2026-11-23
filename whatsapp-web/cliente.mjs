@@ -52,7 +52,19 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     const chat = m.fromMe ? m.to : m.from;
     if (!/^\d+@(c\.us|lid)$/.test(chat)) return;
     const propio = client.info?.wid?._serialized || (client.info?.wid?.user ? client.info.wid.user + "@c.us" : "");
-    const esChatPropio = Boolean(propio) && chat === propio;
+    let telefono = chat;
+    if (chat.endsWith("@lid")) {
+      const contactos = client.getContactLidAndPhone ? await client.getContactLidAndPhone([chat]).catch(() => []) : [];
+      const [contacto] = contactos;
+      telefono = contacto?.pn || chat;
+    }
+    const numeroJid = (jid) => String(jid ?? "").match(/^(\d+)@c\.us$/)?.[1] ?? "";
+    const propioUser = client.info?.wid?.user || numeroJid(propio);
+    const telefonoUser = numeroJid(telefono);
+    const esChatPropio = Boolean(propio) && (chat === propio || (propioUser && telefonoUser && normalizar(propioUser) === normalizar(telefonoUser)));
+    if (m.fromMe && /^\/?\s*sof[ií]a\b/i.test(String(m.body).trim())) {
+      console.log(`Orden de Sofía detectada en WhatsApp; chat propio: ${esChatPropio ? "sí" : "no"}.`);
+    }
     if (!soloMiWhatsApp && esChatPropio && m.fromMe) {
       await procesarComandoOperativo(m, propio);
       return;
@@ -61,11 +73,6 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     // por el dueño en el chat «Tú»; nunca escucha notas ni sus propias respuestas.
     if (soloMiWhatsApp && (!esChatPropio || !m.fromMe || !/^\/sofia(?:\s|$)/i.test(m.body.trim()))) return;
     if (!soloMiWhatsApp && esChatPropio) return;
-    let telefono = chat;
-    if (chat.endsWith("@lid")) {
-      const [contacto] = await client.getContactLidAndPhone([chat]);
-      telefono = contacto?.pn;
-    }
     if (!/^\d+@c\.us$/.test(telefono)) return;
     const peer = telefono.split("@")[0];
     if ((!soloMiWhatsApp && peer === client.info?.wid?.user) || !permitido(peer)) return;
@@ -76,7 +83,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     await recibir({ object: "whatsapp_business_account", entry: [{ changes: [cambio] }] });
   }
   async function procesarComandoOperativo(m, propio) {
-    const match = String(m.body).trim().match(/^\/sofia\s+(pendientes|ayuda|responder\s+\d+)\s*$/i);
+    const match = String(m.body).trim().match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)(pendientes|ayuda|ayúdame|responder\s+\d+)\s*$/i);
     if (!match || comandosOperativosVistos.has(m.id._serialized)) return;
     comandosOperativosVistos.add(m.id._serialized);
     if (comandosOperativosVistos.size > 200) comandosOperativosVistos.delete(comandosOperativosVistos.values().next().value);
@@ -84,7 +91,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     try {
       if (!operaciones) throw new Error("Las órdenes de operación no están disponibles en este conector.");
       const orden = match[1].toLowerCase();
-      if (orden === "ayuda") {
+      if (orden === "ayuda" || orden === "ayúdame") {
         await responderMario("Órdenes de Sofía:\n/sofia pendientes — trae chats recientes sin responderlos.\n/sofia responder 1 — responde solo al chat número 1 de la lista.");
         return;
       }

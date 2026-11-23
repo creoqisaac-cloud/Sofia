@@ -17,7 +17,7 @@ export const VENTAS_BASE = {
   tasaAnual: 15.9, // referencial, sin IVA ni seguro: siempre se aclara al cliente
   engancheMinimo: 20, // % del precio
   plazos: [24, 36, 48, 60],
-  horasConAsesor: 12, // al pedir asesor o anotar una visita, Sofía deja esa conversación al asesor
+  horasConAsesor: 0, // al volver a escribir el cliente, Sofía retoma; la pausa breve cubre respuestas manuales de Mario
   presentacion: "", // cómo saluda en el primer mensaje; vacío = "¡Hola {nombre}! 👋"
   ia: false, // con IA (opcional, de pago): contesta lo que el menú no entiende, con los mismos datos y reglas
 };
@@ -295,7 +295,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     Object.assign(c, { autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
     return { respuestas: [{ texto: "Listo, ya no te enviaremos promociones. Te seguimos contestando lo que nos preguntes 🙂" }], conv: c, lead, motivo: "sin-promociones" };
   }
-  if (c.paso === "asesor" && now - new Date(c.desde ?? 0) < v.horasConAsesor * HORA && !pideMenu) return quedar("con-asesor");
+  if (v.horasConAsesor > 0 && c.paso === "asesor" && now - new Date(c.desde ?? 0) < v.horasConAsesor * HORA && !pideMenu) return quedar("con-asesor");
   if (!texto.trim()) return quedar("vacio"); // stickers, audios, reacciones: los ve el asesor
 
   const resp = [];

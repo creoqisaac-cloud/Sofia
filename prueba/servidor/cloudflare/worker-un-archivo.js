@@ -4895,8 +4895,8 @@ var VENTAS_BASE = {
   engancheMinimo: 20,
   // % del precio
   plazos: [24, 36, 48, 60],
-  horasConAsesor: 12,
-  // al pedir asesor o anotar una visita, Sofía deja esa conversación al asesor
+  horasConAsesor: 0,
+  // al volver a escribir el cliente, Sofía retoma; la pausa breve cubre respuestas manuales de Mario
   presentacion: "",
   // cómo saluda en el primer mensaje; vacío = "¡Hola {nombre}! 👋"
   ia: false
@@ -5111,7 +5111,7 @@ function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @_
     Object.assign(c, { autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
     return { respuestas: [{ texto: "Listo, ya no te enviaremos promociones. Te seguimos contestando lo que nos preguntes \u{1F642}" }], conv: c, lead, motivo: "sin-promociones" };
   }
-  if (c.paso === "asesor" && now - new Date(c.desde ?? 0) < v.horasConAsesor * HORA && !pideMenu) return quedar("con-asesor");
+  if (v.horasConAsesor > 0 && c.paso === "asesor" && now - new Date(c.desde ?? 0) < v.horasConAsesor * HORA && !pideMenu) return quedar("con-asesor");
   if (!texto.trim()) return quedar("vacio");
   const resp = [];
   let motivo = "";
@@ -5763,7 +5763,7 @@ function waText(m) {
       return `[${m.type}]`;
   }
 }
-var PERFIL = 4;
+var PERFIL = 5;
 var AGENTE_BASE = {
   perfil: PERFIL,
   activo: true,
@@ -5877,7 +5877,9 @@ async function leerConfig(store) {
   let c = await store.get("agente:config");
   if (c && !c.marca) c = { ...c, activo: true, asesor: c.asesor || AGENTE_BASE.asesor, agencia: c.agencia || AGENTE_BASE.agencia, marca: AGENTE_BASE.marca, ventas: { ...c.ventas ?? {}, activo: true, ia: true } };
   if (c && (c.perfil ?? 1) < PERFIL) {
+    const perfilAnterior = c.perfil ?? 1;
     c = { ...c, perfil: PERFIL, asesor: ["", "Mario", "Lic. Mario Abarca"].includes(c.asesor ?? "") ? AGENTE_BASE.asesor : c.asesor };
+    if (perfilAnterior < 5 && Number(c.ventas?.horasConAsesor ?? 12) === 12) c.ventas = { ...c.ventas, horasConAsesor: 0 };
     if (/Soy Sofía/i.test(c.ventas?.presentacion ?? "")) c.ventas = { ...c.ventas, presentacion: "" };
     if (/en este momento estoy fuera de horario/i.test(c.fueraDeHorario ?? "")) c.fueraDeHorario = AGENTE_BASE.fueraDeHorario;
   }

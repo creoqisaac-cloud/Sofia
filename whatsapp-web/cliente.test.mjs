@@ -124,6 +124,7 @@ test("Mario: /sofia pendientes no contesta; /sofia responder N responde un solo 
   const ordenes = [];
   let sincronizaciones = 0;
   client.info = { wid: { user: "5218111112222", _serialized: self } };
+  client.getContactLidAndPhone = async (lids) => lids.map((lid) => ({ lid, pn: self }));
   client.sendMessage = async (to, text) => { enviados.push({ to, text }); return { id: { _serialized: `salida-${enviados.length}` } }; };
   const operaciones = {
     async pendientes() {
@@ -152,6 +153,9 @@ test("Mario: /sofia pendientes no contesta; /sofia responder N responde un solo 
   assert.equal(enviados.filter(x => x.text.startsWith("Voy a responder un solo chat:")).length, 1);
   await comando("orden-3", "/sofia responder todos");
   assert.deepEqual(ordenes, ["wa:528100000002"], "no acepta respuestas masivas ambiguas");
+  client.emit("message_create", { type: "chat", body: "sofia ayuda", fromMe: true, from: self, to: "5218111112222@lid", id: { _serialized: "orden-lid" }, timestamp: Math.floor(Date.now() / 1000) });
+  await new Promise(resolve => setTimeout(resolve, 15));
+  assert.match(enviados.at(-1).text, /Órdenes de Sofía/);
 });
 
 test("como persona: «escribiendo…» antes de contestar, y la cita le llega al asesor en su chat «Tú»", async () => {

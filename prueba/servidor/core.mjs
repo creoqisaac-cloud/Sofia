@@ -197,7 +197,7 @@ function waText(m) {
 // reglas por palabra. Nunca más de una respuesta automática por mensaje.
 
 // De fábrica: contesta por Mario Abarca (Honda), sola y con IA (gratis de Cloudflare), sin configurar nada.
-const PERFIL = 4; // sube cuando cambia lo de fábrica y hay que pasar las configuraciones guardadas a la nueva forma
+const PERFIL = 5; // sube cuando cambia lo de fábrica y hay que pasar las configuraciones guardadas a la nueva forma
 const AGENTE_BASE = {
   perfil: PERFIL,
   activo: true,
@@ -312,7 +312,10 @@ async function leerConfig(store) {
   if (c && !c.marca) c = { ...c, activo: true, asesor: c.asesor || AGENTE_BASE.asesor, agencia: c.agencia || AGENTE_BASE.agencia, marca: AGENTE_BASE.marca, ventas: { ...(c.ventas ?? {}), activo: true, ia: true } };
   // Lo de fábrica antes era «Mario» o «Lic. Mario Abarca» y «Soy Sofía, asistente de…»: ahora contesta por Mario Abarca.
   if (c && (c.perfil ?? 1) < PERFIL) {
+    const perfilAnterior = c.perfil ?? 1;
     c = { ...c, perfil: PERFIL, asesor: ["", "Mario", "Lic. Mario Abarca"].includes(c.asesor ?? "") ? AGENTE_BASE.asesor : c.asesor };
+    // La versión anterior callaba 12 h después de pasar un chat a Mario. Sofía ahora retoma cuando el cliente vuelve.
+    if (perfilAnterior < 5 && Number(c.ventas?.horasConAsesor ?? 12) === 12) c.ventas = { ...c.ventas, horasConAsesor: 0 };
     if (/Soy Sofía/i.test(c.ventas?.presentacion ?? "")) c.ventas = { ...c.ventas, presentacion: "" };
     if (/en este momento estoy fuera de horario/i.test(c.fueraDeHorario ?? "")) c.fueraDeHorario = AGENTE_BASE.fueraDeHorario;
   }

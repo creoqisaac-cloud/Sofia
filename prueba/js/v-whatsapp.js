@@ -391,7 +391,7 @@ function drawAgentForm(box, cfg) {
   const tasa = input({ type: "number", min: "0", max: "80", step: "0.1", value: v.tasaAnual ?? 15.9 });
   const enganche = input({ type: "number", min: "0", max: "90", value: v.engancheMinimo ?? 20 });
   const plazos = input({ value: (v.plazos ?? [24, 36, 48, 60]).join(", "), inputmode: "numeric" });
-  const conAsesor = input({ type: "number", min: "0", max: "168", value: v.horasConAsesor ?? 12 });
+  const conAsesor = input({ type: "number", min: "0", max: "168", value: v.horasConAsesor ?? 0 });
   const conIa = h("input", { type: "checkbox", checked: Boolean(v.ia) });
   const iaSt = st?.ventas?.ia;
   const soloReglas = h("div", { class: "stack-s" }); // bienvenida y fuera de horario: solo sin la vendedora
@@ -409,7 +409,7 @@ function drawAgentForm(box, cfg) {
   box.replaceChildren(
     st ? h("p", { class: st.ultimoError ? "warn small" : "muted small" }, `${st.activo ? "Activo" : "Apagado"} · ahora ${st.enHorario ? "en horario" : "fuera de horario"}${st.ultimoError ? ` · último error: ${st.ultimoError.error}` : ""}`) : null,
     h("label", { class: "row gap-s" }, activo, h("span", {}, "Contestar automáticamente")),
-    h("p", { class: "muted small" }, "Variables: {nombre} (del perfil del cliente), {asesor}, {agencia}. Nunca se contesta a sí misma y se calla si tú acabas de escribir."),
+    h("p", { class: "muted small" }, "Variables: {nombre} (del perfil del cliente), {asesor}, {agencia}. Cuando el cliente vuelve a escribir, Sofía retoma; la pausa breve evita interrumpirte si acabas de contestar manualmente."),
     h("p", { class: "muted small" }, "Responde en la voz de Mario, espera unos segundos y muestra que está escribiendo. En WhatsApp Business crea las etiquetas Prospecto, Caliente, Cita y Asesor; Sofía aplicará las que existan y conservará las demás."),
     h("div", { class: "grid2" }, field("Asesor", asesor), field("Agencia", agencia)),
     // div y no <label>: un toque en el título o entre los chips activaría el botón "L" (lunes).
@@ -420,7 +420,7 @@ function drawAgentForm(box, cfg) {
     h("label", { class: "row gap-s" }, ventas, h("span", {}, "Vender autos: menú, inventario con foto, crédito, citas y pase contigo")),
     field("Cómo se presenta (opcional)", presentacion, "Va al inicio del primer mensaje. Vacío: «¡Hola {nombre}! 👋»."),
     h("div", { class: "grid2" }, field("Tasa anual de referencia (%)", tasa, "Solo para estimar; Sofía aclara que está sujeta a aprobación."), field("Enganche mínimo (%)", enganche)),
-    h("div", { class: "grid2" }, field("Plazos (meses)", plazos), field("Al pedirte, Sofía se calla (horas)", conAsesor)),
+    h("div", { class: "grid2" }, field("Pausa de Sofía después de pasar el chat a Mario (horas; 0 = retoma al siguiente mensaje)", conAsesor)),
     h("label", { class: "row gap-s" }, conIa, h("span", {}, "Con IA: contesta lo que el menú no entiende y platica como vendedora (opcional, de pago)")),
     h("p", { class: iaSt && !iaSt.llave && conIa.checked ? "warn small" : "muted small" }, iaSt?.motor === "cloudflare"
       ? "Usa la IA GRATIS de tu Cloudflare (cuota diaria sin costo). Nunca inventa precios: solo usa tu inventario y tus reglas; si no sabe, te pasa al cliente."
