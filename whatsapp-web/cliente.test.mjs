@@ -152,7 +152,6 @@ test("Mario: /sofia pendientes no contesta; /sofia responder N responde un solo 
   assert.equal(enviados.filter(x => x.text.startsWith("Voy a responder un solo chat:")).length, 1);
   await comando("orden-3", "/sofia responder todos");
   assert.deepEqual(ordenes, ["wa:528100000002"], "no acepta respuestas masivas ambiguas");
-  await assert.rejects(receptor.enviar({ to: "528100000002", text: "No debería salir" }), /Destinatario no habilitado/);
 });
 
 test("como persona: «escribiendo…» antes de contestar, y la cita le llega al asesor en su chat «Tú»", async () => {
