@@ -4,7 +4,7 @@ import { h, toast, fmtWhen, modal } from "./util.js";
 import { state, save, serverPeek, serverPull, serverBase, isAppsScript } from "./store.js";
 import { header, section, btn, rerender, field, input, select, chip, go } from "./ui.js";
 import { MODELS, testConnection, aiReady } from "./ai.js";
-import { connectorReady, refreshStatus, lastStatus, sendMessage, waTemplates, getConnection, saveConnection, connectCoexistence } from "./connector.js";
+import { connectorReady, refreshStatus, lastStatus, sendMessage, waTemplates, getConnection, saveConnection, testCloudflareAI, connectCoexistence } from "./connector.js";
 import { cargarFacebook, registrarWhatsApp } from "./meta-registro.js";
 import { googleReady, googleStatus, lastGoogleStatus, setEmailConfig, saveEvent, deleteEvent } from "./google.js";
 
@@ -27,6 +27,7 @@ export function renderConnections(root) {
       lastStatus()?.whatsapp?.modo === "web" ? null : waCard(),
       fbCard(),
       aiCard(),
+      cloudflareAiCard(),
       h("p", { class: "muted small" }, "Guía paso a paso (cuentas de Meta, tokens y servidor gratis): ", h("a", { href: GUIDE, target: "_blank", rel: "noopener" }, "CONEXIONES.md"))));
 }
 
@@ -145,6 +146,47 @@ function aiCard() {
       finally { b.disabled = false; }
     }, "small ghost")) : null,
     ai.usedAt ? h("p", { class: "muted small" }, `Último uso: ${fmtWhen(ai.usedAt)}`) : null);
+}
+
+// Workers AI con la cuota gratuita de Cloudflare: las credenciales se guardan solo en el servidor.
+function cloudflareAiCard() {
+  const box = h("div", { class: "stack-s" }, h("p", { class: "muted small" }, "Cargando…"));
+  if (!connectorReady()) return section("IA gratis de Cloudflare", h("p", { class: "muted small" }, "Conecta primero el servidor de Sofía. El Account ID y el token se guardan en ese servidor, nunca en el respaldo del teléfono."));
+  getConnection().then((con) => {
+    const account = input({ value: con.valores?.CF_ACCOUNT_ID ?? "", autocomplete: "off", placeholder: "Account ID de 32 caracteres" });
+    const token = input({ type: "password", autocomplete: "off", placeholder: con.configurado?.CF_API_TOKEN ? "✓ token guardado; escribe solo para cambiarlo" : "Token Workers AI" });
+    const status = lastStatus()?.agente?.ventas?.ia;
+    const out = h("p", { class: "small", role: "status" });
+    const probar = async (e) => {
+      const b = e.currentTarget;
+      const datos = {};
+      if (account.value.trim() !== (con.valores?.CF_ACCOUNT_ID ?? "")) datos.CF_ACCOUNT_ID = account.value.trim();
+      if (token.value.trim()) datos.CF_API_TOKEN = token.value.trim();
+      if (!con.configurado?.CF_API_TOKEN && !datos.CF_API_TOKEN) { out.textContent = "Pega el token que acabas de crear en Cloudflare."; return; }
+      if (!con.configurado?.CF_ACCOUNT_ID && !datos.CF_ACCOUNT_ID) { out.textContent = "Pega tu Account ID de 32 caracteres."; return; }
+      b.disabled = true;
+      out.className = "small";
+      out.textContent = "Guardando en el servidor y probando Cloudflare…";
+      try {
+        if (Object.keys(datos).length) await saveConnection(datos);
+        const r = await testCloudflareAI();
+        await refreshStatus();
+        token.value = "";
+        toast(`IA gratis conectada: ${r.modelo}`);
+        rerender();
+      } catch (err) { out.className = "small warn"; out.textContent = err.message; }
+      finally { b.disabled = false; }
+    };
+    box.replaceChildren(
+      h("div", { class: "stack-s" },
+        pill(status?.motor === "cloudflare", status?.motor === "cloudflare" ? "Cloudflare conectada" : "Sin conectar", status?.motor === "cloudflare" ? "Usa la cuota gratis" : "Opcional"),
+        h("span", { class: "muted small" }, "Cloudflare Workers AI puede usar hasta 10,000 Neurons al día en el plan gratuito. Al agotarse, las respuestas de IA se detienen hasta el siguiente reinicio diario.")),
+      field("Account ID de Cloudflare", account, "Cloudflare → Workers AI → Use REST API."),
+      field("Token de Workers AI", token, "Crea un token con permisos Workers AI Read y Edit. Se guarda solo en los datos privados del servidor y nunca se vuelve a mostrar."),
+      btn("Guardar y probar IA gratis", probar, "primary"), out,
+      h("p", { class: "muted small" }, "Si también tienes Anthropic conectado, Sofía prefiere Cloudflare para evitar usar la API de pago. En WhatsApp → Automático, activa «Con IA»."));
+  }).catch((e) => box.replaceChildren(h("p", { class: "warn small" }, e.message)));
+  return section("IA gratis de Cloudflare", box);
 }
 
 // ───────── Servidor / conector ─────────

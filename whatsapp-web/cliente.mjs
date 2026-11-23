@@ -85,7 +85,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     await recibir({ object: "whatsapp_business_account", entry: [{ changes: [cambio] }] });
   }
   async function procesarComandoOperativo(m, propio) {
-    const match = String(m.body).trim().match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)(pendientes|ayuda|ayúdame|responder\s+\d+)\s*$/i);
+    const match = String(m.body).trim().match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)(pendientes|ayuda|ayúdame|responder\s+\d+|etiquetar\s+no\s+le[ií]dos)\s*$/i);
     if (!match || comandosOperativosVistos.has(m.id._serialized)) return;
     comandosOperativosVistos.add(m.id._serialized);
     if (comandosOperativosVistos.size > 200) comandosOperativosVistos.delete(comandosOperativosVistos.values().next().value);
@@ -94,7 +94,17 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
       if (!operaciones) throw new Error("Las órdenes de operación no están disponibles en este conector.");
       const orden = match[1].toLowerCase();
       if (orden === "ayuda" || orden === "ayúdame") {
-        await responderMario("Órdenes de Sofía:\n/sofia pendientes — trae chats recientes sin responderlos.\n/sofia responder 1 — responde solo al chat número 1 de la lista.");
+        await responderMario("Órdenes de Sofía:\n/sofia pendientes — trae chats recientes sin responderlos.\n/sofia responder 1 — responde solo al chat número 1 de la lista.\n/sofia etiquetar no leídos — agrega la etiqueta Prospecto a chats no leídos, sin mandar mensajes.");
+        return;
+      }
+      if (/^etiquetar\s+no\s+le[ií]dos$/.test(orden)) {
+        const r = await operaciones.etiquetarNoLeidos();
+        if (r.error) throw new Error(r.error);
+        await responderMario(!r.noLeidos
+          ? "No encontré chats no leídos. No cambié etiquetas ni mandé mensajes."
+          : r.noEncontrada
+          ? `Revisé ${r.noLeidos} chats no leídos; no encontré la etiqueta Prospecto en WhatsApp Business. Créala en la app e inténtalo de nuevo. No mandé mensajes.`
+          : `Listo: etiqueté ${r.etiquetados} de ${r.noLeidos} chats no leídos como Prospecto${r.errores ? `; ${r.errores} dieron error` : ""}${r.limite ? "; el lote se limitó a 500 chats" : ""}. No mandé mensajes.`);
         return;
       }
       if (orden === "pendientes") {
@@ -137,7 +147,6 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
         const limite = Math.min(30, Math.max(5, Number(chat.unreadCount) + 3));
         const history = (await chat.fetchMessages({ limit: limite })).sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
         const contacto = await chat.getContact().catch(() => null);
-        await etiquetar({ to: peer, etiquetas: ["Prospecto"] }).catch(() => {});
         for (const m of history) {
           if (m.isStatus || !m.id?._serialized || !m.timestamp) continue;
           const type = tipoMensaje(m);
@@ -168,14 +177,29 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     if (found.length) await chat.changeLabels([...new Set([...actuales.map((l) => l.id), ...found.map((l) => l.id)])]);
     return found.map((l) => l.name);
   }
+  async function etiquetarNoLeidos() {
+    if (!conectado) throw new Error("WhatsApp está desconectado.");
+    if (soloMiWhatsApp) throw new Error("Esta orden no está disponible en el modo de prueba personal.");
+    const chats = (await client.getChats()).filter((c) => !c.isGroup && Number(c.unreadCount) > 0 && /^\d+@c\.us$/.test(c.id?._serialized ?? ""));
+    let etiquetados = 0;
+    let errores = 0;
+    for (const chat of chats.slice(0, 500)) {
+      try {
+        const etiquetas = await etiquetar({ to: chat.id._serialized.split("@")[0], etiquetas: ["Prospecto"] });
+        if (etiquetas.some((x) => x.toLowerCase() === "prospecto")) etiquetados++;
+      } catch { errores++; }
+    }
+    return { noLeidos: chats.length, etiquetados, noEncontrada: chats.length > 0 && etiquetados === 0 && errores === 0, errores, limite: chats.length > 500 };
+  }
   client.on("message_create", m => {
     cola = cola.then(() => procesar(m)).catch(() => console.error("No se pudo procesar un mensaje del dispositivo vinculado."));
   });
   return {
     sincronizarPendientes,
     etiquetar,
+    etiquetarNoLeidos,
     estado: () => ({ configured: true, ok: conectado, phone: conectado ? client.info?.wid?.user : null, modo: soloMiWhatsApp ? "solo-mi-whatsapp" : "web" }),
-    async enviar({ to, text, image }) {
+    async enviar({ to, text, image, media }) {
       if (!conectado) throw new Error("El dispositivo de WhatsApp está desconectado.");
       const self = client.info?.wid?.user;
       // El chat «Tú» del número vinculado siempre se permite: ahí le llegan al asesor los avisos de cada cita.
@@ -191,7 +215,10 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
         await chat?.sendStateTyping?.().catch(() => {});
         await new Promise((listo) => setTimeout(listo, espera));
       }
-      const msg = await client.sendMessage(destino._serialized, texto, { sendSeen: false });
+      const adjunto = media?.mime && media?.datos ? new whatsapp.MessageMedia(media.mime, media.datos, "vehiculo.jpg") : null;
+      const msg = adjunto
+        ? await client.sendMessage(destino._serialized, adjunto, { caption: texto, sendSeen: false })
+        : await client.sendMessage(destino._serialized, texto, { sendSeen: false });
       await chat?.clearState?.().catch(() => {});
       return msg.id._serialized;
     },

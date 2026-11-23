@@ -5610,6 +5610,26 @@ function aplicarIA(r, salida, { inventario = [], antes = {}, ahora = /* @__PURE_
   return { respuestas: [foto ? { texto, foto } : { texto }], conv, lead, motivo: "ia", ...libre ? { reserva: { id: libre.id, texto: libre.texto } } : {} };
 }
 
+// prueba/servidor/ia-cloudflare.mjs
+function iaPorApi({ cuenta, llave, url } = {}) {
+  const id = String(cuenta ?? "").trim();
+  const token = String(llave ?? "").trim();
+  if (!/^[a-f0-9]{32}$/i.test(id) || !token) return null;
+  const base = String(url || "https://api.cloudflare.com/client/v4").replace(/\/+$/, "");
+  return {
+    async run(modelo, entrada) {
+      const res = await fetch(`${base}/accounts/${id}/ai/run/${modelo}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(entrada)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) throw new Error(data.errors?.[0]?.message || `Cloudflare respondi\xF3 ${res.status}`);
+      return data.result;
+    }
+  };
+}
+
 // prueba/servidor/core.mjs
 var VERSION = "conector-1.2";
 var MAX_MSGS = 500;
@@ -5650,10 +5670,13 @@ var DESDE_APP = {
   ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/,
   PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/,
   META_APP_ID: /^\d{5,25}$/,
-  META_ES_CONFIG_ID: /^\d{5,25}$/
+  META_ES_CONFIG_ID: /^\d{5,25}$/,
   // registro integrado de Meta (coexistencia)
+  CF_ACCOUNT_ID: /^[a-f0-9]{32}$/i,
+  CF_API_TOKEN: /^\S{20,600}$/
+  // Workers AI REST API; el secreto nunca se devuelve a la app
 };
-var SECRETOS = /* @__PURE__ */ new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY"]);
+var SECRETOS = /* @__PURE__ */ new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY", "CF_API_TOKEN"]);
 async function conConexion(env, store) {
   const d = await store.get("conexion:meta") ?? {};
   const extra = Object.fromEntries(Object.keys(DESDE_APP).filter((k) => typeof d[k] === "string" && d[k]).map((k) => [k, d[k]]));
@@ -6088,10 +6111,12 @@ function leerJson(texto) {
   return JSON.parse(t.slice(a2, b + 1));
 }
 async function preguntarCloudflare(env, { system, messages }) {
+  const ai2 = env.AI?.run ? env.AI : iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN });
+  if (!ai2) throw new Error("Conecta Workers AI en M\xE1s \u2192 Conexiones.");
   const formato = `
 
 Contesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
-  const llamada = env.AI.run(env.CF_AI_MODEL || MODELO_GRATIS, {
+  const llamada = ai2.run(env.CF_AI_MODEL || MODELO_GRATIS, {
     messages: [{ role: "system", content: system + formato }, ...messages],
     response_format: { type: "json_schema", json_schema: ESQUEMA_IA },
     max_tokens: 800,
@@ -6101,7 +6126,7 @@ Contesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.p
   const r = res?.response ?? res;
   return r && typeof r === "object" ? r : leerJson(r);
 }
-var motorIA = (env) => env.ANTHROPIC_API_KEY ? "claude" : typeof env.AI?.run === "function" ? "cloudflare" : null;
+var motorIA = (env) => env.AI?.run || iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN }) ? "cloudflare" : env.ANTHROPIC_API_KEY ? "claude" : null;
 async function preguntarIA(env, prompt) {
   if (!prompt.messages.length) throw new Error("sin mensajes del cliente");
   const motor = motorIA(env);
@@ -6390,8 +6415,14 @@ async function sendMessage(env, store, b, { ahora = /* @__PURE__ */ new Date(), 
   }
   if (env.WA_WEB?.enviar) {
     if (b.template) throw new Error("Las plantillas de Meta requieren la API oficial.");
-    const id2 = await env.WA_WEB.enviar(b);
-    await addMessage(store, "wa", String(b.to), "", { id: id2, dir: "out", type: "text", text: b.text || "", at: at2, status: "sent", ...auto }, autoKey, indice);
+    let media;
+    if (b.imageId) {
+      const foto = MEDIA_ID.test(String(b.imageId)) ? await store.get(`media:${b.imageId}`) : null;
+      if (!foto?.datos || !FOTOS.includes(foto.mime) || foto.datos.length > 7e6) throw new Error("No encontr\xE9 una foto v\xE1lida del inventario.");
+      media = { mime: foto.mime, datos: foto.datos };
+    }
+    const id2 = await env.WA_WEB.enviar({ ...b, media });
+    await addMessage(store, "wa", String(b.to), "", { id: id2, dir: "out", type: media ? "image" : "text", text: b.text || "", at: at2, status: "sent", ...media ? { media: { mime: media.mime } } : {}, ...auto }, autoKey, indice);
     return { id: id2 };
   }
   if (!waReady(env)) throw new Error("WhatsApp no est\xE1 configurado en el servidor");
@@ -6736,6 +6767,27 @@ async function handle(req, envBase, store, opciones = {}) {
         const enviado = await responderVentas(env, store, cfg, { canal: "wa", id: peer, nombre: prev?.name ?? "", texto: ultimo.text, at: ahora.toISOString(), primero: false, prev }, ahora, publicBase(env, baseDe(req)));
         if (!enviado) return fail("Sof\xEDa no envi\xF3 respuesta. Puede que Mario ya haya contestado, la conversaci\xF3n est\xE9 pausada o falte informaci\xF3n.", 409);
         return json({ ok: true, enviado: true });
+      }
+      case "POST /api/whatsapp/etiquetar": {
+        if (!env.WA_WEB?.etiquetar) return fail("Las etiquetas de WhatsApp requieren el conector por dispositivo vinculado.", 409);
+        const clave = String(body.clave ?? "");
+        if (!/^wa:\d{6,15}$/.test(clave)) return fail("Conversaci\xF3n de WhatsApp inv\xE1lida");
+        const permitidas = /* @__PURE__ */ new Set(["Prospecto", "Caliente", "Cita", "Asesor"]);
+        const etiquetas = Array.isArray(body.etiquetas) ? body.etiquetas.filter((x) => permitidas.has(x)) : [];
+        if (!etiquetas.length) return fail("Elige al menos una etiqueta conocida.");
+        const aplicadas = await env.WA_WEB.etiquetar({ to: clave.slice(3), etiquetas });
+        if (!aplicadas.length) return fail("No encontr\xE9 esas etiquetas en WhatsApp Business. Cr\xE9ala all\xED primero.", 409);
+        return json({ ok: true, aplicadas });
+      }
+      case "POST /api/whatsapp/etiquetar-no-leidos": {
+        if (!env.WA_WEB?.etiquetarNoLeidos) return fail("La acci\xF3n de etiquetar no le\xEDdos requiere WhatsApp Web vinculado.", 409);
+        return json({ ok: true, ...await env.WA_WEB.etiquetarNoLeidos() });
+      }
+      case "POST /api/ia/cloudflare/probar": {
+        const ai2 = env.AI?.run ? env.AI : iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN });
+        if (!ai2) return fail("Guarda primero el Account ID y el token de Workers AI.", 409);
+        await ai2.run(MODELO_GRATIS, { messages: [{ role: "user", content: 'Responde \xFAnicamente con este JSON: {"conectada":true}' }], max_tokens: 32, temperature: 0 });
+        return json({ ok: true, motor: "cloudflare", modelo: MODELO_GRATIS });
       }
       case "POST /api/enviar":
         return json({ ok: true, ...await sendMessage(env, store, body, { ahora }) });

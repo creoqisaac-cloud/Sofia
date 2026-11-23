@@ -1,11 +1,11 @@
 // WhatsApp: bandeja REAL (WhatsApp Business + Messenger vía el conector) con borradores de IA en el
 // estilo del asesor, y el asistente sin IA (plantillas, respuestas por tema, pendientes) que abre wa.me.
-import { h, toast, inDays, fmtWhen, uid, waDigits, confirmBox, download, money } from "./util.js";
+import { h, toast, inDays, fmtWhen, uid, waDigits, confirmBox, modal, download, money } from "./util.js";
 import { state, customer, save, lastContact, updateCustomer, setFollowUp, DEFAULT_TEMPLATES, addCustomer, stageLabel, log, learnFromAdvisor } from "./store.js";
 import { header, section, empty, btn, go, rerender, query, route, field, input, textarea, customerSelect, sendWhatsApp, followUpPicker, stageChip, chip, select } from "./ui.js";
 import { fillTemplate, suggestTemplateId, template, classifyMessage } from "./rules.js";
 import { aiReady, draftMessage, personalizeTemplates, extractLead } from "./ai.js";
-import { connectorReady, inbox, conversation, syncPendingChats, replyToPending, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus, refreshStatus, getAgentConfig, setAgentConfig, listLeads, markLeads } from "./connector.js";
+import { connectorReady, inbox, conversation, syncPendingChats, replyToPending, labelConversation, labelUnreadChats, salesInventory, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus, refreshStatus, getAgentConfig, setAgentConfig, listLeads, markLeads } from "./connector.js";
 import { applyIneImage, ensureCredit } from "./v-credit.js";
 import { waFormat } from "./v-inventory.js";
 import { asesorCon } from "./vendedor.js";
@@ -51,7 +51,7 @@ function inboxTab(root) {
   const list = h("div", { class: "list" }, h("p", { class: "muted" }, "Cargando conversaciones…"));
   const acciones = h("div", { class: "stack-s" });
   if (lastStatus()?.whatsapp?.modo === "web") acciones.append(
-    h("p", { class: "muted small" }, "Trae conversaciones recientes donde el último mensaje lo mandó el cliente. Importarlas no responde; luego puedes pedirle a Mario que conteste una por una."),
+    h("p", { class: "muted small" }, "Importa conversaciones recientes del WhatsApp vinculado. Importar no responde mensajes."),
     btn("Traer pendientes de WhatsApp", async (e) => {
       const b = e.currentTarget;
       b.disabled = true; b.textContent = "Leyendo chats…";
@@ -61,6 +61,15 @@ function inboxTab(root) {
         await draw();
       } catch (err) { toast(err.message, 6000); }
       b.disabled = false; b.textContent = "Traer pendientes de WhatsApp";
+    }, "ghost"),
+    btn("Etiquetar no leídos como Prospecto", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        const r = await labelUnreadChats();
+        toast(!r.noLeidos ? "No hay chats no leídos." : `Etiqueté ${r.etiquetados} de ${r.noLeidos} chats no leídos${r.errores ? ` · ${r.errores} con error` : ""}. No envié mensajes.`, 6000);
+      } catch (err) { toast(err.message, 6000); }
+      b.disabled = false;
     }, "ghost"));
   root.append(section("Conversaciones", acciones, list));
   const draw = async () => {
@@ -211,10 +220,34 @@ export function renderChat(root, key) {
     } catch (e) { toast(e.message, 5000); }
   }
 
+  async function carPhotoPicker() {
+    if (channel !== "wa") return;
+    try {
+      const autos = (await salesInventory()).filter((a) => a.disponible !== false && a.fotoId && a.foto);
+      if (!autos.length) { toast("No hay fotos cargadas en Inventario. Agrega la foto del auto primero.", 5000); return; }
+      const sel = select(autos.map((a, i) => [String(i), `${a.marca} ${a.modelo} ${a.version || ""} ${a.anio || ""}`.trim()]), "0");
+      const caption = textarea({ rows: 3, placeholder: "Texto para acompañar la foto" });
+      const preview = h("img", { src: autos[0].foto, alt: "Vista previa del vehículo", class: "chat-img" });
+      const body = h("div", { class: "stack-s" }, h("p", { class: "muted small" }, "Revisa la foto y el texto. Sofía enviará solo cuando toques “Enviar foto”."), sel, preview, caption);
+      sel.addEventListener("change", () => { preview.src = autos[Number(sel.value)].foto; });
+      modal("Enviar foto de un auto", body, [
+        { label: "Cancelar", onClick: () => true },
+        { label: "Enviar foto", kind: "primary", onClick: async () => {
+          const auto = autos[Number(sel.value)];
+          try {
+            await sendMessage({ channel: "wa", to: id, text: caption.value.trim(), imageId: auto.fotoId });
+            await load(); toast("Foto enviada");
+          } catch (err) { toast(err.message, 6000); return false; }
+        } },
+      ]);
+    } catch (err) { toast(err.message, 6000); }
+  }
+
   function drawActions() {
     const pendiente = channel === "wa" && msgs.at(-1)?.dir === "in" && (lastStatus()?.whatsapp?.modo === "web" || open());
     actions.replaceChildren(
       open() ? btn("Enviar", send, "wa") : btn("Enviar plantilla (fuera de 24 h)", templatePicker, "wa"),
+      channel === "wa" && lastStatus()?.whatsapp?.modo === "web" && open() ? btn("Enviar foto de auto", carPhotoPicker, "ghost") : null,
       pendiente ? btn("Mario responde al pendiente", async (e) => {
         const b = e.currentTarget;
         if (!(await confirmBox("Responder mensaje pendiente", "Mario responderá ahora al último mensaje de este cliente. Sofía compartirá el contexto de la conversación con él.", "Responder"))) return;
@@ -223,6 +256,11 @@ export function renderChat(root, key) {
         catch (err) { toast(err.message, 6000); }
         b.disabled = false;
       }, "primary") : null,
+      lastStatus()?.whatsapp?.modo === "web" ? btn("Etiquetar", async () => {
+        if (!(await confirmBox("Etiquetar conversación", `Agregar “Prospecto” al chat de ${title()}. La etiqueta debe existir en WhatsApp Business.`, "Aplicar"))) return;
+        try { const r = await labelConversation(key, ["Prospecto"]); toast(`Etiqueta aplicada: ${r.aplicadas.join(", ")}`); }
+        catch (err) { toast(err.message, 6000); }
+      }, "small ghost") : null,
       aiReady() ? btn("✨ Sugerir con IA", () => aiSuggest(false), "ghost") : null,
       c ? btn("Ficha del cliente", () => go(`/cliente/${c.id}`), "ghost") : btn(aiReady() ? "✨ Crear cliente con IA" : "Crear cliente", async (e) => {
         const b = e.currentTarget;

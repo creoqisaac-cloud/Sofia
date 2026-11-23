@@ -22,6 +22,7 @@
 // ANTHROPIC_API_KEY y ANTHROPIC_MODEL (opcionales: la IA de la vendedora, solo para lo que el menú no entiende).
 
 import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres, pesos, cifras } from "../js/vendedor.js";
+import { iaPorApi } from "./ia-cloudflare.mjs";
 
 export const VERSION = "conector-1.2";
 const MAX_MSGS = 500;
@@ -63,8 +64,9 @@ const DESDE_APP = {
   META_VERIFY_TOKEN: /^[\w.-]{6,100}$/, FB_PAGE_ID: /^\d{1,25}$/, FB_PAGE_TOKEN: /^\S{20,600}$/, IG_USER_ID: /^\d{1,25}$/,
   ASESOR_WHATSAPP: /^\d{10,15}$/, ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/, ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/, PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/,
   META_APP_ID: /^\d{5,25}$/, META_ES_CONFIG_ID: /^\d{5,25}$/, // registro integrado de Meta (coexistencia)
+  CF_ACCOUNT_ID: /^[a-f0-9]{32}$/i, CF_API_TOKEN: /^\S{20,600}$/, // Workers AI REST API; el secreto nunca se devuelve a la app
 };
-const SECRETOS = new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY"]);
+const SECRETOS = new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY", "CF_API_TOKEN"]);
 
 async function conConexion(env, store) {
   const d = (await store.get("conexion:meta")) ?? {};
@@ -583,8 +585,10 @@ function leerJson(texto) {
 }
 
 async function preguntarCloudflare(env, { system, messages }) {
+  const ai = env.AI?.run ? env.AI : iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN });
+  if (!ai) throw new Error("Conecta Workers AI en Más → Conexiones.");
   const formato = `\n\nContesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
-  const llamada = env.AI.run(env.CF_AI_MODEL || MODELO_GRATIS, {
+  const llamada = ai.run(env.CF_AI_MODEL || MODELO_GRATIS, {
     messages: [{ role: "system", content: system + formato }, ...messages],
     response_format: { type: "json_schema", json_schema: ESQUEMA_IA },
     max_tokens: 800,
@@ -595,8 +599,8 @@ async function preguntarCloudflare(env, { system, messages }) {
   return r && typeof r === "object" ? r : leerJson(r);
 }
 
-/** Motor de IA disponible: Claude si hay llave; si no, la IA gratis de Cloudflare si el Worker la tiene enlazada. */
-const motorIA = (env) => (env.ANTHROPIC_API_KEY ? "claude" : typeof env.AI?.run === "function" ? "cloudflare" : null);
+/** Cloudflare va primero para que Sofía use la cuota gratis si ambos proveedores están conectados. */
+const motorIA = (env) => (env.AI?.run || iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN }) ? "cloudflare" : env.ANTHROPIC_API_KEY ? "claude" : null);
 
 async function preguntarIA(env, prompt) {
   if (!prompt.messages.length) throw new Error("sin mensajes del cliente");
@@ -909,8 +913,14 @@ async function sendMessage(env, store, b, { ahora = new Date(), autoKey, indice 
   }
   if (env.WA_WEB?.enviar) {
     if (b.template) throw new Error("Las plantillas de Meta requieren la API oficial.");
-    const id = await env.WA_WEB.enviar(b);
-    await addMessage(store, "wa", String(b.to), "", { id, dir: "out", type: "text", text: b.text || "", at, status: "sent", ...auto }, autoKey, indice);
+    let media;
+    if (b.imageId) {
+      const foto = MEDIA_ID.test(String(b.imageId)) ? await store.get(`media:${b.imageId}`) : null;
+      if (!foto?.datos || !FOTOS.includes(foto.mime) || foto.datos.length > 7_000_000) throw new Error("No encontré una foto válida del inventario.");
+      media = { mime: foto.mime, datos: foto.datos };
+    }
+    const id = await env.WA_WEB.enviar({ ...b, media });
+    await addMessage(store, "wa", String(b.to), "", { id, dir: "out", type: media ? "image" : "text", text: b.text || "", at, status: "sent", ...(media ? { media: { mime: media.mime } } : {}), ...auto }, autoKey, indice);
     return { id };
   }
   if (!waReady(env)) throw new Error("WhatsApp no está configurado en el servidor");
@@ -1292,6 +1302,27 @@ export async function handle(req, envBase, store, opciones = {}) {
         const enviado = await responderVentas(env, store, cfg, { canal: "wa", id: peer, nombre: prev?.name ?? "", texto: ultimo.text, at: ahora.toISOString(), primero: false, prev }, ahora, publicBase(env, baseDe(req)));
         if (!enviado) return fail("Sofía no envió respuesta. Puede que Mario ya haya contestado, la conversación esté pausada o falte información.", 409);
         return json({ ok: true, enviado: true });
+      }
+      case "POST /api/whatsapp/etiquetar": {
+        if (!env.WA_WEB?.etiquetar) return fail("Las etiquetas de WhatsApp requieren el conector por dispositivo vinculado.", 409);
+        const clave = String(body.clave ?? "");
+        if (!/^wa:\d{6,15}$/.test(clave)) return fail("Conversación de WhatsApp inválida");
+        const permitidas = new Set(["Prospecto", "Caliente", "Cita", "Asesor"]);
+        const etiquetas = Array.isArray(body.etiquetas) ? body.etiquetas.filter((x) => permitidas.has(x)) : [];
+        if (!etiquetas.length) return fail("Elige al menos una etiqueta conocida.");
+        const aplicadas = await env.WA_WEB.etiquetar({ to: clave.slice(3), etiquetas });
+        if (!aplicadas.length) return fail("No encontré esas etiquetas en WhatsApp Business. Créala allí primero.", 409);
+        return json({ ok: true, aplicadas });
+      }
+      case "POST /api/whatsapp/etiquetar-no-leidos": {
+        if (!env.WA_WEB?.etiquetarNoLeidos) return fail("La acción de etiquetar no leídos requiere WhatsApp Web vinculado.", 409);
+        return json({ ok: true, ...(await env.WA_WEB.etiquetarNoLeidos()) });
+      }
+      case "POST /api/ia/cloudflare/probar": {
+        const ai = env.AI?.run ? env.AI : iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN });
+        if (!ai) return fail("Guarda primero el Account ID y el token de Workers AI.", 409);
+        await ai.run(MODELO_GRATIS, { messages: [{ role: "user", content: 'Responde únicamente con este JSON: {"conectada":true}' }], max_tokens: 32, temperature: 0 });
+        return json({ ok: true, motor: "cloudflare", modelo: MODELO_GRATIS });
       }
       case "POST /api/enviar": return json({ ok: true, ...(await sendMessage(env, store, body, { ahora })) });
       case "GET /api/wa/plantillas": {

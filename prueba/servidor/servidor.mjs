@@ -126,6 +126,9 @@ if (entorno.SOFIA_WHATSAPP_WEB === "1") {
     async responderPendiente(clave) {
       return operacionInterna("/api/buzon/responder", { clave });
     },
+    async etiquetarNoLeidos() {
+      return operacionInterna("/api/whatsapp/etiquetar-no-leidos");
+    },
   };
   entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store), operaciones);
 }
