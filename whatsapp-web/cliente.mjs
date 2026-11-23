@@ -232,12 +232,13 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     ].filter(Boolean).join("\n\n"));
   }
   const tipoMensaje = (m) => ({ chat: "text", ptt: "audio", vcard: "contact", multi_vcard: "contact" }[m.type] ?? m.type);
-  async function sincronizarPendientes() {
+  /** todos=false: solo los que esperan respuesta. todos=true: todos los chats del último mes, para que Sofía los lea y ordene. */
+  async function sincronizarPendientes({ todos = false } = {}) {
     if (!conectado) throw new Error("WhatsApp está desconectado.");
     if (soloMiWhatsApp) throw new Error("La importación de chats no está disponible en el modo de prueba personal.");
     const limiteAntiguedad = Date.now() / 1000 - 30 * 24 * 60 * 60;
-    const chats = (await client.getChats()).filter((c) => !c.isGroup && c.lastMessage && !c.lastMessage.fromMe && c.timestamp >= limiteAntiguedad && /^\d+@(c\.us|lid)$/.test(c.id?._serialized ?? ""))
-      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.timestamp - a.timestamp).slice(0, 100);
+    const chats = (await client.getChats()).filter((c) => !c.isGroup && c.lastMessage && (todos || !c.lastMessage.fromMe) && c.timestamp >= limiteAntiguedad && /^\d+@(c\.us|lid)$/.test(c.id?._serialized ?? ""))
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.timestamp - a.timestamp).slice(0, todos ? 400 : 100);
     const changes = [];
     let mensajes = 0;
     const fijados = [];
@@ -248,7 +249,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
         const peer = telefono.split("@")[0];
         if (normalizar(peer) === normalizar(client.info?.wid?.user)) continue;
         if (chat.pinned) fijados.push(peer);
-        const limite = Math.min(30, Math.max(5, Number(chat.unreadCount) + 3));
+        const limite = todos ? 40 : Math.min(30, Math.max(5, Number(chat.unreadCount) + 3));
         const history = (await chat.fetchMessages({ limit: limite })).sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
         const contacto = await chat.getContact().catch(() => null);
         for (const m of history) {

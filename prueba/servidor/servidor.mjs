@@ -170,21 +170,36 @@ if (entorno.SOFIA_WHATSAPP_WEB === "1") {
     },
     cancelarOrden() { const habia = Boolean(ordenPendiente); ordenPendiente = null; return habia; },
     async resumen() { return operacionInterna("/api/resumen/enviar"); },
-    // Nota de voz → texto con Whisper de Cloudflare (gratis). Sin llaves no existe y el audio queda como «[audio]».
-    ...(entorno.AI?.run ? {
-      async transcribir(base64) {
-        try {
-          const r = await entorno.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: base64, language: "es" });
-          return r?.text ?? "";
-        } catch {
-          const r = await entorno.AI.run("@cf/openai/whisper", { audio: [...Buffer.from(base64, "base64")] });
-          return r?.text ?? "";
-        }
-      },
-    } : {}),
+    // Nota de voz → texto con Whisper de Cloudflare (gratis), con las llaves del archivo o las guardadas en ⚙.
+    // Sin llaves devuelve "" y el audio se queda para Mario.
+    async transcribir(base64) {
+      const d = (await store.get("conexion:meta")) ?? {};
+      const ai = entorno.AI?.run ? entorno.AI : iaPorApi({ cuenta: d.CF_ACCOUNT_ID || entorno.CF_ACCOUNT_ID, llave: d.CF_API_TOKEN || entorno.CF_API_TOKEN });
+      if (!ai) return "";
+      try {
+        const r = await ai.run("@cf/openai/whisper-large-v3-turbo", { audio: base64, language: "es" });
+        return r?.text ?? "";
+      } catch {
+        const r = await ai.run("@cf/openai/whisper", { audio: [...Buffer.from(base64, "base64")] });
+        return r?.text ?? "";
+      }
+    },
   };
   let ordenPendiente = null;
   entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store), operaciones);
+  // Con IA conectada, Sofía lee TODOS los chats del último mes (sin contestar nada) para que la IA de fondo los
+  // ordene: cliente, postventa o personal, con su resumen. Al arrancar y cada 6 horas.
+  const importarTodo = async () => {
+    try {
+      if (!entorno.WA_WEB?.estado?.().ok) return;
+      const d = (await store.get("conexion:meta")) ?? {};
+      if (!(entorno.LOCAL_AI_URL || d.LOCAL_AI_URL || iaGratis || d.CF_API_TOKEN)) return;
+      const r = await operacionInterna("/api/buzon/sincronizar", { todos: true });
+      console.log(`Sofía leyó ${r.chats} chats (${r.mensajes} mensajes) para ordenarlos.`);
+    } catch (e) { console.warn(`Importar chats: ${e.message}`); }
+  };
+  setTimeout(importarTodo, 3 * 60_000).unref();
+  setInterval(importarTodo, 6 * 60 * 60_000).unref();
 }
 
 // Puente al celular: Sofia.ps1 abre un túnel de Cloudflare hacia este servidor y deja su registro en

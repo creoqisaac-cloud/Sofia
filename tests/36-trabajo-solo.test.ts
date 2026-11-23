@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 // @ts-expect-error módulo JS sin tipos
-import { runScheduled } from "../prueba/servidor/core.mjs";
+import { runScheduled, trabajoDeFondo } from "../prueba/servidor/core.mjs";
 
 const MARIO = "5218110000000";
 const memStore = () => {
@@ -92,5 +92,58 @@ describe("Sofía trabaja sola con el WhatsApp de Mario", () => {
     expect(conf).toEqual([{ to: "5218144444444", text: "¡Hola Dani! Te escribo para confirmar tu cita de mañana a la 1 pm para que veas la HR-V. ¿Sigue en pie? 🙌" }]);
     await runScheduled(env, store, local(23, 13));
     expect(enviados.filter((x) => x.to === "5218144444444")).toHaveLength(1);
+  });
+});
+
+describe("trabajo de fondo con IA: ordena los chats solo y aprende de Mario", () => {
+  const chats = async (store: ReturnType<typeof memStore>) => {
+    await store.put("agente:config", { activo: true, asesor: "Mario Abarca", marca: "Honda", ventas: { activo: true, ia: true } });
+    await store.put("inbox:index", {
+      "wa:5218111111111": { id: "5218111111111", name: "Ana", lastAt: local(23, 9), lastDir: "in" },
+      "wa:5218155555555": { id: "5218155555555", name: "Primo Juan", lastAt: local(23, 8), lastDir: "in" },
+    });
+    await store.put("inbox:c:wa:5218111111111", [
+      { dir: "in", text: "Hola, ¿cuánto cuesta la CR-V?", at: local(23, 8) },
+      { dir: "out", text: "Qué tal Ana, la CR-V Turbo está en 822,900 con bono de 50 mil", at: local(23, 8, 5) },
+      { dir: "in", text: "Me interesa a crédito", at: local(23, 9) },
+    ]);
+    await store.put("inbox:c:wa:5218155555555", [{ dir: "in", text: "Primo, ¿vienes a la carne asada el domingo?", at: local(23, 8) }]);
+  };
+  it("con la IA local: clasifica, resume, separa lo personal y guarda cómo contesta Mario", async () => {
+    const store = memStore();
+    await chats(store);
+    const pedidos: string[] = [];
+    const respuesta = (cuerpo: string) => cuerpo.includes("carne asada")
+      ? { tipo: "personal", nombre: "Juan", modelo: "", forma_pago: "", calor: "frio", resumen: "Su primo lo invita a una carne asada.", siguiente: "" }
+      : { tipo: "cliente", nombre: "Ana", modelo: "CR-V", forma_pago: "credito", calor: "tibio", resumen: "Quiere la CR-V a crédito.", siguiente: "Mandarle la corrida" };
+    const fetchOriginal = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: { body: string }) => {
+      pedidos.push(String(url));
+      const b = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(respuesta(b.messages.at(-1).content)) } }] }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const env = { LOCAL_AI_URL: "http://ia.local:11434", LOCAL_AI_MODEL: "qwen2.5:3b" };
+      expect((await trabajoDeFondo(env, store, new Date(local(23, 10)), { max: 5 })).revisados).toBe(2);
+    } finally { globalThis.fetch = fetchOriginal; }
+    expect(pedidos.every((u) => u === "http://ia.local:11434/v1/chat/completions")).toBe(true);
+    const leads = await store.get("leads:index");
+    expect(leads["wa:5218111111111"]).toMatchObject({ tipo: "cliente", personal: false, nombreCliente: "Ana", interes: "Honda CR-V", formaPago: "credito", calor: "tibio", resumen: "Quiere la CR-V a crédito.", siguiente: "Mandarle la corrida", fondoMotor: "local" });
+    expect(leads["wa:5218155555555"]).toMatchObject({ tipo: "personal", personal: true });
+    expect((await store.get("agente:config")).estilo.deChats[0]).toBe("Cliente: Hola, ¿cuánto cuesta la CR-V? → Mario: Qué tal Ana, la CR-V Turbo está en 822,900 con bono de 50 mil");
+    // Ya revisados: no se vuelven a mandar a la IA hasta que haya mensajes nuevos.
+    expect((await trabajoDeFondo({ LOCAL_AI_URL: "http://ia.local:11434" }, store, new Date(local(23, 11)))).revisados).toBe(0);
+  });
+  it("sin IA local usa Cloudflare con tope diario; sin ninguna IA no hace nada", async () => {
+    const store = memStore();
+    await chats(store);
+    expect((await trabajoDeFondo({}, store, new Date(local(23, 10)))).revisados).toBe(0);
+    const modelos: string[] = [];
+    const AI = { run: async (modelo: string) => { modelos.push(modelo); return { response: { tipo: "cliente", nombre: "", modelo: "", forma_pago: "", calor: "tibio", resumen: "Pregunta precios.", siguiente: "" } }; } };
+    await store.put("fondo:conteo", { dia: "2026-11-23", n: 40 });
+    expect((await trabajoDeFondo({ AI }, store, new Date(local(23, 10)))).revisados).toBe(0); // tope del día
+    await store.put("fondo:conteo", { dia: "2026-11-22", n: 40 });
+    expect((await trabajoDeFondo({ AI }, store, new Date(local(23, 10)))).revisados).toBe(1);
+    expect(modelos).toEqual(["@cf/meta/llama-3.3-70b-instruct-fp8-fast"]);
   });
 });

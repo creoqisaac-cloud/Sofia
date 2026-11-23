@@ -65,8 +65,9 @@ const DESDE_APP = {
   ASESOR_WHATSAPP: /^\d{10,15}$/, ANTHROPIC_API_KEY: /^sk-ant-\S{10,300}$/, ANTHROPIC_MODEL: /^claude-[a-z0-9-]{2,60}$/, PUBLIC_URL: /^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/,
   META_APP_ID: /^\d{5,25}$/, META_ES_CONFIG_ID: /^\d{5,25}$/, // registro integrado de Meta (coexistencia)
   CF_ACCOUNT_ID: /^[a-f0-9]{32}$/i, CF_API_TOKEN: /^\S{20,600}$/, // Workers AI REST API; el secreto nunca se devuelve a la app
+  LOCAL_AI_URL: /^https?:\/\/[^\s?#]+$/, LOCAL_AI_MODEL: /^[\w.:/-]{2,80}$/, LOCAL_AI_KEY: /^\S{4,300}$/, // IA local (Ollama) en otro equipo
 };
-const SECRETOS = new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY", "CF_API_TOKEN"]);
+const SECRETOS = new Set(["WA_TOKEN", "META_APP_SECRET", "FB_PAGE_TOKEN", "ANTHROPIC_API_KEY", "CF_API_TOKEN", "LOCAL_AI_KEY"]);
 
 async function conConexion(env, store) {
   const d = (await store.get("conexion:meta")) ?? {};
@@ -416,11 +417,21 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
   // antes hubiera ocurrido un pase al asesor o una intervención manual.
   if (!e.pruebaLocal && pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
   if (!e.pruebaLocal && contestaElAsesor(cfg, e, ahora)) return false;
+  // Amigos, familia y compañeros (lo marcaron las reglas o la IA de fondo): Sofía no les contesta, los atiende Mario.
+  const ficha = ((await store.get("leads:index")) ?? {})[`${e.canal}:${e.id}`];
+  if (!e.pruebaLocal && ficha?.personal && ficha.fondoMotor) return false; // la IA leyó el chat completo: es personal
   const inventario = await inventarioVendedora(store, publicBase(env, base), true);
   const historial = async () => ((await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
   const libres = await libresDe(store, cfg, ahora);
   const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero, pruebaLocal: e.pruebaLocal === true }, historial, ahora, libres);
   if (r.errorIA) await anotarError(store, e, `IA: ${r.errorIA}`, ahora);
+  if (r.motivo === "personal") r.lead = { ...r.lead, personal: true, tipo: "personal" }; // la IA de fondo lo puede corregir
+  // Lo marcaron como personal solo las reglas (por su primer mensaje): si luego pregunta por un auto, se le vende;
+  // si no, Sofía sigue sin meterse en la plática.
+  if (!e.pruebaLocal && ficha?.personal && !ficha.fondoMotor && r.motivo !== "personal") {
+    if (["no-entendi", "menu", "gracias", "emoji", "nombre-dicho", "acuse", ""].includes(r.motivo)) { r.respuestas = []; r.lead = {}; }
+    else r.lead = { ...r.lead, personal: false, tipo: "cliente" };
+  }
   // Las pruebas del chat propio no generan prospectos, reservas ni notificaciones reales.
   if (!e.pruebaLocal) {
     if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
@@ -603,34 +614,35 @@ function leerJson(texto) {
   return JSON.parse(t.slice(a, b + 1));
 }
 
-async function preguntarCloudflare(env, { system, messages }) {
+const formatoDe = (esquema) => `\n\nContesta SOLO con un objeto JSON con estas llaves: ${Object.entries(esquema.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
+
+async function preguntarCloudflare(env, { system, messages }, { esquema = ESQUEMA_IA, max = 800, espera = 20_000 } = {}) {
   const ai = env.AI?.run ? env.AI : iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN });
   if (!ai) throw new Error("Conecta Workers AI en Más → Conexiones.");
-  const formato = `\n\nContesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
   const llamada = ai.run(env.CF_AI_MODEL || MODELO_GRATIS, {
-    messages: [{ role: "system", content: system + formato }, ...messages],
-    response_format: { type: "json_schema", json_schema: ESQUEMA_IA },
-    max_tokens: 800,
+    messages: [{ role: "system", content: system + formatoDe(esquema) }, ...messages],
+    response_format: { type: "json_schema", json_schema: esquema },
+    max_tokens: max,
     temperature: 0.7,
   });
-  const res = await Promise.race([llamada, new Promise((_, no) => setTimeout(() => no(new Error("la IA de Cloudflare tardó demasiado")), 20_000))]);
+  const res = await Promise.race([llamada, new Promise((_, no) => setTimeout(() => no(new Error("la IA de Cloudflare tardó demasiado")), espera))]);
   const r = res?.response ?? res;
   return r && typeof r === "object" ? r : leerJson(r);
 }
 
-// IA LOCAL en otro equipo (Ollama, LM Studio o cualquier servidor compatible con OpenAI):
-// LOCAL_AI_URL (p. ej. http://192.168.1.50:11434), LOCAL_AI_MODEL (p. ej. qwen2.5:7b) y LOCAL_AI_KEY opcional.
-async function preguntarLocal(env, { system, messages }) {
+// IA LOCAL en otro equipo (Ollama, LM Studio o cualquier servidor compatible con OpenAI), configurable desde ⚙:
+// LOCAL_AI_URL (http://192.168.1.50:11434 o un túnel https), LOCAL_AI_MODEL (qwen2.5:3b) y LOCAL_AI_KEY opcional.
+export const MODELO_LOCAL = "qwen2.5:3b";
+async function preguntarLocal(env, { system, messages }, { esquema = ESQUEMA_IA, max = 600, espera = 45_000 } = {}) {
   const base = String(env.LOCAL_AI_URL ?? "").replace(/\/+$/, "").replace(/\/v1$/, "");
-  const formato = `\n\nContesta SOLO con un objeto JSON con estas llaves: ${Object.entries(ESQUEMA_IA.properties).map(([k, v]) => `${k} (${v.description})`).join("; ")}.`;
   const control = new AbortController();
-  const limite = setTimeout(() => control.abort(), 45_000);
+  const limite = setTimeout(() => control.abort(), espera);
   try {
     const res = await fetch(`${base}/v1/chat/completions`, {
       method: "POST",
       signal: control.signal,
       headers: { "content-type": "application/json", ...(env.LOCAL_AI_KEY ? { authorization: `Bearer ${env.LOCAL_AI_KEY}` } : {}) },
-      body: JSON.stringify({ model: env.LOCAL_AI_MODEL || "qwen2.5:7b", messages: [{ role: "system", content: system + formato }, ...messages], response_format: { type: "json_object" }, temperature: 0.6, max_tokens: 600 }),
+      body: JSON.stringify({ model: env.LOCAL_AI_MODEL || MODELO_LOCAL, messages: [{ role: "system", content: system + formatoDe(esquema) }, ...messages], response_format: { type: "json_object" }, temperature: 0.5, max_tokens: max }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error?.message || data.error || `la IA local respondió ${res.status}`);
@@ -640,24 +652,29 @@ async function preguntarLocal(env, { system, messages }) {
   } finally { clearTimeout(limite); }
 }
 
-/** Motores conectados, en orden: Cloudflare (gratis y potente) → IA local (respaldo) → Claude. */
-const motoresIA = (env) => [
-  (env.AI?.run || iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN })) && "cloudflare",
-  /^https?:\/\/\S+$/.test(String(env.LOCAL_AI_URL ?? "")) && "local",
-  env.ANTHROPIC_API_KEY && "claude",
-].filter(Boolean);
+/**
+ * Cada IA para lo suyo:
+ *  - «chat» (contestarle a un cliente, rápido y bien escrito): Cloudflare 70B → IA local si se acabó la cuota → Claude.
+ *  - «fondo» (ordenar y resumir chats, aprender de Mario; sin prisa y sin límite): IA local → Cloudflare.
+ */
+const motoresIA = (env, tarea = "chat") => {
+  const cf = (env.AI?.run || iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN })) && "cloudflare";
+  const local = /^https?:\/\/\S+$/.test(String(env.LOCAL_AI_URL ?? "")) && "local";
+  return (tarea === "fondo" ? [local, cf] : [cf, local, env.ANTHROPIC_API_KEY && "claude"]).filter(Boolean);
+};
 const motorIA = (env) => motoresIA(env)[0] ?? null;
 
-async function preguntarIA(env, prompt) {
+async function preguntarIA(env, prompt, { tarea = "chat", esquema, max } = {}) {
   if (!prompt.messages.length) throw new Error("sin mensajes del cliente");
-  const motores = motoresIA(env);
+  const motores = motoresIA(env, tarea);
   if (!motores.length) throw new Error("no hay IA conectada en el servidor");
   const errores = [];
+  const opciones = { ...(esquema ? { esquema } : {}), ...(max ? { max } : {}), ...(tarea === "fondo" ? { espera: 120_000 } : {}) };
   for (const motor of motores) {
     try {
-      if (motor === "cloudflare") return await preguntarCloudflare(env, prompt);
-      if (motor === "local") return await preguntarLocal(env, prompt);
-      if (motor === "claude") return await preguntarClaude(env, prompt);
+      if (motor === "cloudflare") return { ...(await preguntarCloudflare(env, prompt, opciones)), _motor: motor };
+      if (motor === "local") return { ...(await preguntarLocal(env, prompt, opciones)), _motor: motor };
+      if (motor === "claude" && !esquema) return await preguntarClaude(env, prompt);
     } catch (e) { errores.push(`${motor}: ${e.message ?? e}`); }
   }
   throw new Error(errores.join(" · "));
@@ -1332,6 +1349,105 @@ async function resumenDelDia(env, store, cfg, ahora, ahoraMismo = false) {
 }
 
 /** Lo que Sofía hace sola cada minuto con el WhatsApp de Mario (no en Cloudflare ni con la API de Meta). */
+// ───────── Trabajo de fondo con IA: ordena y resume TODOS los chats solos, y aprende de cómo contesta Mario ─────────
+// Lo hace de preferencia la IA local (sin límite); si no hay, Cloudflare con un tope diario para no gastarle la
+// cuota a las pláticas con clientes. Nunca le escribe a nadie: solo llena la ficha de cada contacto.
+const ESQUEMA_FONDO = {
+  type: "object",
+  properties: {
+    tipo: { type: "string", description: "cliente (quiere comprar o cotizar un auto), postventa (ya compró: trámite, entrega, placas, devolución, servicio), personal (amigo, familia, compañero de trabajo) u otro (proveedor, publicidad, no se sabe)" },
+    nombre: { type: "string", description: "nombre del contacto si lo dijo o se lo dijeron en el chat; vacío si no" },
+    modelo: { type: "string", description: "auto que le interesa (ej. CR-V, City); vacío si no" },
+    forma_pago: { type: "string", description: "contado, credito o vacío" },
+    calor: { type: "string", description: "frio, tibio o caliente: qué tan cerca está de comprar" },
+    resumen: { type: "string", description: "1 o 2 frases para Mario: qué busca y en qué quedó la plática" },
+    siguiente: { type: "string", description: "lo que Mario debe hacer ahora, en una frase corta; vacío si nada" },
+  },
+  required: ["tipo", "nombre", "modelo", "forma_pago", "calor", "resumen", "siguiente"],
+  additionalProperties: false,
+};
+const FONDO_TOPE_CLOUDFLARE = 40; // por día si no hay IA local
+let fondoOcupado = false;
+
+/** Pares reales «cliente → Mario» (Mario escribió a mano justo después del cliente): así aprende su forma de contestar. */
+function paresDeMario(msgs) {
+  const pares = [];
+  for (let i = 1; i < msgs.length; i++) {
+    const m = msgs[i], antes = msgs[i - 1];
+    if (m.dir === "out" && !m.auto && antes.dir === "in" && String(m.text ?? "").trim().length >= 8 && String(antes.text ?? "").trim()) {
+      pares.push(`Cliente: ${String(antes.text).replace(/\s+/g, " ").slice(0, 140)} → Mario: ${String(m.text).replace(/\s+/g, " ").slice(0, 220)}`);
+    }
+  }
+  return pares;
+}
+
+export async function trabajoDeFondo(env, store, ahora = new Date(), { max = 1 } = {}) {
+  if (fondoOcupado) return { revisados: 0 };
+  const cfg = await leerConfig(store);
+  const motores = motoresIA(env, "fondo");
+  if (!cfg.ventas.ia || !motores.length) return { revisados: 0 };
+  const dia = ahora.toISOString().slice(0, 10);
+  const conteo = (await store.get("fondo:conteo")) ?? {};
+  const usados = conteo.dia === dia ? conteo.n : 0;
+  if (motores[0] === "cloudflare" && usados >= FONDO_TOPE_CLOUDFLARE) return { revisados: 0 };
+  const index = (await store.get("inbox:index")) ?? {};
+  const leads = (await store.get("leads:index")) ?? {};
+  const limite = ahora.getTime() - 30 * 864e5;
+  // Los chats con novedades desde la última revisión, los más recientes primero.
+  const tocan = Object.entries(index)
+    .filter(([k, c]) => k.startsWith("wa:") && Date.parse(c.lastAt) >= limite && (!leads[k]?.fondoAt || leads[k].fondoAt < c.lastAt))
+    .sort((a, b) => String(b[1].lastAt).localeCompare(String(a[1].lastAt)))
+    .slice(0, max);
+  if (!tocan.length) return { revisados: 0 };
+  fondoOcupado = true;
+  let revisados = 0;
+  try {
+    for (const [clave, c] of tocan) {
+      const msgs = ((await store.get(`inbox:c:${clave}`)) ?? []).filter((m) => String(m.text ?? "").trim());
+      const ultimos = msgs.slice(-24);
+      const quien = (m) => (m.dir === "in" ? "Contacto" : m.auto ? "Sofía (asistente de Mario)" : "Mario");
+      const charla = ultimos.map((m) => `${quien(m)}: ${String(m.text).replace(/\s+/g, " ").slice(0, 300)}`).join("\n").slice(-5000);
+      let r = null;
+      if (charla) {
+        r = await preguntarIA(env, {
+          system: `Eres el asistente de ${cfg.asesor || "Mario Abarca"}, asesor de ventas de ${cfg.marca || "Honda"} en Monterrey. Lees un chat de su WhatsApp y llenas la ficha del contacto. Sé preciso: si no está en el chat, déjalo vacío. No inventes nombres, modelos ni cifras.`,
+          messages: [{ role: "user", content: `Contacto en la agenda: ${c.name || "(sin nombre)"}\n\nChat:\n${charla}` }],
+        }, { tarea: "fondo", esquema: ESQUEMA_FONDO, max: 400 }).catch((e) => { console.warn(`Fondo (${clave.slice(-4)}): ${e.message}`); return null; });
+      }
+      const todos = (await store.get("leads:index")) ?? {};
+      const l = todos[clave] ?? { canal: "wa", id: clave.slice(3), nombre: c.name || "", primerMensaje: String(msgs.find((m) => m.dir === "in")?.text ?? "").slice(0, 300), at: c.lastAt, importado: false };
+      l.fondoAt = c.lastAt;
+      if (r) {
+        const tipo = l.tipoManual ? l.tipo : ["cliente", "postventa", "personal", "otro"].includes(r.tipo) ? r.tipo : "otro";
+        if (!l.tipoManual) {
+          l.tipo = tipo;
+          l.personal = tipo === "personal";
+          if (tipo === "postventa") l.postventa = true;
+          l.fondoMotor = r._motor;
+        }
+        if (r.resumen?.trim()) l.resumen = r.resumen.trim().slice(0, 400);
+        if (r.siguiente?.trim()) l.siguiente = r.siguiente.trim().slice(0, 160); else delete l.siguiente;
+        if (r.nombre?.trim() && !l.nombreCliente && r.nombre.trim().length <= 40) l.nombreCliente = r.nombre.trim();
+        if (r.modelo?.trim() && !l.interes) l.interes = `${cfg.marca || "Honda"} ${r.modelo.trim().slice(0, 40)}`.replace(/^(\w+) \1 /i, "$1 ");
+        if (["contado", "credito"].includes(r.forma_pago) && !l.formaPago) l.formaPago = r.forma_pago;
+        if (["frio", "tibio", "caliente"].includes(r.calor) && !l.calorManual && tipo === "cliente") l.calor = r.calor;
+      }
+      todos[clave] = l;
+      await store.put("leads:index", todos);
+      // Aprende: lo que Mario contestó a mano en este chat se suma a sus ejemplos (los más nuevos primero).
+      const pares = paresDeMario(msgs.slice(-60));
+      if (pares.length && !l.personal) {
+        const cfgActual = await leerConfig(store);
+        const deChats = [...new Set([...pares.reverse(), ...(cfgActual.estilo?.deChats ?? [])])].slice(0, 40);
+        await store.put("agente:config", normalizarConfig({ ...cfgActual, estilo: { ...cfgActual.estilo, deChats } }));
+      }
+      if (r) revisados++;
+    }
+  } finally { fondoOcupado = false; }
+  if (revisados) await store.put("fondo:conteo", { dia, n: usados + revisados });
+  return { revisados };
+}
+
 async function trabajarSola(env, store, ahora) {
   if (!env.WA_WEB?.estado?.().ok) return {};
   const cfg = await leerConfig(store);
@@ -1351,6 +1467,7 @@ export async function runScheduled(envBase, store, ahoraISO = new Date().toISOSt
   const ahora = new Date(ahoraISO);
   const recordatorios = soloId ? 0 : await recordarCitas(env, store, ahora);
   if (!soloId) await trabajarSola(env, store, ahora).catch((e) => console.error("Trabajo solo:", e.message));
+  if (!soloId && env.WA_WEB?.estado?.().ok) trabajoDeFondo(env, store, ahora).catch((e) => console.error("Fondo:", e.message)); // sin esperar: la IA local puede tardar
   const cola = (await store.get("social:cola")) ?? [];
   const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && ((x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora)
     || (x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS)));
@@ -1379,7 +1496,7 @@ async function status(env, store, ahora) {
   const cfg = await leerConfig(store);
   const errores = (await store.get("agente:errores")) ?? [];
   const inventario = (await store.get("ventas:inventario")) ?? [];
-  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null, ventas: { activo: cfg.ventas.activo, autos: inventario.filter((a) => a.disponible !== false).length, ia: { activa: Boolean(cfg.ventas.ia), motor: motorIA(env), llave: Boolean(motorIA(env)), modelo: motorIA(env) === "claude" ? env.ANTHROPIC_MODEL || MODELO_IA : motorIA(env) === "cloudflare" ? env.CF_AI_MODEL || MODELO_GRATIS : null } } };
+  out.agente = { activo: cfg.activo, enHorario: enHorario(cfg, ahora), reglas: cfg.reglas.length, ultimoError: errores[0] ?? null, ventas: { activo: cfg.ventas.activo, autos: inventario.filter((a) => a.disponible !== false).length, ia: { activa: Boolean(cfg.ventas.ia), motor: motorIA(env), motores: motoresIA(env), llave: Boolean(motorIA(env)), modelo: motorIA(env) === "claude" ? env.ANTHROPIC_MODEL || MODELO_IA : motorIA(env) === "cloudflare" ? env.CF_AI_MODEL || MODELO_GRATIS : null } } };
   const nuevos = Object.values((await store.get("leads:index")) ?? {}).filter((l) => !l.importado);
   out.prospectos = { nuevos: nuevos.length, calientes: nuevos.filter((l) => l.cita || l.quiereAsesor).length };
   const cola = (await store.get("social:cola")) ?? [];
@@ -1479,7 +1596,7 @@ export async function handle(req, envBase, store, opciones = {}) {
       }
       case "POST /api/buzon/sincronizar": {
         if (!env.WA_WEB?.sincronizarPendientes) return fail("La sincronización de chats pendientes requiere WhatsApp Web vinculado.", 409);
-        const sincronizado = await env.WA_WEB.sincronizarPendientes();
+        const sincronizado = await env.WA_WEB.sincronizarPendientes({ todos: body.todos === true });
         await procesarEventos(sincronizado.body, env, store, ahora, publicBase(env, baseDe(req)), { autoResponder: false });
         return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, fijados: sincronizado.fijados ?? [], respondidos: 0 });
       }
@@ -1526,6 +1643,13 @@ export async function handle(req, envBase, store, opciones = {}) {
         if (!ai) return fail("Guarda primero el Account ID y el token de Workers AI.", 409);
         await ai.run(MODELO_GRATIS, { messages: [{ role: "user", content: 'Responde únicamente con este JSON: {"conectada":true}' }], max_tokens: 32, temperature: 0 });
         return json({ ok: true, motor: "cloudflare", modelo: MODELO_GRATIS });
+      }
+      case "POST /api/ia/local/probar": {
+        if (!/^https?:\/\/\S+$/.test(String(env.LOCAL_AI_URL ?? ""))) return fail("Guarda primero la dirección de tu IA local.", 409);
+        const inicio = Date.now();
+        try { await preguntarLocal(env, { system: "Eres una prueba de conexión.", messages: [{ role: "user", content: "di hola" }] }); }
+        catch (e) { if (!/formato|JSON/i.test(e.message ?? "")) return fail(e.message ?? String(e), 502); } // contestó, aunque no en JSON
+        return json({ ok: true, motor: "local", modelo: env.LOCAL_AI_MODEL || MODELO_LOCAL, segundos: Math.round((Date.now() - inicio) / 1000) });
       }
       case "POST /api/enviar": return json({ ok: true, ...(await sendMessage(env, store, body, { ahora })) });
       case "GET /api/wa/plantillas": {
@@ -1638,6 +1762,8 @@ export async function handle(req, envBase, store, opciones = {}) {
         }
         if (body.nota !== undefined) l.nota = String(body.nota).slice(0, 500);
         if (body.nombreCliente !== undefined) l.nombreCliente = String(body.nombreCliente).trim().slice(0, 60);
+        // «Es amigo» / «Es cliente»: lo que decide Mario manda sobre las reglas y la IA (fondoMotor «mario» = no se recalifica).
+        if (body.personal !== undefined) Object.assign(l, { personal: Boolean(body.personal), tipo: body.personal ? "personal" : "cliente", fondoMotor: "mario", tipoManual: true });
         l.actualizado = ahora.toISOString();
         await store.put("leads:index", leads);
         return json({ ok: true, prospecto: { clave, ...l } });

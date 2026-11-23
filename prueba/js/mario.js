@@ -7,13 +7,14 @@ import { serverBase } from "./store.js";
 import {
   connectorReady, refreshStatus, lastStatus, inbox, conversation, syncPendingChats, replyToPending, sendMessage,
   listLeads, updateLead, getAgenda, salesInventory, saveInventory, uploadCarPhoto, getConnection, saveConnection,
-  testCloudflareAI, getAgentConfig, setAgentConfig,
+  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig,
 } from "./connector.js";
 import { interpretarOrden, mensajePara, modeloEn, MODELOS } from "./ordenes.js";
 
 const CALOR = { caliente: ["🔥", "Caliente"], tibio: ["🌤️", "Tibio"], frio: ["❄️", "Frío"], cerrado: ["✅", "Vendido"], perdido: ["✖️", "Perdido"] };
 const nombreDe = (c, clave) => c?.name || c?.nombreCliente || c?.nombre || `…${String(clave ?? c?.id ?? "").slice(-4)}`;
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+const soloClientes = (ls) => ls.filter((p) => !p.personal && p.tipo !== "otro"); // amigos, familia y proveedores no son clientes
 const fotoUrl = (fotoId) => (fotoId ? `${serverBase()}/media/${fotoId}` : undefined);
 
 // ───────── Piezas comunes ─────────
@@ -52,7 +53,7 @@ export function renderHoyMario(root) {
   cuerpo.append(datos);
   (async () => {
     try {
-      const [st, bandeja, citas, prospectos] = await Promise.all([refreshStatus(), inbox(), getAgenda(), listLeads()]);
+      const [st, bandeja, citas, prospectos] = await Promise.all([refreshStatus(), inbox(), getAgenda(), listLeads().then(soloClientes)]);
       // Solo clientes (los que llegaron como prospecto): nunca amigos ni familia, ni postventa.
       const clientes = new Map(prospectos.map((p) => [p.clave, p]));
       const pend = Object.entries(bandeja).filter(([k, c]) => clientes.has(k) && !clientes.get(k).postventa && c.lastDir === "in" && Date.now() - new Date(c.lastAt) < 30 * 864e5)
@@ -123,7 +124,7 @@ async function abrirOrden(orden) {
   capa.addEventListener("click", (e) => { if (e.target === capa) cerrar(); });
   document.body.append(capa);
   try {
-    const [prospectos, bandeja, citas, inventario] = await Promise.all([listLeads(), inbox(), getAgenda(), salesInventory().catch(() => [])]);
+    const [prospectos, bandeja, citas, inventario] = await Promise.all([listLeads().then(soloClientes), inbox(), getAgenda(), salesInventory().catch(() => [])]);
     const r = interpretarOrden(orden, { prospectos, bandeja, citas, inventario });
     const elegidos = new Set(r.destinatarios.map((d) => d.clave));
     const msg = h("textarea", { class: "m-input", rows: 4 });
@@ -207,7 +208,11 @@ export function renderChatMario(root, clave) {
   let lead = null;
   const pintarCabeza = (c) => {
     cabeza.replaceChildren(
-      h("div", { class: "m-grow" }, h("b", {}, nombreDe(c ?? lead, clave)), h("span", { class: "m-dim m-small" }, `+${id}${lead?.interes ? ` · ${lead.interes}` : ""}`)),
+      h("div", { class: "m-grow" }, h("b", {}, nombreDe(c ?? lead, clave)), h("span", { class: "m-dim m-small" }, `+${id}${lead?.interes ? ` · ${lead.interes}` : ""}`),
+        lead?.resumen ? h("span", { class: "m-dim m-small", style: "display:block" }, `🧠 ${lead.resumen}${lead.siguiente ? ` → ${lead.siguiente}` : ""}`) : null,
+        lead ? h("button", { class: "m-btn small", style: "margin-top:4px", onclick: async () => {
+          try { lead = await updateLead(clave, { personal: !lead.personal }); pintarCabeza(c); toast(lead.personal ? "Sofía ya no le contesta: es personal" : "Sofía lo atiende como cliente"); } catch (e) { toast(e.message); }
+        } }, lead.personal ? "👥 Personal · cambiar a cliente" : "💼 Cliente · cambiar a personal") : null),
       h("div", { class: "m-temp" }, ["caliente", "tibio", "frio"].map((k) => h("button", {
         class: `m-chip${(lead?.calor ?? "") === k ? " on" : ""}`, title: CALOR[k][1],
         onclick: async () => { try { lead = await updateLead(clave, { calor: k }); pintarCabeza(c); toast(`Marcado ${CALOR[k][1].toLowerCase()}`); } catch (e) { toast(e.message); } },
@@ -275,7 +280,7 @@ export function renderCarteraMario(root) {
     }) : [h("p", { class: "m-dim m-center" }, b ? "Nadie con eso." : "Nadie en esta columna todavía.")]));
   };
   cuerpo.append(q, seg, card(lista), h("p", { class: "m-dim m-small m-center" }, "Sofía acomoda sola a los clientes nuevos. Si tú mueves a alguien, ella ya no lo cambia."));
-  Promise.all([listLeads(), inbox()]).then(([l, b]) => { leads = l; bandeja = b; pintar(); }).catch((e) => { lista.replaceChildren(); falla(lista, e); });
+  Promise.all([listLeads().then(soloClientes), inbox()]).then(([l, b]) => { leads = l; bandeja = b; pintar(); }).catch((e) => { lista.replaceChildren(); falla(lista, e); });
 }
 
 // ───────── AUTOS ─────────
@@ -357,12 +362,15 @@ export function renderAjustesMario(root) {
       estado.replaceChildren(h("h2", {}, "Estado"),
         linea(true, "Conectada a la computadora de Mario", ""),
         linea(st.whatsapp?.ok, "WhatsApp de Mario vinculado", "WhatsApp desconectado: revisa la ventana en la computadora"),
-        linea(Boolean(motor), `IA activa (${motor === "cloudflare" ? "Cloudflare" : "Claude"})`, "Sin IA: contesta con su cerebro de reglas"),
+        linea(Boolean(motor), `IA de apoyo: ${(st.agente?.ventas?.ia?.motores ?? [motor]).map((m) => ({ cloudflare: "Cloudflare", local: "IA local", claude: "Claude" })[m] ?? m).join(" + ")}`, "Sin IA: contesta con su cerebro de reglas"),
         linea(cfg.activo && cfg.ventas?.activo, "Contestando sola", "Respuestas automáticas apagadas"));
       // IA de Cloudflare
       const cuenta = h("input", { class: "m-input", value: con.valores?.CF_ACCOUNT_ID ?? "", autocomplete: "off", placeholder: "Account ID (32 letras y números)" });
       const llave = h("input", { class: "m-input", type: "password", autocomplete: "off", placeholder: con.configurado?.CF_API_TOKEN ? "✓ guardado (escribe solo para cambiarlo)" : "API token de Workers AI" });
       const salida = h("p", { class: "m-dim" });
+      const localUrl = h("input", { class: "m-input", value: con.valores?.LOCAL_AI_URL ?? "", inputmode: "url", autocomplete: "off", placeholder: "https://…trycloudflare.com o http://192.168.1.50:11434" });
+      const localModelo = h("input", { class: "m-input", value: con.valores?.LOCAL_AI_MODEL ?? "", autocomplete: "off", placeholder: "Modelo (qwen2.5:3b)" });
+      const salidaLocal = h("p", { class: "m-dim" });
       ia.replaceChildren(h("h2", {}, "🧠 IA (Cloudflare, gratis)"),
         h("p", { class: "m-dim" }, "En dash.cloudflare.com: Workers AI → copia el Account ID. Tu perfil → API Tokens → Create Token → plantilla «Workers AI»."),
         cuenta, llave,
@@ -378,7 +386,24 @@ export function renderAjustesMario(root) {
             salida.textContent = "✅ Listo: Sofía ya contesta con IA.";
             llave.value = "";
           } catch (e) { salida.textContent = `❌ ${e.message}`; }
-        } }, "Guardar y probar"), salida);
+        } }, "Guardar y probar"), salida,
+        // IA local en otro equipo (Ollama)
+        h("h2", { style: "margin-top:18px" }, "💻 IA local (otro equipo con Ollama)"),
+        h("p", { class: "m-dim" }, "Ordena y resume todos los chats en segundo plano, aprende de cómo contestas y suple a Cloudflare si se acaba su cuota del día. Pega el link del túnel (https://….trycloudflare.com) o la IP de la red (http://192.168.x.x:11434)."),
+        localUrl, localModelo,
+        h("button", { class: "m-btn primary", onclick: async () => {
+          const datos = {};
+          if (localUrl.value.trim() !== (con.valores?.LOCAL_AI_URL ?? "")) datos.LOCAL_AI_URL = localUrl.value.trim();
+          if (localModelo.value.trim() !== (con.valores?.LOCAL_AI_MODEL ?? "")) datos.LOCAL_AI_MODEL = localModelo.value.trim();
+          salidaLocal.textContent = "Guardando y probando (la primera vez puede tardar ~1 min)…";
+          try {
+            if (Object.keys(datos).length) await saveConnection(datos);
+            if (!localUrl.value.trim()) { salidaLocal.textContent = "IA local quitada."; return; }
+            const r = await testLocalAI();
+            if (!cfg.ventas?.ia) await setAgentConfig({ ...cfg, ventas: { ...cfg.ventas, ia: true } });
+            salidaLocal.textContent = `✅ Conectada (${r.modelo}, contestó en ${r.segundos} s).`;
+          } catch (e) { salidaLocal.textContent = `❌ ${e.message}`; }
+        } }, "Guardar y probar"), salidaLocal);
       // Conducta
       const activo = h("input", { type: "checkbox", checked: Boolean(cfg.activo && cfg.ventas?.activo) });
       const conIa = h("input", { type: "checkbox", checked: Boolean(cfg.ventas?.ia) });

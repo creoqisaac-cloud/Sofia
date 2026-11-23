@@ -51,6 +51,7 @@ export const labelConversation = (clave, etiquetas) => call("/api/whatsapp/etiqu
 export const labelUnreadChats = () => call("/api/whatsapp/etiquetar-no-leidos", { method: "POST", body: {} });
 export const sendMessage = (msg) => call("/api/enviar", { method: "POST", body: msg });
 export const testCloudflareAI = () => call("/api/ia/cloudflare/probar", { method: "POST", body: {} });
+export const testLocalAI = () => call("/api/ia/local/probar", { method: "POST", body: {} });
 export const salesInventory = async () => (await call("/api/inventario")).autos;
 export const waTemplates = async () => (await call("/api/wa/plantillas")).templates;
 export const publishPost = (post) => call("/api/facebook/publicar", { method: "POST", body: post });
