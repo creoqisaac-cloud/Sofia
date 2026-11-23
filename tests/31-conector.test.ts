@@ -721,7 +721,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     await handle(signed(waMsg("wamid.V1", "Hola, ¿cuánto cuesta la crv?", LUNES_10)), env(), store, { ahora: LUNES_10 });
     const [ficha] = calls.filter((c) => c.path === "/v/111/messages").map((c) => JSON.parse(c.body));
     expect(ficha).toMatchObject({ to: CLIENTA, type: "image", image: { link: `https://conector.test/media/${fotoId}` } });
-    expect(ficha.image.caption).toMatch(/^¡Hola Lucía! 👋\n🚗 \*Honda CR-V Touring 2026\*/);
+    expect(ficha.image.caption).toMatch(/^¡Hola Lucía! 👋 Soy Mario Abarca, de Honda\.\n🚗 \*Honda CR-V Touring 2026\*/);
     expect(ficha.image.caption).toContain("💵 *$689,900* de contado");
     expect(await leadDe(store)).toMatchObject({ interes: "Honda CR-V Touring 2026", autoId: "crv", calor: "tibio", importado: false });
     const msgs = await charla(store);
@@ -827,7 +827,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect(p.system).toContain("$689,900");
     expect(p.messages[0]).toEqual({ role: "user", content: "Hola" });
     expect(p.messages.at(-1)).toEqual({ role: "user", content: "y aceptan mi carro a cuenta?" });
-    expect(p.system).toContain("Digas que eres una persona");
+    expect(p.system).toContain("Si preguntan directamente si eres una IA, responde con honestidad");
     expect(waEnvios().map((m) => m.text.body)).toEqual([ia.salida.respuesta]);
     expect(await leadDe(store)).toMatchObject({ autoId: "versa" });
 
@@ -898,7 +898,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     const store = memStore();
     await store.put("agente:config", { activo: false, asesor: "", agencia: "", reglas: [], ventas: { activo: true, ia: false } });
     const cfg = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
-    expect(cfg).toMatchObject({ activo: true, asesor: "Mario Abarca", agencia: "Honda", marca: "Honda", ventas: { activo: true, ia: true }, perfil: 3 });
+    expect(cfg).toMatchObject({ activo: true, asesor: "Mario Abarca", agencia: "Honda", marca: "Honda", ventas: { activo: true, ia: true }, perfil: 4 });
     await store.put("agente:config", { ...cfg, ventas: { ...cfg.ventas, ia: false } }); // ya con marca: se respeta lo que elija
     expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config.ventas.ia).toBe(false);
     // La de «Mario» (perfil 1, con la presentación «Soy Sofía…») o la de «Lic. Mario Abarca» (perfil 2): pasan a Mario Abarca; otro asesor se respeta.
@@ -906,11 +906,11 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     const mario = (await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config;
     expect(mario).toMatchObject({ asesor: "Mario Abarca", ventas: { presentacion: "" } });
     await store.put("agente:config", { ...cfg, perfil: 2, asesor: "Lic. Mario Abarca" });
-    expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config).toMatchObject({ asesor: "Mario Abarca", perfil: 3 });
+    expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config).toMatchObject({ asesor: "Mario Abarca", perfil: 4 });
     await store.put("agente:config", { ...cfg, perfil: undefined, asesor: "Pedro" });
     expect((await (await handle(req("/api/agente/config?token=clave"), env(), store)).json()).config.asesor).toBe("Pedro");
     // Al guardar desde la app ya queda en el perfil nuevo.
-    expect((await (await configurar(store, { agencia: "Honda Valle" })).json()).config).toMatchObject({ perfil: 3, asesor: "Pedro" });
+    expect((await (await configurar(store, { agencia: "Honda Valle" })).json()).config).toMatchObject({ perfil: 4, asesor: "Pedro" });
   });
 
   it("corridas: se pegan desde la app como texto, se guardan aparte de lo demás y la IA las recibe tal cual", async () => {
@@ -933,7 +933,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     await decir("wamid.M3", "Carlos Ruiz", 2);
     const aMario = waEnvios().filter((m) => m.to === "528112345678");
     expect(aMario).toHaveLength(1);
-    expect(aMario[0]!.text.body).toContain("📅 Cita nueva: Carlos Ruiz · hoy a las 12 pm\nLe interesa: Honda CR-V");
+    expect(aMario[0]!.text.body).toContain("📅 CITA · Carlos Ruiz · hoy a las 12 pm\nVehículo: Honda CR-V");
     expect(aMario[0]!.text.body).toContain(`WhatsApp: https://wa.me/${CLIENTA}`);
     calls.length = 0;
     await decir("wamid.M4", "menú", 3);
@@ -949,7 +949,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
       await handle(signed(waMsg(id, texto, mas(LUNES_10, min))), e, store, { ahora: mas(LUNES_10, min) });
       return { cliente: waEnvios().filter((m) => m.to === CLIENTA).map((m) => m.text.body).join("\n"), asesor: waEnvios().filter((m) => m.to === "528112345678").map((m) => m.text.body) };
     };
-    expect((await decir("wamid.S1", "Buenas, precio del civic", 0)).cliente).toBe("¡Hola Lucía! 👋\nClaro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?");
+    expect((await decir("wamid.S1", "Buenas, precio del civic", 0)).cliente).toBe("¡Hola Lucía! 👋 Soy Mario Abarca, de Honda.\nClaro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?");
     expect((await decir("wamid.S2", "como 80 mil", 1)).cliente).toMatch(/^Va, con 80 mil te armo la corrida\. ¿Cuándo puedes venir a ver el Civic\? Tengo:\n1️⃣ hoy a las 12 pm/);
     const pide = await decir("wamid.S3", "mejor que me marque el asesor", 2);
     expect(pide.cliente).toBe("Va, ahorita le aviso a Mario Abarca para que te escriba.");

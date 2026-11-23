@@ -159,8 +159,8 @@ test("como persona: «escribiendo…» antes de contestar, y la cita le llega al
   assert.match(aSofia.at(-1), /Al llegar a la agencia pregunta por Mario Abarca para que vaya a recibirte/);
   const aviso = pasos.filter(x => typeof x !== "string" && x.a === self + "@c.us");
   assert.equal(aviso.length, 1);
-  assert.match(aviso[0].texto, /^📅 Cita nueva: Luis Treviño · /);
-  assert.match(aviso[0].texto, /Le interesa: Honda Civic\nCrédito · enganche \$80,000/);
+  assert.match(aviso[0].texto, /^📅 CITA · Luis Treviño · /);
+  assert.match(aviso[0].texto, /Vehículo: Honda Civic\nCrédito · enganche \$80,000/);
 });
 
 test("tiempo escribiendo: de 1.2 a 8.4 segundos según el largo", () => {

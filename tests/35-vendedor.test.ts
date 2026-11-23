@@ -40,7 +40,7 @@ describe("vendedora · conversación", () => {
   it("se presenta con el nombre del cliente y muestra el menú", () => {
     const { ultimo, texto } = charla(["Hola, buenas tardes"]);
     expect(ultimo.motivo).toBe("menu");
-    expect(texto).toMatch(/^¡Hola Ana! 👋\n¿En qué te ayudo\?/);
+    expect(texto).toMatch(/^¡Hola Ana! 👋 Soy Pedro, de Honda Ejemplo\.\n¿En qué te ayudo\?/);
     expect(texto).toContain("1️⃣ Ver autos disponibles");
     expect(texto).toContain("4️⃣ Hablar con Pedro");
   });
@@ -60,7 +60,7 @@ describe("vendedora · conversación", () => {
   it("el primer mensaje que ya nombra el auto recibe saludo + ficha (por apodo o con guion distinto)", () => {
     const crv = charla(["¿Cuánto cuesta la crv?"]);
     expect(crv.ultimo.motivo).toBe("auto");
-    expect(crv.texto).toMatch(/^¡Hola Ana! 👋\n🚗 \*Honda CR-V Touring 2026\*/);
+    expect(crv.texto).toMatch(/^¡Hola Ana! 👋 Soy Pedro, de Honda Ejemplo\.\n🚗 \*Honda CR-V Touring 2026\*/);
     expect(charla(["info de la versita"]).lead).toMatchObject({ autoId: "versa" });
     expect(charla(["tienen la CX-5?"]).ultimo.motivo).not.toBe("auto"); // vendida: no se ofrece
   });
@@ -107,10 +107,11 @@ describe("vendedora · conversación", () => {
     expect(r.lead).toMatchObject({ quiereAsesor: true, calor: "caliente" });
   });
 
-  it("fuera de horario lo dice al saludar y al pasar con el asesor", () => {
+  it("fuera de horario sigue atendiendo sin decir que la agencia está cerrada", () => {
     const r = charla(["Hola", "4"], { enHorario: false });
-    expect(r.txt(0)).toMatch(/^¡Hola Ana! 👋 Ahorita estamos cerrados, pero te ayudo por aquí\./);
-    expect(r.texto).toContain("en cuanto abramos (lun a sáb de 9:00 a 19:00)");
+    expect(r.txt(0)).toMatch(/^¡Hola Ana! 👋 Soy Pedro, de Honda Ejemplo\./);
+    expect(r.txt(0)).not.toMatch(/cerrad[oa]s/i);
+    expect(r.texto).not.toMatch(/cerrad[oa]s|en cuanto abramos/i);
   });
 
   it("las respuestas propias del asesor (reglas) siguen funcionando", () => {
@@ -140,7 +141,7 @@ describe("vendedora · conversación", () => {
       decidir({ cfg, inventario: [], conv, msg: { texto, nombre: "Luis", primero, enHorario: true }, ahora: new Date(T0 + i * 60_000), libres });
     const r = di("Hola, ¿qué precio tiene la CR-V?", {}, 0, true);
     expect(r.motivo).toBe("corrida");
-    expect(r.respuestas[0]!.texto).toBe("¡Hola Luis! 👋\nClaro, te hago una corrida de la CR-V. ¿Como cuánto tienes pensado dar de enganche?");
+    expect(r.respuestas[0]!.texto).toBe("¡Hola Luis! 👋 Soy Mario Abarca, de Honda.\nClaro, te hago una corrida de la CR-V. ¿Como cuánto tienes pensado dar de enganche?");
     expect(r.lead).toMatchObject({ interes: "Honda CR-V" });
     const eng = di("como 80 mil", r.conv, 1);
     expect(eng.motivo).toBe("corrida");
@@ -160,7 +161,7 @@ describe("vendedora · conversación", () => {
     const cfg = { ...CFG, asesor: "Mario Abarca" };
     const charlaSin = (m: string[]) => charla(m, { cfg, inventario: [] });
     const hola = charlaSin(["Hola", "me interesa la CR-V"]);
-    expect(hola.txt(0)).toBe("¡Hola Ana! 👋\n¿Qué modelo te interesa?");
+    expect(hola.txt(0)).toBe("¡Hola Ana! 👋 Soy Mario Abarca, de Honda Ejemplo.\n¿Qué modelo te interesa?");
     expect(hola.texto).toBe("Claro, te hago una corrida de la CR-V. ¿Como cuánto tienes pensado dar de enganche?");
     const noSabe = charlaSin(["Hola, quiero un crédito para el Civic", "no sé la verdad"]);
     expect(noSabe.txt(0)).toContain("Claro, te hago una corrida del Civic.");
@@ -240,7 +241,7 @@ describe("vendedora · IA opcional", () => {
     expect(system).toContain("Honda CR-V Touring 2026");
     expect(system).not.toContain("CX-5"); // vendido
     expect(system).toContain("Estamos en Av. Ejemplo 123.");
-    expect(system).toContain("Contestas el WhatsApp de ventas de Pedro");
+    expect(system).toContain("Eres Pedro, asesor de ventas de Honda (Honda Ejemplo) en Monterrey.");
     expect(system).toContain("ofrécele una corrida y pregúntale como cuánto tiene pensado dar de enganche");
     expect(system).toContain("Inventes cifras (precios, mensualidades");
     expect(system).toContain("Aún no tienes las cifras: no des números.");
@@ -264,15 +265,15 @@ describe("vendedora · IA opcional", () => {
     const corridas = "Civic Touring 2026 · precio $599,900\n20% de enganche ($119,980): 48 meses $12,450 · 60 meses $10,980";
     const cfg = { ...CFG, asesor: "Mario Abarca", agencia: "Honda", marca: "Honda", corridas };
     const { system } = promptIA({ cfg, historial: [{ dir: "in", text: "precio civic" }] });
-    expect(system).toContain("Contestas el WhatsApp de ventas de Mario Abarca, asesor de Honda en Monterrey. Escribes por él, como su equipo.");
+    expect(system).toContain("Eres Mario Abarca, asesor de ventas de Honda en Monterrey.");
     expect(system).toContain("di «Mario Abarca», nunca solo «Mario» ni «Mario te dice».");
     expect(system).toContain("Con cita y nombre cierra con: «Al llegar a la agencia pregunta por Mario Abarca para que vaya a recibirte.»");
     expect(system).toContain("«con gusto te ayudo», «excelente elección», «promoción del mes», «lo siento»");
     expect(system).toContain(`CORRIDAS (las únicas cifras de crédito que puedes dar; tal cual):\n${corridas}`);
     expect(system).not.toContain("Aún no tienes las cifras");
     const lic = promptIA({ cfg: { ...cfg, asesor: "Lic. Mario Abarca" } }).system;
-    expect(lic).toContain("Contestas el WhatsApp de ventas del Lic. Mario Abarca");
-    expect(lic).toContain("eres un asistente que le ayuda al Lic. Mario Abarca con sus mensajes");
+    expect(lic).toContain("Eres el Lic. Mario Abarca, asesor de ventas de Honda en Monterrey.");
+    expect(lic).toContain("eres el asistente digital que contesta por Mario");
     expect(promptIA({ cfg: CFG }).system).not.toContain("nunca solo"); // «Pedro» no tiene apellido que cuidar
     const historial = [{ dir: "in", text: "precio civic" }, { dir: "out", text: "¿Cuánto darías de enganche?" }, { dir: "in", text: "como 120 mil" }];
     const menu: Resultado = decidir({ cfg, inventario: [], conv: {}, msg: { texto: "como 120 mil", enHorario: true }, ahora: new Date(T0) });
