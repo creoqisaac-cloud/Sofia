@@ -56,8 +56,11 @@ $iniciar = {
         $script:url = "http://127.0.0.1:$port/vincular"
         $script:log = Join-Path $data 'servidor.log'
         $env:SOFIA_BIND='127.0.0.1'; $env:PORT="$port"; $env:SOFIA_TOKEN=$secret
-        $env:SOFIA_DATA_DIR=Join-Path $data 'datos'; $env:SOFIA_PRUEBA_NUMERO=$n
-        if ($SoloYo) { $env:SOFIA_CHAT_PROPIO="1"; $env:SOFIA_PRUEBA_NUMERO="" } else { $env:SOFIA_CHAT_PROPIO="0" }; $env:CHROMIUM_PATH=$browser; $env:SOFIA_WHATSAPP_WEB='1'
+        $env:SOFIA_DATA_DIR=Join-Path $data 'datos'
+        # Solo las pruebas deben limitarse a un número. En modo Mario, el campo está oculto y puede conservar
+        # el teléfono de prueba anterior; heredarlo bloquearía a todos los clientes reales.
+        $env:SOFIA_PRUEBA_NUMERO = if ($Mario -or $SoloYo) { "" } else { $n }
+        if ($SoloYo) { $env:SOFIA_CHAT_PROPIO="1" } else { $env:SOFIA_CHAT_PROPIO="0" }; $env:CHROMIUM_PATH=$browser; $env:SOFIA_WHATSAPP_WEB='1'
         $perfil=Join-Path $data "perfil.txt"; if (Test-Path $perfil) { $env:SOFIA_WA_PERFIL=[IO.File]::ReadAllText($perfil).Trim() }; $env:SOFIA_STOP_FILE=Join-Path $data ('cerrar-' + [guid]::NewGuid().ToString('N'))
         $entry = '"' + (Join-Path $repo 'whatsapp-web/windows/iniciar.mjs') + '"'
         $script:server = Start-Process -FilePath $node -ArgumentList $entry -WorkingDirectory $data -WindowStyle Hidden -RedirectStandardOutput $script:log -RedirectStandardError (Join-Path $data 'errores.log') -PassThru
