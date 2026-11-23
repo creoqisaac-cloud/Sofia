@@ -165,7 +165,7 @@ describe("vendedora · conversación", () => {
     expect(hola.texto).toBe("Claro, te hago una corrida de la CR-V. ¿Como cuánto tienes pensado dar de enganche?");
     const noSabe = charlaSin(["Hola, quiero un crédito para el Civic", "no sé la verdad"]);
     expect(noSabe.txt(0)).toContain("Claro, te hago una corrida del Civic.");
-    expect(noSabe.texto).toMatch(/^Va, te la armo con 20, 30, 40 y 50% de enganche para que veas cuál te acomoda\. ¿Qué día y a qué hora puedes venir a ver el Civic\?/);
+    expect(noSabe.texto).toMatch(/^Va, te la armo con 20, 30, 40 y 50% de enganche para que veas cuál te acomoda\. ¿Qué día y a qué hora te gustaría venir a ver el Civic\? Puedo recibirte /);
     expect(noSabe.ultimo.motivo).toBe("corrida");
     expect(charlaSin(["cuánto cuesta el City", "el 30%"]).lead).toMatchObject({ formaPago: "credito", enganchePct: 30, interes: "Honda City" });
     expect(charlaSin(["precio del accord", "tengo $125,500"]).texto).toMatch(/^Va, con \$125,500 te armo la corrida\./);
@@ -267,7 +267,8 @@ describe("vendedora · IA opcional", () => {
     const { system } = promptIA({ cfg, historial: [{ dir: "in", text: "precio civic" }] });
     expect(system).toContain("Eres Mario Abarca, asesor de ventas de Honda en Monterrey.");
     expect(system).toContain("di «Mario Abarca», nunca solo «Mario» ni «Mario te dice».");
-    expect(system).toContain("Con cita y nombre cierra con: «Al llegar a la agencia pregunta por Mario Abarca para que vaya a recibirte.»");
+    expect(system).toContain("Confirma claramente el día y la hora de la cita.");
+    expect(system).toContain("Al llegar a la agencia pregunta por Mario Abarca para que vaya a recibirte.");
     expect(system).toContain("«con gusto te ayudo», «excelente elección», «promoción del mes», «lo siento»");
     expect(system).toContain(`CORRIDAS (las únicas cifras de crédito que puedes dar; tal cual):\n${corridas}`);
     expect(system).not.toContain("Aún no tienes las cifras");

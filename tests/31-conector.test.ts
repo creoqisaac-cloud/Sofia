@@ -721,7 +721,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     await handle(signed(waMsg("wamid.V1", "Hola, ¿cuánto cuesta la crv?", LUNES_10)), env(), store, { ahora: LUNES_10 });
     const [ficha] = calls.filter((c) => c.path === "/v/111/messages").map((c) => JSON.parse(c.body));
     expect(ficha).toMatchObject({ to: CLIENTA, type: "image", image: { link: `https://conector.test/media/${fotoId}` } });
-    expect(ficha.image.caption).toMatch(/^¡Hola Lucía! 👋 Soy Mario Abarca, de Honda\.\n🚗 \*Honda CR-V Touring 2026\*/);
+    expect(ficha.image.caption).toMatch(/^¡Hola Lucía! 👋 Soy Pedro, de Honda Ejemplo\.\n🚗 \*Honda CR-V Touring 2026\*/);
     expect(ficha.image.caption).toContain("💵 *$689,900* de contado");
     expect(await leadDe(store)).toMatchObject({ interes: "Honda CR-V Touring 2026", autoId: "crv", calor: "tibio", importado: false });
     const msgs = await charla(store);
@@ -934,7 +934,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     const aMario = waEnvios().filter((m) => m.to === "528112345678");
     expect(aMario).toHaveLength(1);
     expect(aMario[0]!.text.body).toContain("📅 CITA · Carlos Ruiz · hoy a las 12 pm\nVehículo: Honda CR-V");
-    expect(aMario[0]!.text.body).toContain(`WhatsApp: https://wa.me/${CLIENTA}`);
+    expect(aMario[0]!.text.body).toContain(`Abrir chat: https://wa.me/${CLIENTA}`);
     calls.length = 0;
     await decir("wamid.M4", "menú", 3);
     expect(waEnvios().filter((m) => m.to === "528112345678")).toHaveLength(0); // ya se le avisó
@@ -953,7 +953,9 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect((await decir("wamid.S2", "como 80 mil", 1)).cliente).toMatch(/^Va, con 80 mil te armo la corrida\. ¿Cuándo puedes venir a ver el Civic\? Tengo:\n1️⃣ hoy a las 12 pm/);
     const pide = await decir("wamid.S3", "mejor que me marque el asesor", 2);
     expect(pide.cliente).toBe("Va, ahorita le aviso a Mario Abarca para que te escriba.");
-    expect(pide.asesor).toEqual([`🙋 LUCÍA Prueba quiere que lo atiendas\nLe interesa: Honda Civic\nCrédito · enganche $80,000\nWhatsApp: https://wa.me/${CLIENTA}`]);
+    expect(pide.asesor).toHaveLength(1);
+    expect(pide.asesor[0]).toContain("🔥 PIDE ASESOR · LUCÍA Prueba\nVehículo: Honda Civic");
+    expect(pide.asesor[0]).toContain(`Abrir chat: https://wa.me/${CLIENTA}`);
     await decir("wamid.S4", "menú", 3);
     expect((await decir("wamid.S5", "2", 4)).asesor).toEqual([]); // ya se le avisó hace poco
   });
