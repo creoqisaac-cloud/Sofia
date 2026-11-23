@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   push:
     branches: [claude/focused-gauss-q4hxvr, claude/laughing-sagan-hbxj3y]
-    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-cloudflare.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "tests/33-ine-mrz.test.ts", "tests/34-google-apps-script.test.ts", "tests/35-vendedor.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**"]
+    paths: ["prueba/**", "scripts/prueba-e2e.mjs", "scripts/prueba-cloudflare.mjs", "scripts/prueba-generar.mjs", "tests/31-conector.test.ts", "tests/32-prueba-credito-oficial.test.ts", "tests/33-ine-mrz.test.ts", "tests/34-google-apps-script.test.ts", "tests/35-vendedor.test.ts", "src/domain/credit/**", "src/server/extraction/**", ".github/workflows/prueba.yml", "capacitor.config.ts", "android/**", "whatsapp-web/**"]
 
 concurrency:
   group: prueba-${{ github.ref }}
@@ -81,7 +81,11 @@ jobs:
           rm -rf "$RUNNER_TEMP/site/servidor/datos" "$RUNNER_TEMP/site/servidor/.env"
           cp Sofia-Prueba.apk "$RUNNER_TEMP/site/Sofia-Prueba.apk"
           touch "$RUNNER_TEMP/site/.nojekyll"
-          (cd "$RUNNER_TEMP/site" && zip -qr "$RUNNER_TEMP/Sofia-Prueba-web.zip" . -x "Sofia-Prueba.apk")
+          # Sofía Nueva para Windows: el paquete y la línea de instalación (irm …/windows/instalar.txt | iex)
+          mkdir -p "$RUNNER_TEMP/site/windows"
+          git archive --format=zip -o "$RUNNER_TEMP/site/windows/sofia-windows.zip" HEAD prueba whatsapp-web/package.json whatsapp-web/package-lock.json whatsapp-web/cliente.mjs whatsapp-web/windows
+          cp whatsapp-web/windows/instalar.ps1 "$RUNNER_TEMP/site/windows/instalar.txt"
+          (cd "$RUNNER_TEMP/site" && zip -qr "$RUNNER_TEMP/Sofia-Prueba-web.zip" . -x "Sofia-Prueba.apk" "windows/*")
           cd "$RUNNER_TEMP/site"
           git init -q -b gh-pages && git add -A -f
           git -c user.name="sofia-ci" -c user.email="sofia-ci@users.noreply.github.com" commit -qm "Sofía Prueba #${{ github.run_number }} (${{ github.sha }})"

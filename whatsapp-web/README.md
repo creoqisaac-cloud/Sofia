@@ -36,3 +36,22 @@ Usa como número de prueba **el mismo número vinculado**, con código de país 
 El comando `/sofia` reanuda el chat de prueba incluso si el vendedor lo dejó en «asesor» después de dos mensajes desconocidos. Las notas sin el prefijo no se responden. Ninguna conversación externa se procesa en este modo. Las pruebas no generan prospectos, apartados ni avisos comerciales al asesor.
 
 **Importante:** el modo seguro debe quedar activado mientras se prueba con el WhatsApp personal. No lo desactives en el número personal para «probar clientes»; usa una cuenta o entorno empresarial y una lista de remitentes de prueba autorizados. La corrección aplica al código del repositorio: no actualiza automáticamente una instalación local ni recupera cambios de Codex que no se hayan subido a GitHub.
+
+## Sofía Nueva en Windows (un acceso en el escritorio)
+
+Se instala aparte de cualquier otra Sofía (carpeta `%LOCALAPPDATA%\SofiaNueva`, puerto 18750). En PowerShell:
+
+```powershell
+irm https://creoqisaac-cloud.github.io/Sofia/windows/instalar.txt | iex
+```
+
+Queda el acceso **Sofia Nueva** en el escritorio. Al abrirlo pregunta cómo usarla (se recuerda para la próxima):
+
+1. **Solo mi WhatsApp**: pruebas en el chat «Tú» empezando con `/sofia`; tus demás chats no se tocan.
+2. **WhatsApp de Mario con un número de prueba**: solo contesta a ese celular; las citas le llegan a Mario a su chat «Tú».
+3. **WhatsApp de Mario para todos**: contesta a todos los clientes; si Mario escribe en un chat, se calla 12 horas ahí.
+
+Luego abre el navegador con el QR (usuario `sofia`, contraseña copiada). Opcional: el **Account ID** y un **token de Workers AI** de Cloudflare para que platique con la IA gratis en vez de por reglas (el token se guarda cifrado para tu usuario de Windows). Antes de contestar muestra «escribiendo…» unos segundos, como una persona.
+
+Cierra las otras Sofías antes de abrirla: dos vinculadas al mismo WhatsApp contestan doble. Volver a pegar la línea actualiza el programa sin perder el vínculo ni la clave.
+

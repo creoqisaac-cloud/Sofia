@@ -5082,7 +5082,9 @@ function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @_
   const now = ahora instanceof Date ? ahora : new Date(ahora);
   const c = { ...conv, autos: (conv.autos ?? []).filter((x) => now - new Date(x) < HORA), fallos: conv.fallos ?? 0 };
   const lead = {};
-  const texto = String(msg.texto ?? "");
+  const bruto = String(msg.texto ?? "");
+  const comandoPrueba = msg.pruebaLocal === true ? /^\/sofia(?:\s+([\s\S]*))?$/i.exec(bruto.trim()) : null;
+  const texto = comandoPrueba ? comandoPrueba[1]?.trim() || "men\xFA" : bruto;
   const t = sinAcentos(texto);
   const vars = { nombre: primerNombre(msg.nombre), asesor: cfg.asesor || "tu asesor", agencia: cfg.agencia || "la agencia" };
   const asesor = cfg.asesor ? asesorCon(cfg.asesor) : "un asesor";
@@ -5092,6 +5094,10 @@ function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @_
   const autos = disponibles(inventario);
   const porId = (id) => autos.find((a2) => a2.id === id);
   const quedar = (motivo2) => ({ respuestas: [], conv: c, lead, motivo: motivo2 });
+  if (msg.pruebaLocal && !comandoPrueba) return quedar("comando-prueba-requerido");
+  if (comandoPrueba && c.paso === "asesor") {
+    Object.assign(c, { paso: "menu", desde: now.toISOString(), opciones: null, fallos: 0 });
+  }
   if (c.autos.length >= MAX_POR_HORA) return quedar("freno");
   const pideMenu = t.trim() === "0" || texto.trim().split(/\s+/).length <= 3 && tieneAlguna(t, MENU);
   const limpio = sinAcentos(texto).replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
@@ -5927,16 +5933,18 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
   if (!cfg.activo) return false;
   if (ahora - new Date(e.at) > DIA_MS) return false;
   const pausa = cfg.pausaMinutos * 60 * 1e3;
-  if (pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
-  if (contestaElAsesor(cfg, e, ahora)) return false;
+  if (!e.pruebaLocal && pausa && e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < pausa) return false;
+  if (!e.pruebaLocal && contestaElAsesor(cfg, e, ahora)) return false;
   const inventario = await inventarioVendedora(store, publicBase(env, base), true);
   const historial = async () => (await store.get(`inbox:c:${e.canal}:${e.id}`) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
   const libres = await libresDe(store, cfg, ahora);
-  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero }, historial, ahora, libres);
+  const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero, pruebaLocal: e.pruebaLocal === true }, historial, ahora, libres);
   if (r.errorIA) await anotarError(store, e, `IA: ${r.errorIA}`, ahora);
-  if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
-  if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
-  await avisarSiToca(env, store, cfg, e, r, ahora);
+  if (!e.pruebaLocal) {
+    if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
+    if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
+    await avisarSiToca(env, store, cfg, e, r, ahora);
+  }
   for (const [i, m] of r.respuestas.entries()) {
     try {
       await sendMessage(
@@ -5992,8 +6000,9 @@ async function avisarSiToca(env, store, cfg, e, r, ahora) {
   await avisarAsesor(env, store, cfg, e, cita, ahora, lead);
 }
 async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
-  const numero = String(env.ASESOR_WHATSAPP ?? "").replace(/\D/g, "");
-  if (!numero || !(env.WA_WEB?.estado?.().ok || waReady(env))) return;
+  const vinculado = env.WA_WEB?.estado?.();
+  const numero = String(env.ASESOR_WHATSAPP || (vinculado?.ok ? vinculado.phone : "") || "").replace(/\D/g, "");
+  if (!numero || !(vinculado?.ok || waReady(env))) return;
   const nombre = cita?.nombre || lead.nombreCliente || e.nombre || "Cliente";
   const interes = cita?.interes || lead.interes;
   const resumen = cita?.resumen || lead.resumen;
@@ -6012,7 +6021,7 @@ async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
     await anotarError(store, e, `Aviso a ${cfg.asesor || "el asesor"}: ${err.message ?? err} (Meta solo deja escribirle si \xE9l le mand\xF3 un mensaje al n\xFAmero de Sof\xEDa en las \xFAltimas 24 h)`, ahora);
   }
 }
-var SIN_IA = /* @__PURE__ */ new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones"]);
+var SIN_IA = /* @__PURE__ */ new Set(["freno", "con-asesor", "vacio", "borrar-datos", "sin-promociones", "comando-prueba-requerido"]);
 async function pensarVenta(env, cfg, inventario, antes, msg, historial, ahora, libres = []) {
   const r = decidir({ cfg, inventario, conv: antes, msg: { ...msg, enHorario: enHorario(cfg, ahora) }, ahora, libres });
   if (SIN_IA.has(r.motivo) || !cfg.ventas.ia || !motorIA(env)) return r;
@@ -6171,14 +6180,14 @@ async function handleWebhook(req, env, store, ahora) {
 async function procesarEventos(body, env, store, ahora, base) {
   const cfg = await leerConfig(store);
   const contestados = /* @__PURE__ */ new Set();
-  const recibido = async (canal, peer, nombre, msg, { contestable, propio = false }) => {
+  const recibido = async (canal, peer, nombre, msg, { contestable, propio = false, pruebaLocal = false }) => {
     const r = await addMessage(store, canal, peer, nombre, msg);
     if (!r || propio) return;
-    if (!r.prev) await addLead(store, canal, peer, nombre, msg);
+    if (!r.prev && !pruebaLocal) await addLead(store, canal, peer, nombre, msg);
     const clave = `${canal}:${peer}`;
     if (!contestable || contestados.has(clave)) return;
     try {
-      const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev };
+      const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev, pruebaLocal };
       if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, base) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
     } catch (e) {
       console.error("Agente de Sof\xEDa:", e);
@@ -6204,12 +6213,13 @@ async function procesarEventos(body, env, store, ahora, base) {
       const propio = String(v.metadata?.display_phone_number ?? "").replace(/\D/g, "");
       for (const m of v.messages ?? []) {
         const media = ["image", "video", "document", "audio", "sticker"].includes(m.type) ? { id: m[m.type]?.id, mime: m[m.type]?.mime_type, filename: m[m.type]?.filename ?? "" } : void 0;
+        const pruebaLocal = m.pruebaLocal === true && env.WA_WEB?.estado?.().modo === "solo-mi-whatsapp";
         await recibido(
           "wa",
           m.from,
           names[m.from],
           { id: m.id, dir: "in", type: m.type, text: waText(m), at: fechaMeta(Number(m.timestamp) * 1e3, ahora), ...media ? { media } : {} },
-          { contestable: !SIN_RESPUESTA.has(m.type) && !m.errors, propio: Boolean(propio) && m.from === propio }
+          { contestable: !SIN_RESPUESTA.has(m.type) && !m.errors, propio: !pruebaLocal && Boolean(propio) && m.from === propio, pruebaLocal }
         );
       }
       for (const st2 of v.statuses ?? []) await setStatus(store, "wa", st2.recipient_id, st2.id, st2.status);

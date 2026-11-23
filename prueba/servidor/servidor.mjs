@@ -15,6 +15,7 @@ import crypto from "node:crypto";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { handle, runScheduled, eventoVinculado, VERSION } from "./core.mjs";
+import { iaPorApi } from "./ia-cloudflare.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.resolve(here, "..");
@@ -95,6 +96,9 @@ function readBody(req) {
 }
 
 const entorno = { ...process.env };
+// IA gratis de Cloudflare por su API (en el Worker se usa el enlace «AI»): Sofía platica natural en vez de por reglas.
+const iaGratis = iaPorApi({ cuenta: entorno.CF_ACCOUNT_ID, llave: entorno.CF_API_TOKEN, url: entorno.CF_API_URL });
+if (iaGratis) entorno.AI = iaGratis;
 if (entorno.SOFIA_WHATSAPP_WEB === "1") {
   const { iniciar } = await import("../../whatsapp-web/cliente.mjs");
   entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store));
@@ -149,5 +153,6 @@ server.listen(PORT, process.env.SOFIA_BIND || "0.0.0.0", () => {
   for (const ip of ips) console.log(`  En la misma red Wi-Fi: http://${ip}:${PORT}`);
   console.log(`\nEn la app → Más → Conexiones → Servidor:\n  Dirección: https://<tu-dominio-o-túnel>   (o http://<IP>:${PORT} si abres la app desde aquí)\n  Clave:     ${claveGenerada ? e.SOFIA_TOKEN : `(la de SOFIA_TOKEN, termina en …${e.SOFIA_TOKEN.slice(-4)})`}`);
   console.log(`\nWhatsApp:  ${e.WA_TOKEN && e.WA_PHONE_NUMBER_ID ? "configurado" : "sin configurar"} · Facebook: ${e.FB_PAGE_ID && e.FB_PAGE_TOKEN ? "configurado" : "sin configurar"} · Webhook: ${e.META_APP_SECRET && e.META_VERIFY_TOKEN ? "listo en /webhook/meta" : "falta META_APP_SECRET / META_VERIFY_TOKEN"}`);
+  console.log(`IA:        ${e.ANTHROPIC_API_KEY ? "Claude" : iaGratis ? "gratis de Cloudflare" : "sin IA (contesta con reglas)"}`);
   console.log(`Datos en: ${DATA_DIR}\n`);
 });

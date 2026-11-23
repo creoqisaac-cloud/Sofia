@@ -2,7 +2,14 @@ import path from "node:path";
 import QRCode from "qrcode";
 import whatsapp from "whatsapp-web.js";
 
-export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false) {
+/** Lo que tardaría una persona en escribir ese texto (1.5 a 7 s, con algo de variación). */
+export function tiempoEscribiendo(texto) {
+  const base = Math.min(7000, 1500 + String(texto ?? "").length * 35);
+  return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+
+// opciones.pausa(texto) → milisegundos de «escribiendo…» antes de mandar cada respuesta (0 = al instante).
+export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, { pausa = () => 0 } = {}) {
   // WhatsApp puede conservar el prefijo móvil mexicano 521 en contactos antiguos.
   const normalizar = n => String(n ?? "").replace(/^521(\d{10})$/, "52$1");
   const permitido = n => !prueba || normalizar(n) === normalizar(prueba);
@@ -47,10 +54,21 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false) {
     async enviar({ to, text, image }) {
       if (!conectado) throw new Error("El dispositivo de WhatsApp está desconectado.");
       const self = client.info?.wid?.user;
-      if (!/^\d{6,15}$/.test(to) || !permitido(to) || (soloMiWhatsApp && normalizar(to) !== normalizar(self))) throw new Error("Destinatario no habilitado.");
+      // El chat «Tú» del número vinculado siempre se permite: ahí le llegan al asesor los avisos de cada cita.
+      const aMiMismo = Boolean(self) && normalizar(to) === normalizar(self);
+      if (!/^\d{6,15}$/.test(to) || !(aMiMismo || permitido(to)) || (soloMiWhatsApp && !aMiMismo)) throw new Error("Destinatario no habilitado.");
       const destino = await client.getNumberId(to);
       if (!destino) throw new Error("WhatsApp no encontró el contacto.");
-      const msg = await client.sendMessage(destino._serialized, [text, image].filter(Boolean).join("\n"), { sendSeen: false });
+      const texto = [text, image].filter(Boolean).join("\n");
+      // Como una persona: «escribiendo…» unos segundos y luego el mensaje (también baja el riesgo con WhatsApp).
+      const espera = aMiMismo && !soloMiWhatsApp ? 0 : pausa(texto); // los avisos al asesor van al instante
+      const chat = espera > 0 ? await client.getChatById?.(destino._serialized).catch(() => null) : null;
+      if (espera > 0) {
+        await chat?.sendStateTyping?.().catch(() => {});
+        await new Promise((listo) => setTimeout(listo, espera));
+      }
+      const msg = await client.sendMessage(destino._serialized, texto, { sendSeen: false });
+      await chat?.clearState?.().catch(() => {});
       return msg.id._serialized;
     },
     async pagina() {
@@ -72,7 +90,9 @@ export function iniciar(dir, recibir) {
     authStrategy: new whatsapp.LocalAuth({ dataPath: path.join(dir, "sesion-whatsapp") }),
     puppeteer: { headless: true, executablePath: process.env.CHROMIUM_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] },
   });
-  const dispositivo = vincular(client, recibir, prueba, soloMiWhatsApp);
+  // SOFIA_ESPERA=0 contesta al instante (para pruebas); si no, con la pausa de una persona escribiendo.
+  const pausa = process.env.SOFIA_ESPERA === "0" ? () => 0 : tiempoEscribiendo;
+  const dispositivo = vincular(client, recibir, prueba, soloMiWhatsApp, { pausa });
   // El supervisor del contenedor vuelve a iniciar Chromium con el mismo volumen.
   const reiniciar = () => { setTimeout(() => process.exit(1), 2000).unref(); };
   client.once("disconnected", reiniciar);

@@ -1,0 +1,62 @@
+name: Sofía para Windows
+
+# Instala «Sofia Nueva» en una computadora Windows real como lo hace el usuario (la línea de PowerShell),
+# revisa el acceso del escritorio y la prende: servidor listo, página del QR protegida y WhatsApp Web abriendo.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/focused-gauss-q4hxvr]
+    paths: ["whatsapp-web/**", "prueba/servidor/**", "prueba/js/vendedor.js", ".github/workflows/sofia-windows.yml"]
+
+concurrency:
+  group: sofia-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pruebas del WhatsApp vinculado
+        shell: bash
+        run: |
+          cd whatsapp-web
+          PUPPETEER_SKIP_DOWNLOAD=true npm ci --no-audit --no-fund
+          node --test cliente.test.mjs
+
+      - name: Paquete (el mismo que se publica)
+        shell: bash
+        run: git archive --format=zip -o "$RUNNER_TEMP/sofia-windows.zip" HEAD prueba whatsapp-web/package.json whatsapp-web/package-lock.json whatsapp-web/cliente.mjs whatsapp-web/windows
+
+      - name: Instalar como el usuario (irm | iex en Windows PowerShell 5.1)
+        shell: powershell
+        env:
+          SOFIA_ZIP: ${{ runner.temp }}\sofia-windows.zip
+          SOFIA_DESTINO: ${{ runner.temp }}\SofiaNueva
+        run: |
+          Get-Content -Raw whatsapp-web/windows/instalar.ps1 | Invoke-Expression
+          $acceso = Join-Path ([Environment]::GetFolderPath("Desktop")) "Sofia Nueva.lnk"
+          if (-not (Test-Path $acceso)) { throw "Falta el acceso del escritorio" }
+          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($acceso)
+          if ($lnk.Arguments -notmatch 'abrir\.ps1') { throw "El acceso no abre Sofia: $($lnk.Arguments)" }
+          Write-Host "Acceso: $($lnk.TargetPath) $($lnk.Arguments)"
+
+      - name: Volver a instalar encima (actualizar) conserva la clave
+        shell: powershell
+        env:
+          SOFIA_ZIP: ${{ runner.temp }}\sofia-windows.zip
+          SOFIA_DESTINO: ${{ runner.temp }}\SofiaNueva
+          SOFIA_SIN_ACCESO: "1"
+        run: |
+          Set-Content -NoNewline -Path "$env:SOFIA_DESTINO\clave.txt" -Value "clave-que-no-cambia"
+          Get-Content -Raw whatsapp-web/windows/instalar.ps1 | Invoke-Expression
+          if ((Get-Content -Raw "$env:SOFIA_DESTINO\clave.txt") -ne "clave-que-no-cambia") { throw "Se perdio la clave al actualizar" }
+
+      - name: Prender Sofía (servidor, QR protegido y WhatsApp Web)
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File "$env:RUNNER_TEMP\SofiaNueva\abrir.ps1" -Probar

@@ -476,8 +476,10 @@ async function avisarSiToca(env, store, cfg, e, r, ahora) {
 
 /** WhatsApp al asesor con el contexto del cliente (ASESOR_WHATSAPP en Conexiones). Si Meta no lo deja, queda en errores. */
 async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
-  const numero = String(env.ASESOR_WHATSAPP ?? "").replace(/\D/g, "");
-  if (!numero || !(env.WA_WEB?.estado?.().ok || waReady(env))) return;
+  // Con WhatsApp vinculado (el celular del asesor) y sin otro número, el aviso le llega a su propio chat «Tú».
+  const vinculado = env.WA_WEB?.estado?.();
+  const numero = String(env.ASESOR_WHATSAPP || (vinculado?.ok ? vinculado.phone : "") || "").replace(/\D/g, "");
+  if (!numero || !(vinculado?.ok || waReady(env))) return;
   const nombre = cita?.nombre || lead.nombreCliente || e.nombre || "Cliente";
   const interes = cita?.interes || lead.interes;
   const resumen = cita?.resumen || lead.resumen;

@@ -12,6 +12,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { handle, runScheduled } from "../prueba/servidor/core.mjs";
 // @ts-expect-error módulo JS sin tipos
 import worker from "../prueba/servidor/cloudflare/worker.mjs";
+// @ts-expect-error módulo JS sin tipos
+import { iaPorApi } from "../prueba/servidor/ia-cloudflare.mjs";
 
 type Rec = { method: string; path: string; auth?: string; body: string; type?: string };
 const calls: Rec[] = [];
@@ -20,6 +22,7 @@ let fake: http.Server;
 const ia = { peticiones: [] as Record<string, unknown>[], salida: {} as Record<string, unknown>, stop: "end_turn" };
 let G = "";
 const NEGOCIO = "tok-negocio-0123456789abcdef"; // llave del negocio que da el registro integrado de Meta
+const CUENTA_CF = "0123456789abcdef0123456789abcdef"; // cuenta de Cloudflare (IA gratis por su API)
 
 // Almacén en memoria SIN delete (como servidor.mjs); cuenta escrituras para vigilar el límite gratis de KV.
 const memStore = () => {
@@ -47,6 +50,11 @@ beforeAll(async () => {
         const b = JSON.parse(body);
         ia.peticiones.push(b);
         return send({ id: "msg_1", type: "message", role: "assistant", model: b.model, content: ia.stop === "refusal" ? [] : [{ type: "text", text: JSON.stringify(ia.salida) }], stop_reason: ia.stop, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } });
+      }
+      // IA gratis de Cloudflare por su API (el servidor en una computadora, sin el enlace «AI» del Worker)
+      if (path.startsWith(`/cf/accounts/${CUENTA_CF}/ai/run/`)) {
+        if (req.headers.authorization !== "Bearer cf-token") return send({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, 401);
+        return send({ success: true, errors: [], result: { response: { respuesta: "Claro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?", pasar_a_asesor: false, auto_id: "", resumen: "Pide corrida del Civic", forma_pago: "credito", cita: "", reservar: "", nombre: "", modelo: "Civic" } } });
       }
       // Registro integrado de Meta (coexistencia): código → llave del negocio, cuenta, número y sincronización.
       if (path.startsWith("/v/oauth/access_token")) {
@@ -861,6 +869,29 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     expect((await (await handle(req("/api/estado?token=clave"), e, store)).json()).agente.ventas.ia).toMatchObject({ activa: true, motor: "cloudflare", modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" });
     // Con llave de Claude, manda Claude.
     expect((await (await handle(req("/api/estado?token=clave"), { ...e, ANTHROPIC_API_KEY: "sk-ant-x" }, store)).json()).agente.ventas.ia.motor).toBe("claude");
+  });
+
+  it("IA gratis de Cloudflare por su API (servidor en Windows o Linux): platica igual que en el Worker", async () => {
+    expect(iaPorApi({ cuenta: "no-es-cuenta", llave: "cf-token" })).toBeNull();
+    expect(iaPorApi({ cuenta: CUENTA_CF, llave: "" })).toBeNull();
+    const store = memStore();
+    await configurar(store, vendedora({ ventas: { ia: true } }));
+    const e = { ...env(), AI: iaPorApi({ cuenta: CUENTA_CF, llave: "cf-token", url: `${G}/cf` }) };
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.CF1", "Hola precio del civic", LUNES_10)), e, store, { ahora: LUNES_10 });
+    expect(waEnvios()[0]!.text.body).toBe("Claro, te hago una corrida del Civic. ¿Como cuánto tienes pensado dar de enganche?");
+    const pet = calls.find((c) => c.path.startsWith("/cf/"))!;
+    expect(pet.path).toBe(`/cf/accounts/${CUENTA_CF}/ai/run/@cf/meta/llama-3.3-70b-instruct-fp8-fast`);
+    expect(JSON.parse(pet.body)).toMatchObject({ messages: [{ role: "system" }, { role: "user", content: "Hola precio del civic" }], response_format: { type: "json_schema" } });
+    expect(await leadDe(store)).toMatchObject({ resumen: "Pide corrida del Civic", formaPago: "credito", interes: "Civic" });
+    expect((await (await handle(req("/api/estado?token=clave"), e, store)).json()).agente.ventas.ia).toMatchObject({ motor: "cloudflare", llave: true });
+    // Con un token equivocado no se queda callada: contesta el menú y el error queda para la app.
+    const otro = memStore();
+    await configurar(otro, vendedora({ ventas: { ia: true } }));
+    calls.length = 0;
+    await handle(signed(waMsg("wamid.CF2", "Hola precio del civic", LUNES_10)), { ...env(), AI: iaPorApi({ cuenta: CUENTA_CF, llave: "token-malo", url: `${G}/cf` }) }, otro, { ahora: LUNES_10 });
+    expect(waEnvios()[0]!.text.body).toContain("Claro, te hago una corrida del Civic.");
+    expect(((await otro.get("agente:errores")) as { error: string }[])[0]!.error).toBe("IA: Authentication error");
   });
 
   it("una configuración guardada antes pasa a contestar por Mario Abarca en Honda, con IA", async () => {
