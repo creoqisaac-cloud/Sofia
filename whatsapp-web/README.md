@@ -21,3 +21,18 @@ Para atender desde el iPhone o la tablet, publica el puerto local 8080 con un pr
 El proxy HTTPS incluido se activa con `docker compose --profile https up -d`. Primero apunta un dominio al VPS, abre los puertos TCP 80 y 443 y define SOFIA_DOMINIO en .env con ese dominio. Puedes abrir **https://tu-dominio/vincular** en otro dispositivo y escanearlo desde el celular que usa WhatsApp Business.
 
 El QR se genera en el propio servidor. El volumen también contiene la sesión del teléfono. Conserva ese volumen al actualizar. Si WhatsApp revoca el vínculo, vuelve a abrir /vincular. Esta conexión no oficial puede sufrir desconexiones o restricciones de WhatsApp.
+
+## Modo seguro «Solo mi WhatsApp» (chat «Tú»)
+
+Para probar sin contestar clientes, establece estas variables en el entorno del servidor vinculado:
+
+```env
+SOFIA_SOLO_MI_WHATSAPP=1
+SOFIA_PRUEBA_NUMERO=52XXXXXXXXXX
+```
+
+Usa como número de prueba **el mismo número vinculado**, con código de país y sin espacios. Reinicia el servicio; no es necesario borrar la sesión existente. En tu chat «Tú» escribe `/sofia hola`. Para probar una cotización escribe `/sofia quiero información de la CR-V`.
+
+El comando `/sofia` reanuda el chat de prueba incluso si el vendedor lo dejó en «asesor» después de dos mensajes desconocidos. Las notas sin el prefijo no se responden. Ninguna conversación externa se procesa en este modo. Las pruebas no generan prospectos, apartados ni avisos comerciales al asesor.
+
+**Importante:** el modo seguro debe quedar activado mientras se prueba con el WhatsApp personal. No lo desactives en el número personal para «probar clientes»; usa una cuenta o entorno empresarial y una lista de remitentes de prueba autorizados. La corrección aplica al código del repositorio: no actualiza automáticamente una instalación local ni recupera cambios de Codex que no se hayan subido a GitHub.
