@@ -7,7 +7,7 @@ import { serverBase } from "./store.js";
 import {
   connectorReady, refreshStatus, lastStatus, inbox, conversation, syncPendingChats, replyToPending, sendMessage,
   listLeads, updateLead, getAgenda, salesInventory, saveInventory, uploadCarPhoto, getConnection, saveConnection,
-  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig,
+  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig, revivir,
 } from "./connector.js";
 import { interpretarOrden, mensajePara, modeloEn, MODELOS } from "./ordenes.js";
 
@@ -41,6 +41,36 @@ function sinConectar(root) {
     h("p", { class: "m-dim" }, "Si la computadora se reinicia, llega un link nuevo.")));
 }
 
+// ───────── REVIVIR CLIENTES (sacar citas) ─────────
+
+function cajaRevivir() {
+  const caja = card(cargando());
+  const pintar = async () => {
+    const r = await revivir("ver");
+    const e = r.estado;
+    const tope = h("select", { class: "m-input" }, [30, 60, 100].map((n) => h("option", { value: n, selected: Number(e.tope) === n }, `${n} por día`)));
+    const lista = h("div", { class: "m-list", hidden: true }, r.muestra.map((d) => h("div", { class: "m-row" },
+      h("span", { class: "m-grow" }, `${d.nombre || "Sin nombre"} ·…${d.final}`), h("span", { class: "m-dim m-small" }, `${d.modelo || "auto"} · hace ${d.dias} d${d.esperaba ? " · te esperaba" : ""}`))));
+    caja.replaceChildren(
+      h("h2", {}, "🔁 Revivir clientes para sacar citas"),
+      h("p", {}, e.activa
+        ? `🟢 Trabajando: hoy van ${e.hoy} de ${e.tope}. ${e.enHorario ? "Uno por minuto." : "Sigue mañana a las 10 am."}${e.ultimo ? ` Último: ${e.ultimo.nombre || "cliente"}.` : ""}`
+        : `${r.total} clientes que dejaron de contestar (sin cita, sin trámite, ni amigos).`),
+      r.ejemplo ? h("p", { class: "m-dim m-small" }, `Así les escribe (cambia nombre, auto y horarios): «${r.ejemplo}»`) : null,
+      h("p", { class: "m-dim m-small" }, "Antes de cada mensaje la IA lee el chat y se salta a quien no sea cliente. Si contesta un horario, Sofía aparta la cita y te avisa."),
+      h("button", { class: "m-btn small", onclick: () => { lista.hidden = !lista.hidden; } }, `Ver a quién (${r.muestra.length}${r.total > r.muestra.length ? ` de ${r.total}` : ""})`), lista,
+      e.activa
+        ? h("button", { class: "m-btn", onclick: async () => { await revivir("parar"); toast("Detenido"); pintar(); } }, "⏸ Parar")
+        : r.total ? h("div", { class: "m-row" }, tope, h("button", { class: "m-btn primary", onclick: async () => {
+          if (!(await confirmBox("¿Arranco a revivir clientes?", `Sofía le va a escribir a ${Math.min(r.total, Number(tope.value))} clientes hoy (de ${r.total}), uno por minuto, de 10 am a 7 pm. Puedes pararla cuando quieras.`, "Sí, arrancar"))) return;
+          await revivir("iniciar", { tope: Number(tope.value) }); toast("Arrancó: uno por minuto"); pintar();
+        } }, "▶ Arrancar")) : null,
+      h("p", { class: "m-dim m-small" }, `Enviados en total: ${e.enviados} · saltados por no ser clientes: ${e.saltados}`));
+  };
+  pintar().catch((e) => caja.replaceChildren(h("p", { class: "m-dim" }, `Revivir: ${e.message}`)));
+  return caja;
+}
+
 // ───────── HOY ─────────
 
 export function renderHoyMario(root) {
@@ -48,7 +78,7 @@ export function renderHoyMario(root) {
   const cuerpo = page();
   root.append(cuerpo);
   if (!connectorReady()) return sinConectar(cuerpo);
-  cuerpo.append(cajaOrden());
+  cuerpo.append(cajaOrden(), cajaRevivir());
   const datos = h("div", { class: "m-stack" }, cargando());
   cuerpo.append(datos);
   (async () => {

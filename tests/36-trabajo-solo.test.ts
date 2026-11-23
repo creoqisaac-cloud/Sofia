@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 // @ts-expect-error módulo JS sin tipos
-import { runScheduled, trabajoDeFondo } from "../prueba/servidor/core.mjs";
+import { runScheduled, trabajoDeFondo, revivirUno, candidatosRevivir } from "../prueba/servidor/core.mjs";
 
 const MARIO = "5218110000000";
 const memStore = () => {
@@ -145,5 +145,47 @@ describe("trabajo de fondo con IA: ordena los chats solo y aprende de Mario", ()
     await store.put("fondo:conteo", { dia: "2026-11-22", n: 40 });
     expect((await trabajoDeFondo({ AI }, store, new Date(local(23, 10)))).revisados).toBe(1);
     expect(modelos).toEqual(["@cf/meta/llama-3.3-70b-instruct-fp8-fast"]);
+  });
+});
+
+describe("revivir clientes para sacar citas", () => {
+  const preparar = async () => {
+    const store = memStore();
+    await store.put("agente:config", { activo: true, asesor: "Mario Abarca", marca: "Honda", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, ventas: { activo: true, ia: true } });
+    await store.put("ventas:inventario", [{ id: "crv", marca: "Honda", modelo: "CR-V", anio: 2027, precio: 830900, promo: "bono de 50 mil" }]);
+    await store.put("inbox:index", {
+      "wa:5218111111111": { id: "5218111111111", name: "Ana López", lastAt: local(19, 12), lastDir: "out" },
+      "wa:5218122222222": { id: "5218122222222", name: "Primo", lastAt: local(19, 12), lastDir: "in" },
+      "wa:5218133333333": { id: "5218133333333", name: "Raúl", lastAt: local(18, 12), lastDir: "in" },
+      "wa:5218144444444": { id: "5218144444444", name: "Hoy", lastAt: local(23, 9), lastDir: "in" },
+    });
+    await store.put("inbox:c:wa:5218111111111", [{ dir: "in", text: "Precio de la CR-V?", at: local(19, 11) }, { dir: "out", text: "Claro Ana, ¿cuánto darías de enganche?", at: local(19, 12) }]);
+    await store.put("inbox:c:wa:5218122222222", [{ dir: "in", text: "Primo, ¿vienes el domingo a la carne asada?", at: local(19, 12) }]);
+    await store.put("inbox:c:wa:5218133333333", [{ dir: "in", text: "¿Cómo va mi devolución del apartado?", at: local(18, 12) }]);
+    await store.put("inbox:c:wa:5218144444444", [{ dir: "in", text: "Precio del City", at: local(23, 9) }]);
+    return store;
+  };
+  it("elige solo clientes enfriados (ni amigos, ni trámites, ni quien platica hoy)", async () => {
+    const lista = await candidatosRevivir(await preparar(), new Date(local(23, 11)));
+    expect(lista.map((d: { nombre: string }) => d.nombre)).toEqual(["Ana López"]);
+    expect(lista[0]).toMatchObject({ modelo: "CR-V", dias: 4 });
+  });
+  it("arrancada: le escribe con dos horarios reales y su respuesta queda lista para apartar; parada o fuera de horario no escribe", async () => {
+    const store = await preparar();
+    const { env, enviados } = conWhatsApp();
+    expect(await revivirUno(env, store, new Date(local(23, 11)))).toBe(0); // no la han arrancado
+    await store.put("revivir:estado", { activa: true, tope: 60 });
+    expect(await revivirUno(env, store, new Date(local(23, 20)))).toBe(0); // 8 pm: fuera de horario
+    expect(await revivirUno(env, store, new Date(local(23, 11)))).toBe(1);
+    expect(enviados).toHaveLength(1);
+    expect(enviados[0]!.to).toBe("5218111111111");
+    expect(enviados[0]!.text).toMatch(/^¡Hola Ana! 👋 ¿Cómo vas\? Soy Mario Abarca, de Honda\. ¿Sigues buscando la CR-V\? Este mes la CR-V trae bono de 50 mil\./);
+    expect(enviados[0]!.text).toMatch(/¿Te queda .+ o .+\?$/);
+    expect((await store.get("inbox:index"))["wa:5218111111111"].venta).toMatchObject({ paso: "cita", autoId: "crv", opciones: [expect.stringMatching(/^slot:/), expect.stringMatching(/^slot:/), "otra-hora"] });
+    expect((await store.get("leads:index"))?.["wa:5218111111111"]?.revividoAt ?? (await store.get("revivir:estado")).enviados).toBeTruthy();
+    // Ya no quedan más clientes: se apaga sola
+    expect(await revivirUno(env, store, new Date(local(23, 11, 1)))).toBe(0);
+    expect((await store.get("revivir:estado")).activa).toBe(false);
+    expect(enviados).toHaveLength(1);
   });
 });

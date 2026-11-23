@@ -23,6 +23,7 @@
 
 import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres, pesos, cifras } from "../js/vendedor.js";
 import { iaPorApi } from "./ia-cloudflare.mjs";
+import { modeloEn } from "../js/ordenes.js";
 
 export const VERSION = "conector-1.2";
 const MAX_MSGS = 500;
@@ -1381,6 +1382,49 @@ function paresDeMario(msgs) {
   return pares;
 }
 
+/** Lee un chat con la IA de fondo y llena su ficha (tipo, nombre, modelo, pago, calor, resumen). Devuelve { l, r }. */
+async function revisarChat(env, store, cfg, clave, c) {
+  const msgs = ((await store.get(`inbox:c:${clave}`)) ?? []).filter((m) => String(m.text ?? "").trim());
+  const ultimos = msgs.slice(-24);
+  const quien = (m) => (m.dir === "in" ? "Contacto" : m.auto ? "Sofía (asistente de Mario)" : "Mario");
+  const charla = ultimos.map((m) => `${quien(m)}: ${String(m.text).replace(/\s+/g, " ").slice(0, 300)}`).join("\n").slice(-5000);
+  let r = null;
+  if (charla) {
+    r = await preguntarIA(env, {
+      system: `Eres el asistente de ${cfg.asesor || "Mario Abarca"}, asesor de ventas de ${cfg.marca || "Honda"} en Monterrey. Lees un chat de su WhatsApp y llenas la ficha del contacto. Sé preciso: si no está en el chat, déjalo vacío. No inventes nombres, modelos ni cifras.`,
+      messages: [{ role: "user", content: `Contacto en la agenda: ${c.name || "(sin nombre)"}\n\nChat:\n${charla}` }],
+    }, { tarea: "fondo", esquema: ESQUEMA_FONDO, max: 400 }).catch((e) => { console.warn(`Fondo (${clave.slice(-4)}): ${e.message}`); return null; });
+  }
+  const todos = (await store.get("leads:index")) ?? {};
+  const l = todos[clave] ?? { canal: "wa", id: clave.slice(3), nombre: c.name || "", primerMensaje: String(msgs.find((m) => m.dir === "in")?.text ?? "").slice(0, 300), at: c.lastAt, importado: false };
+  l.fondoAt = c.lastAt;
+  if (r) {
+    const tipo = l.tipoManual ? l.tipo : ["cliente", "postventa", "personal", "otro"].includes(r.tipo) ? r.tipo : "otro";
+    if (!l.tipoManual) {
+      l.tipo = tipo;
+      l.personal = tipo === "personal";
+      if (tipo === "postventa") l.postventa = true;
+      l.fondoMotor = r._motor;
+    }
+    if (r.resumen?.trim()) l.resumen = r.resumen.trim().slice(0, 400);
+    if (r.siguiente?.trim()) l.siguiente = r.siguiente.trim().slice(0, 160); else delete l.siguiente;
+    if (r.nombre?.trim() && !l.nombreCliente && r.nombre.trim().length <= 40) l.nombreCliente = r.nombre.trim();
+    if (r.modelo?.trim() && !l.interes) l.interes = `${cfg.marca || "Honda"} ${r.modelo.trim().slice(0, 40)}`.replace(/^(\w+) \1 /i, "$1 ");
+    if (["contado", "credito"].includes(r.forma_pago) && !l.formaPago) l.formaPago = r.forma_pago;
+    if (["frio", "tibio", "caliente"].includes(r.calor) && !l.calorManual && tipo === "cliente") l.calor = r.calor;
+  }
+  todos[clave] = l;
+  await store.put("leads:index", todos);
+  // Aprende: lo que Mario contestó a mano en este chat se suma a sus ejemplos (los más nuevos primero).
+  const pares = paresDeMario(msgs.slice(-60));
+  if (pares.length && !l.personal) {
+    const cfgActual = await leerConfig(store);
+    const deChats = [...new Set([...pares.reverse(), ...(cfgActual.estilo?.deChats ?? [])])].slice(0, 40);
+    await store.put("agente:config", normalizarConfig({ ...cfgActual, estilo: { ...cfgActual.estilo, deChats } }));
+  }
+  return { l, r, msgs };
+}
+
 export async function trabajoDeFondo(env, store, ahora = new Date(), { max = 1 } = {}) {
   if (fondoOcupado) return { revisados: 0 };
   const cfg = await leerConfig(store);
@@ -1397,50 +1441,13 @@ export async function trabajoDeFondo(env, store, ahora = new Date(), { max = 1 }
   const tocan = Object.entries(index)
     .filter(([k, c]) => k.startsWith("wa:") && Date.parse(c.lastAt) >= limite && (!leads[k]?.fondoAt || leads[k].fondoAt < c.lastAt))
     .sort((a, b) => String(b[1].lastAt).localeCompare(String(a[1].lastAt)))
-    .slice(0, max);
+    .slice(0, motores[0] === "local" ? Math.max(max, 3) : max); // la local no tiene cuota: 3 por minuto
   if (!tocan.length) return { revisados: 0 };
   fondoOcupado = true;
   let revisados = 0;
   try {
     for (const [clave, c] of tocan) {
-      const msgs = ((await store.get(`inbox:c:${clave}`)) ?? []).filter((m) => String(m.text ?? "").trim());
-      const ultimos = msgs.slice(-24);
-      const quien = (m) => (m.dir === "in" ? "Contacto" : m.auto ? "Sofía (asistente de Mario)" : "Mario");
-      const charla = ultimos.map((m) => `${quien(m)}: ${String(m.text).replace(/\s+/g, " ").slice(0, 300)}`).join("\n").slice(-5000);
-      let r = null;
-      if (charla) {
-        r = await preguntarIA(env, {
-          system: `Eres el asistente de ${cfg.asesor || "Mario Abarca"}, asesor de ventas de ${cfg.marca || "Honda"} en Monterrey. Lees un chat de su WhatsApp y llenas la ficha del contacto. Sé preciso: si no está en el chat, déjalo vacío. No inventes nombres, modelos ni cifras.`,
-          messages: [{ role: "user", content: `Contacto en la agenda: ${c.name || "(sin nombre)"}\n\nChat:\n${charla}` }],
-        }, { tarea: "fondo", esquema: ESQUEMA_FONDO, max: 400 }).catch((e) => { console.warn(`Fondo (${clave.slice(-4)}): ${e.message}`); return null; });
-      }
-      const todos = (await store.get("leads:index")) ?? {};
-      const l = todos[clave] ?? { canal: "wa", id: clave.slice(3), nombre: c.name || "", primerMensaje: String(msgs.find((m) => m.dir === "in")?.text ?? "").slice(0, 300), at: c.lastAt, importado: false };
-      l.fondoAt = c.lastAt;
-      if (r) {
-        const tipo = l.tipoManual ? l.tipo : ["cliente", "postventa", "personal", "otro"].includes(r.tipo) ? r.tipo : "otro";
-        if (!l.tipoManual) {
-          l.tipo = tipo;
-          l.personal = tipo === "personal";
-          if (tipo === "postventa") l.postventa = true;
-          l.fondoMotor = r._motor;
-        }
-        if (r.resumen?.trim()) l.resumen = r.resumen.trim().slice(0, 400);
-        if (r.siguiente?.trim()) l.siguiente = r.siguiente.trim().slice(0, 160); else delete l.siguiente;
-        if (r.nombre?.trim() && !l.nombreCliente && r.nombre.trim().length <= 40) l.nombreCliente = r.nombre.trim();
-        if (r.modelo?.trim() && !l.interes) l.interes = `${cfg.marca || "Honda"} ${r.modelo.trim().slice(0, 40)}`.replace(/^(\w+) \1 /i, "$1 ");
-        if (["contado", "credito"].includes(r.forma_pago) && !l.formaPago) l.formaPago = r.forma_pago;
-        if (["frio", "tibio", "caliente"].includes(r.calor) && !l.calorManual && tipo === "cliente") l.calor = r.calor;
-      }
-      todos[clave] = l;
-      await store.put("leads:index", todos);
-      // Aprende: lo que Mario contestó a mano en este chat se suma a sus ejemplos (los más nuevos primero).
-      const pares = paresDeMario(msgs.slice(-60));
-      if (pares.length && !l.personal) {
-        const cfgActual = await leerConfig(store);
-        const deChats = [...new Set([...pares.reverse(), ...(cfgActual.estilo?.deChats ?? [])])].slice(0, 40);
-        await store.put("agente:config", normalizarConfig({ ...cfgActual, estilo: { ...cfgActual.estilo, deChats } }));
-      }
+      const { r } = await revisarChat(env, store, cfg, clave, c);
       if (r) revisados++;
     }
   } finally { fondoOcupado = false; }
@@ -1448,12 +1455,117 @@ export async function trabajoDeFondo(env, store, ahora = new Date(), { max = 1 }
   return { revisados };
 }
 
+// ───────── Revivir clientes: escribirle a quien se enfrió para sacar citas ─────────
+// Mario la arranca desde la app (con la lista a la vista). Uno por minuto, en horario de trabajo, con tope diario.
+// Antes de escribir, la IA lee el chat: si no es cliente (amigo, postventa…) se lo salta. El mensaje lleva dos horarios
+// libres reales y deja el chat en «cita»: si contesta «el martes a las 10», Sofía aparta la cita sola.
+const VENTA_EN_CHAT = /\b(city|civic|accord|hr-?v|br-?v|cr-?v|pilot|odyssey|precio|cuanto|credito|financ\w*|enganche|mensualidad\w*|cotiz\w*|informacion|info|auto|carro|camioneta|prueba de manejo|a cuenta|contado|bono|promo\w*)\b/;
+const TRAMITE_EN_CHAT = /\b(devoluci\w*|reembolso|placas|factura|ya lo compre|ya la compre|me lo entregaron|me la entregaron|entrega de mi|tramite|gestor)\b/;
+let reviviendo = false;
+
+export async function candidatosRevivir(store, ahora = new Date()) {
+  const [leads, index, citas] = await Promise.all([store.get("leads:index"), store.get("inbox:index"), store.get("agenda:citas")]);
+  const estado = (await store.get("revivir:estado")) ?? {};
+  const hechos = new Set([...(estado.enviados ?? []), ...(estado.saltados ?? [])]);
+  const conCita = new Set((citas ?? []).filter((x) => x.estado !== "cancelada" && Date.parse(x.id) > ahora.getTime() - 7 * 864e5).map((x) => `${x.canal || "wa"}:${x.cliente}`));
+  const sa = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const lista = [];
+  for (const [clave, c] of Object.entries(index ?? {})) {
+    const l = leads?.[clave] ?? {};
+    if (!clave.startsWith("wa:") || hechos.has(clave) || conCita.has(clave)) continue;
+    if (l.personal || ["personal", "postventa", "otro"].includes(l.tipo) || l.postventa || l.noPromociones || l.pideBorrar || ["cerrado", "perdido"].includes(l.calor)) continue;
+    if (l.revividoAt && ahora - new Date(l.revividoAt) < 14 * 864e5) continue;
+    const dias = (ahora - new Date(c.lastAt)) / 864e5;
+    if (dias < 2 || dias > 90) continue; // si platicó hace poco, no se le encima
+    const msgs = (await store.get(`inbox:c:${clave}`)) ?? [];
+    const suyo = sa(msgs.filter((m) => m.dir === "in").map((m) => m.text).join(" "));
+    const deMario = sa(msgs.filter((m) => m.dir === "out").map((m) => m.text).join(" "));
+    if (TRAMITE_EN_CHAT.test(suyo)) continue;
+    if (!(l.tipo === "cliente" || VENTA_EN_CHAT.test(suyo) || /\b(honda|corrida|enganche|cotizacion|prueba de manejo|bono)\b/.test(deMario))) continue;
+    const modelo = modeloEn(l.interes || "") || modeloEn(suyo) || modeloEn(deMario) || "";
+    lista.push({ clave, id: clave.slice(3), nombre: l.nombreCliente || c.name || l.nombre || "", modelo, dias: Math.round(dias), esperaba: c.lastDir === "in", clasificado: Boolean(l.fondoMotor) });
+  }
+  // Primero los que se quedaron esperando respuesta, luego los más recientes.
+  return lista.sort((a, b) => Number(b.esperaba) - Number(a.esperaba) || a.dias - b.dias);
+}
+
+function mensajeRevivir(d, s1, s2, auto, i) {
+  const n = primerNombre(d.nombre);
+  const { de, lo } = conArticulo(d.modelo);
+  const promo = auto?.promo ? ` Este mes ${de} trae ${auto.promo.replace(/\.$/, "")}.` : "";
+  const v = [
+    `¡Hola${n ? ` ${n}` : ""}! 👋 ¿Cómo vas? Soy Mario Abarca, de Honda. ¿Sigues buscando ${de}?${promo} Me gustaría que ${lo} manejaras sin compromiso y de una vez te armo la corrida a tu medida. ¿Te queda ${s1} o ${s2}?`,
+    `Hola${n ? ` ${n}` : ""}, ¿qué tal? Aquí Mario de Honda 🙌 Me acordé de ti por ${de}.${promo} ¿Te aparto un horario para que ${lo} veas y manejes? Tengo ${s1} o ${s2}.`,
+    `¡Qué tal${n ? ` ${n}` : ""}! Mario Abarca de Honda por acá. ¿Todavía andas viendo ${de}?${promo} Si gustas te espero ${s1} o ${s2} para que ${lo} pruebes y vemos números.`,
+  ];
+  return v[i % v.length];
+}
+
+/** Dos horarios libres de días distintos (a partir de mañana), rotando para no ofrecerle lo mismo a todos. */
+function dosHorarios(libres, ahora, i) {
+  const desde = libres.filter((x) => Date.parse(x.id) - ahora.getTime() > 12 * 3600e3);
+  if (desde.length < 2) return null;
+  const a = desde[(i * 3) % Math.min(desde.length, 12)];
+  const b = desde.find((x) => x.fecha !== a.fecha && Date.parse(x.id) > Date.parse(a.id)) ?? desde.find((x) => x.id !== a.id);
+  return [a, b].sort((x, y) => x.id.localeCompare(y.id));
+}
+
+export async function revivirUno(env, store, ahora = new Date()) {
+  const estado = (await store.get("revivir:estado")) ?? {};
+  if (!estado.activa || reviviendo) return 0;
+  const cfg = await leerConfig(store);
+  if (!cfg.activo || !cfg.ventas.activo || !horaDeEscribir(cfg, ahora)) return 0;
+  const hoy = relojLocal(cfg, ahora).fecha;
+  const hechosHoy = estado.dia === hoy ? estado.hoy ?? 0 : 0;
+  if (hechosHoy >= (estado.tope ?? 60)) return 0;
+  reviviendo = true;
+  try {
+    const [d] = await candidatosRevivir(store, ahora);
+    if (!d) { await store.put("revivir:estado", { ...estado, activa: false, terminado: ahora.toISOString() }); return 0; }
+    const index = (await store.get("inbox:index")) ?? {};
+    // La IA confirma que sea cliente y saca su modelo antes de escribirle.
+    let modelo = d.modelo;
+    if (!d.clasificado && motoresIA(env, "fondo").length) {
+      const { l, r } = await revisarChat(env, store, cfg, d.clave, index[d.clave] ?? {});
+      if (r && (l.personal || ["personal", "postventa", "otro"].includes(l.tipo))) {
+        await store.put("revivir:estado", { ...estado, saltados: [...(estado.saltados ?? []), d.clave].slice(-2000) });
+        return 0;
+      }
+      modelo = modeloEn(l.interes || "") || modelo;
+      if (!d.nombre && l.nombreCliente) d.nombre = l.nombreCliente;
+    }
+    const libres = await libresDe(store, cfg, ahora);
+    const i = (estado.enviados ?? []).length;
+    const par = dosHorarios(libres, ahora, i);
+    if (!par) return 0;
+    const auto = modelo ? disponiblesInv(await store.get("ventas:inventario")).find((a) => modeloEn(a.modelo) === modelo) : null;
+    const texto = mensajeRevivir({ ...d, modelo }, par[0].texto, par[1].texto, auto, i);
+    // Se marca antes de mandar: si algo falla no se le vuelve a escribir.
+    await store.put("revivir:estado", { ...estado, dia: hoy, hoy: hechosHoy + 1, enviados: [...(estado.enviados ?? []), d.clave].slice(-2000), ultimo: { nombre: d.nombre, at: ahora.toISOString() } });
+    await sendMessage(env, store, { channel: "wa", to: d.id, text: texto }, { ahora, autoKey: "revivir" });
+    // El chat queda listo para apartar: «el martes a las 10», «el primero», «sí».
+    const idx = (await store.get("inbox:index")) ?? {};
+    if (idx[d.clave]) {
+      idx[d.clave].venta = { ...(idx[d.clave].venta ?? {}), paso: "cita", desde: ahora.toISOString(), opciones: [`slot:${par[0].id}`, `slot:${par[1].id}`, "otra-hora"], fallos: 0, silencioHasta: undefined, ...(auto ? { autoId: auto.id } : {}) };
+      await store.put("inbox:index", idx);
+    }
+    const leads = (await store.get("leads:index")) ?? {};
+    if (leads[d.clave]) { leads[d.clave].revividoAt = ahora.toISOString(); await store.put("leads:index", leads); }
+    return 1;
+  } catch (e) {
+    await anotarError(store, { canal: "wa", id: "revivir" }, `Revivir: ${e.message ?? e}`, ahora);
+    return 0;
+  } finally { reviviendo = false; }
+}
+const disponiblesInv = (inv) => (inv ?? []).filter((a) => a && a.disponible !== false);
+
 async function trabajarSola(env, store, ahora) {
   if (!env.WA_WEB?.estado?.().ok) return {};
   const cfg = await leerConfig(store);
   const resumen = await resumenDelDia(env, store, cfg, ahora);
   const seguimientos = await darSeguimiento(env, store, cfg, ahora);
-  return { resumen, seguimientos };
+  const revividos = await revivirUno(env, store, ahora);
+  return { resumen, seguimientos, revividos };
 }
 
 /**
@@ -1599,6 +1711,24 @@ export async function handle(req, envBase, store, opciones = {}) {
         const sincronizado = await env.WA_WEB.sincronizarPendientes({ todos: body.todos === true });
         await procesarEventos(sincronizado.body, env, store, ahora, publicBase(env, baseDe(req)), { autoResponder: false });
         return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, fijados: sincronizado.fijados ?? [], respondidos: 0 });
+      }
+      case "POST /api/revivir": {
+        // ver: a quién y qué se le mandaría · iniciar: arranca (tope por día) · parar: se detiene en el acto.
+        const estado = (await store.get("revivir:estado")) ?? {};
+        const accion = String(body.accion ?? "ver");
+        if (accion === "parar") { await store.put("revivir:estado", { ...estado, activa: false }); return json({ ok: true, activa: false }); }
+        if (accion === "iniciar") {
+          const tope = Math.max(1, Math.min(150, Number(body.tope) || 60));
+          await store.put("revivir:estado", { ...estado, activa: true, tope, inicio: ahora.toISOString() });
+          return json({ ok: true, activa: true, tope });
+        }
+        const cfg = await leerConfig(store);
+        const lista = await candidatosRevivir(store, ahora);
+        const par = dosHorarios(await libresDe(store, cfg, ahora), ahora, 0);
+        const ejemplo = lista[0] && par ? mensajeRevivir(lista[0], par[0].texto, par[1].texto, null, 0) : "";
+        const hoy = relojLocal(cfg, ahora).fecha;
+        return json({ ok: true, total: lista.length, muestra: lista.slice(0, 40).map((d) => ({ nombre: d.nombre, modelo: d.modelo, dias: d.dias, esperaba: d.esperaba, final: d.id.slice(-4) })), ejemplo,
+          estado: { activa: Boolean(estado.activa), tope: estado.tope ?? 60, hoy: estado.dia === hoy ? estado.hoy ?? 0 : 0, enviados: (estado.enviados ?? []).length, saltados: (estado.saltados ?? []).length, ultimo: estado.ultimo ?? null, enHorario: horaDeEscribir(cfg, ahora) } });
       }
       case "POST /api/resumen/enviar": {
         // «sofia resumen» o el botón de la app: el resumen del día, ahora mismo, al chat «Tú» de Mario.

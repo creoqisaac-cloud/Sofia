@@ -246,7 +246,10 @@ function engancheDicho(texto) {
 const NUMEROS = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10 };
 /** "2", "2.", "opción 2", "la 3", "#4", "dos" → número; cualquier otra cosa → null. */
 function numeroElegido(texto) {
-  const t = sinAcentos(texto).replace(/[^\p{L}\p{N}#\s]/gu, " ").trim();
+  const t = sinAcentos(texto).replace(/[^\p{L}\p{N}#\s]/gu, " ").replace(/\s+/g, " ").trim();
+  // «el primero», «va la segunda», «la última opción»
+  const ord = /^(?:(?:va|si|ok|sale|me queda|me late|mejor)\s+)?(?:(?:la|el|en la|en el|opcion)\s+)?(primer[oa]?|segund[oa]|tercer[oa]?|ultim[oa])(?:\s+(?:opcion|horario|hora|porfa|por favor))?$/.exec(t);
+  if (ord) return /^ultim/.test(ord[1]) ? -1 : { primer: 1, primero: 1, primera: 1, segundo: 2, segunda: 2, tercer: 3, tercero: 3, tercera: 3 }[ord[1]] ?? null;
   const m = /^(?:(?:opcion|la|el|numero|num|no|#)\s*)?(\d{1,2}|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)$/.exec(t);
   if (!m) return null;
   return NUMEROS[m[1]] ?? Number(m[1]);
@@ -554,6 +557,8 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     ir("cita", [...ops.map((x) => `slot:${x.id}`), "otra-hora"]);
     const diaTxt = diaDe(ops[0]);
     const horas = ops.map((x) => x.texto.slice(diaTxt.length).trim());
+    // Un solo horario ese día: se le pregunta directo y con «sí» queda apartado.
+    if (ops.length === 1) return `${hora !== null ? `A esa hora ya lo tengo ocupado, pero ${diaTxt}` : mayus(diaTxt)} tengo ${horas[0]}. ¿Te lo aparto?`;
     return `${hora !== null ? `A esa hora ya lo tengo ocupado, pero ${diaTxt}` : mayus(diaTxt)} tengo espacio ${yO(horas)}. ¿Cuál te acomoda?`;
   };
   const accion = (a) => {
@@ -639,7 +644,11 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       if (c.paso === "auto" && a) return { motivo: "credito", texto: pedirEnganche(a) };
       if (c.paso === "cotizado") return { motivo: "cita", texto: pedirCita() };
       if (c.paso === "corrida") return { motivo: "corrida", texto: conEnganche(null) };
-      if (c.paso === "cita") return { motivo: "cita", texto: pedirCita("¡Va!") };
+      if (c.paso === "cita") {
+        const unico = (c.opciones ?? []).filter((o) => o.startsWith("slot:"));
+        if (unico.length === 1 && libres.some((l) => l.id === unico[0].slice(5))) return { motivo: "cita-anotada", texto: apartar(unico[0].slice(5)) }; // «¿te lo aparto?» → «sí»
+        return { motivo: "cita", texto: pedirCita("¡Va!") };
+      }
       if ((c.paso === "menu" || c.paso === "lista") && autos.length) return { motivo: "lista", texto: lista() };
       if (c.paso === "asesor") return { motivo: "acuse", texto: variar("acuse", ["👍", "Va, aquí ando."]) };
     }
@@ -649,6 +658,17 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   // ── Preguntas de cliente que Mario contesta de memoria (sin IA). Lo que no sé con certeza: «te lo confirmo» ──
   function experto({ actual: a, mencionados: ms, modelo: mod }) {
     const r = (motivo, texto, foto) => ({ motivo, texto, foto });
+    // «¿Quién eres?», «¿quién habla?»: Mario se presenta y retoma.
+    if (/\b(quien (eres|habla|me escribe|es)|con quien (hablo|tengo el gusto)|de parte de quien|de donde (me escribes|eres|hablas)|como tienes mi numero)\b/.test(t)) {
+      const sigue = c.paso === "cita" ? pedirCita() : siguePaso(a);
+      return r("quien", `Soy ${cfg.asesor || "Mario Abarca"}, asesor de ${cfg.agencia || cfg.marca || "Honda"} 🙂 ${a ? `Platicamos de ${la(a)} hace unos días. ` : "Platicamos hace unos días por un auto. "}${sigue}`);
+    }
+    // «No gracias»: se despide bonito, sin insistir.
+    if (/^(no,? gracias|no gracias,? \w+|no me interesa por ahora|ya no gracias|no por el momento|no por ahora gracias)$/.test(limpio)) {
+      lead.calor = "frio";
+      ir("asesor");
+      return r("no-gracias", variar("no-gracias", ["Va, sin problema 🙂 Si más adelante quieres verla o manejarla, aquí estoy.", "Sale, gracias por avisarme. Cuando gustes, aquí ando 🙌"]));
+    }
     // Quiere llamarme
     if (/\b(te marco|te llamo|puedo (llamarte|marcarte)|te puedo (llamar|marcar)|me (das|pasas) (tu )?(numero|telefono|cel\w*))\b/.test(t)) {
       lead.duda = "Quiere hablar por teléfono";
@@ -873,9 +893,10 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       motivo = "corrida";
       decir(conEnganche(eng));
     }
-    else if (n !== null && c.opciones?.[n - 1] && c.paso !== "enganche") {
-      motivo = c.opciones[n - 1].split(":")[0];
-      const r = accion(c.opciones[n - 1]);
+    else if (n !== null && (n === -1 ? c.opciones?.some((o) => o.startsWith("slot:")) : c.opciones?.[n - 1]) && c.paso !== "enganche") {
+      const elegida = n === -1 ? c.opciones.filter((o) => o.startsWith("slot:")).at(-1) : c.opciones[n - 1]; // «la última»
+      motivo = elegida.split(":")[0];
+      const r = accion(elegida);
       if (typeof r === "string") decir(r); else decir(r.texto, r.foto || undefined);
     }
     else if (c.paso === "cotizado" && c.enganche > 0 && porId(c.autoId)?.precio > 0 && plazoDicho(t, true)) {

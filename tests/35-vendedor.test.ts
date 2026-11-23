@@ -518,3 +518,25 @@ describe("vendedora · casos reales que fallaban", () => {
     expect(texto(o!)).not.toContain("🚗");
   });
 });
+
+describe("vendedora · respuestas a «¿te queda X o Y?»", () => {
+  const ahora = new Date("2026-11-23T17:00:00Z");
+  const libres = ["2026-11-24T16:00:00.000Z", "2026-11-24T22:00:00.000Z", "2026-11-26T16:00:00.000Z", "2026-11-28T17:00:00.000Z"].map((id) => ({ id, texto: textoCita(id, "America/Monterrey", ahora) }));
+  const conv = { paso: "cita", autoId: "crv", autos: [], opciones: ["slot:2026-11-24T16:00:00.000Z", "slot:2026-11-24T22:00:00.000Z", "otra-hora"] };
+  const dice = (texto: string, c: Record<string, unknown> = conv) => decidir({ cfg: { asesor: "Mario Abarca", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" } }, inventario: [{ id: "crv", marca: "Honda", modelo: "CR-V", anio: 2027, precio: 830900 }], conv: c, msg: { texto, nombre: "Ana", enHorario: true }, ahora, libres }) as Resultado & { reserva?: { id: string } };
+  it("«el primero», «la segunda», «la última» y «a las 4» apartan el horario ofrecido", () => {
+    expect(dice("el primero").reserva?.id).toBe("2026-11-24T16:00:00.000Z");
+    expect(dice("va la segunda").reserva?.id).toBe("2026-11-24T22:00:00.000Z");
+    expect(dice("la última").reserva?.id).toBe("2026-11-24T22:00:00.000Z");
+    expect(dice("a las 4 está bien").reserva?.id).toBe("2026-11-24T22:00:00.000Z");
+  });
+  it("un solo horario ese día: «¿te lo aparto?» y con «sí» queda", () => {
+    const r = dice("el sábado");
+    expect(r.respuestas[0]!.texto).toBe("El sábado 28 tengo a las 11 am. ¿Te lo aparto?");
+    expect(dice("sí", r.conv).reserva?.id).toBe("2026-11-28T17:00:00.000Z");
+  });
+  it("«¿quién eres?» se presenta como Mario y «no gracias» se despide sin insistir", () => {
+    expect(dice("quién eres?").respuestas[0]!.texto).toMatch(/^Soy Mario Abarca, asesor de Honda 🙂 Platicamos de la CR-V/);
+    expect(dice("no gracias")).toMatchObject({ motivo: "no-gracias", lead: { calor: "frio" } });
+  });
+});
