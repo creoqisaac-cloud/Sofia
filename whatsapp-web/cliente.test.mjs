@@ -39,7 +39,7 @@ test("prueba personal solo responde a comandos propios y evita el eco", async ()
   emitir("5", self, self, "/sofia menú");
   await new Promise(resolve => setTimeout(resolve, 30));
   assert.ok(enviados.length >= 2, "un comando propio explícito debe reanudar una conversación pausada");
-  assert.ok(data.get(claveConversacion).some(m => m.text?.includes("¿Qué modelo te interesa?")));
+  assert.ok(data.get(claveConversacion).some(m => /¿Qué modelo traes en mente\?|¿Andas buscando sedán o camioneta\?|¿Cuál te late más\?/.test(m.text ?? "")));
   await assert.rejects(env.WA_WEB.enviar({ to: "528100000002", text: "prueba" }));
 });
 

@@ -233,7 +233,7 @@ function engancheDicho(texto) {
   if (pct) { const n = Number(pct[1].replace(",", ".")); return n > 0 && n < 100 ? { texto: `${n}%`, pct: n } : null; }
   if (!montoExplicito(texto)) return null;
   const n = leerEnganche(texto, 0);
-  if (!(n >= 1000)) return null;
+  if (!(n >= 1000) || n > 1500000) return null; // más de 1.5 millones de enganche: casi seguro es un teléfono u otro número
   const monto = Math.round(n);
   return { texto: monto % 1000 === 0 && monto < 1e6 ? `${monto / 1000} mil` : pesos(monto), monto }; // «80 mil», como lo dice la gente
 }
@@ -254,6 +254,8 @@ const pareceFecha = (t) => /\b(lunes|martes|miercoles|jueves|viernes|sabado|domi
 const LLAMADA = "Que te marque por teléfono";
 const OPCIONES_MENU = ["lista", "credito", "cita", "asesor"];
 const emojiNum = (i) => ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][i] ?? `${i + 1}.`;
+/** «a, b o c», como se dice en una plática. */
+const yO = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} o ${xs.at(-1)}`);
 const enumerar = (lineas) => lineas.map((l, i) => `${emojiNum(i)} ${l}`).join("\n");
 
 /**
@@ -303,7 +305,14 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   }
   // Postventa (devolución, garantía, servicio, factura…): no se le vende. Mario contesta en primera persona,
   // le llega el aviso a su chat «Tú» y Sofía se queda callada en ese chat 12 horas para que él lo atienda.
+  if (comandoPrueba) delete c.silencioHasta; // en el chat «Tú», /sofia siempre reanuda la prueba
   if (c.silencioHasta && now < new Date(c.silencioHasta) && !pideMenu) return quedar("postventa-silencio");
+  // Se queja de que le contesta un bot: no se le responde más; Mario lo atiende personalmente.
+  if (!comandoPrueba && /\b(bot|robot|contestadora|maquina|automatico|automatica)\b/.test(limpio)) {
+    Object.assign(lead, { quiereAsesor: true });
+    Object.assign(c, { paso: "asesor", desde: now.toISOString(), opciones: null, silencioHasta: new Date(now.getTime() + 12 * HORA).toISOString() });
+    return quedar("dice-bot");
+  }
   if (tieneAlguna(limpio, POSTVENTA)) {
     Object.assign(lead, { quiereAsesor: true, postventa: true });
     Object.assign(c, { paso: "asesor", desde: now.toISOString(), opciones: null, silencioHasta: new Date(now.getTime() + 12 * HORA).toISOString(), autos: [...c.autos, now.toISOString()], ultimo: now.toISOString() });
@@ -318,6 +327,10 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   let reserva = null; // horario apartado en este mensaje: { id, texto } (el llamador lo guarda en la agenda)
   const decir = (txt, foto) => resp.push(foto ? { texto: txt, foto } : { texto: txt });
   const ir = (paso, opciones = null) => { c.paso = paso; c.desde = now.toISOString(); c.opciones = opciones; };
+  // Nunca la misma frase dos veces seguidas en un chat: rota entre formas de decir lo mismo.
+  const variar = (clave, opciones) => { c.dichos = { ...(c.dichos ?? {}) }; const i = ((c.dichos[clave] ?? -1) + 1) % opciones.length; c.dichos[clave] = i; return opciones[i]; };
+  // Cuando ya no entiende, en vez de dar vueltas: una frase como Mario, aviso a Mario y silencio 2 h en ese chat.
+  const seCalla = () => { lead.quiereAsesor = true; c.silencioHasta = new Date(now.getTime() + 2 * HORA).toISOString(); ir("asesor"); return variar("me-pierdo", ["Déjame revisarlo bien y te escribo en un ratito.", "Dame chance de revisarlo y ahorita te escribo."]); };
   const calentar = (nivel) => { const orden = { frio: 0, tibio: 1, caliente: 2 }; if ((orden[nivel] ?? 0) > (orden[c.calor] ?? -1)) { c.calor = nivel; lead.calor = nivel; } };
   const elegirAuto = (a) => { c.autoId = a.id; lead.autoId = a.id; lead.interes = nombreAuto(a); if (a.precio > 0) lead.precio = a.precio; };
   const desde = (a) => {
@@ -336,10 +349,10 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   const menu = (encabezado = "¿En qué te ayudo?") => {
     if (!autos.length) { // sin inventario: todo lleva a la cita
       ir("menu", ["cita", "asesor"]);
-      return `${encabezado}\n${enumerar(["Agendar cita para verlo o manejarlo", LLAMADA])}\n\nO dime qué modelo te interesa (ej. «CR-V»).`;
+      return `${encabezado === "¿En qué te ayudo?" ? "" : `${encabezado} `}${variar("menu", ["¿Qué modelo traes en mente? Te paso info o, si prefieres, te marco.", "Dime qué auto te interesa y te ayudo con precio, corrida o una cita para que lo manejes."])}`;
     }
     ir("menu", OPCIONES_MENU);
-    return `${encabezado}\n${enumerar(["Ver autos disponibles", "Cotizar a crédito", "Agendar prueba de manejo", LLAMADA])}\n\nTambién puedes escribir el auto que buscas (ej. «${autos[0]?.modelo || "CR-V"}»).`;
+    return `${encabezado === "¿En qué te ayudo?" ? "" : `${encabezado} `}${variar("menu", ["¿Qué auto andas buscando? Te paso los que tengo, te cotizo a crédito o te agendo para que lo manejes.", "Cuéntame qué modelo te interesa y te paso fotos, precio o la corrida."])}`;
   };
   const lista = (cuales = autos, pendiente = null, encabezado = null) => {
     if (!cuales.length) return pasarAsesor("Déjame confirmarte lo que tengo disponible hoy y te paso opciones.");
@@ -364,7 +377,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       a.descripcion?.trim(),
       m && `💳 A crédito desde ~${pesos(m)} al mes (${v.engancheMinimo}% de enganche, ${Math.max(...v.plazos)} meses)*`,
     ].filter(Boolean);
-    return `${datos.join("\n")}\n\n¿Qué sigue?\n${enumerar(["Cotizar a mi medida", "Agendar prueba de manejo", "Ver otros autos", LLAMADA])}${m ? `\n\n_*Estimado con tasa referencial de ${v.tasaAnual}% anual; sujeto a aprobación._` : ""}`;
+    return `${datos.join("\n")}\n\n${variar("ficha", ["¿Te la cotizo a crédito o prefieres venir a manejarla?", "¿Cómo la quieres, a crédito o de contado? Si gustas también te agendo una prueba de manejo."])}${m ? `\n\n_*Estimado con tasa referencial de ${v.tasaAnual}% anual; sujeto a aprobación._` : ""}`;
   };
   const pedirEnganche = (a) => {
     elegirAuto(a);
@@ -382,7 +395,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     if (enganche >= a.precio) {
       lead.formaPago = "contado";
       ir("cotizado", ["cita", "lista", "asesor"]);
-      return `¡Con eso la pagas de contado! 🎉 La *${nombreAuto(a)}* queda en *${pesos(a.precio)}*.\n\n${enumerar(["Agendar visita / prueba de manejo", "Ver otros autos", LLAMADA])}`;
+      return `¡Con eso la pagas de contado! 🎉 La *${nombreAuto(a)}* queda en *${pesos(a.precio)}*. ¿Cuándo vienes a verla?`;
     }
     const ajustado = enganche < minimo;
     const eng = Math.max(enganche, minimo);
@@ -396,7 +409,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       filas.join("\n"),
       `_Estimado con tasa referencial de ${v.tasaAnual}% anual; no incluye seguro ni comisión. Sujeto a aprobación._`,
       "",
-      enumerar(["Agendar visita para tu cotización formal", "Ver otros autos", LLAMADA]),
+      variar("cotizado", ["¿Te late venir a verla y te armo la cotización formal?", "¿Cuándo te queda venir para manejarla y cerrar números?"]),
     ].join("\n");
   };
   const contado = (a) => {
@@ -405,7 +418,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     if (!a) return lista(autos, null, "¡Perfecto, de contado! ¿Qué auto te interesa?");
     elegirAuto(a);
     ir("cotizado", ["cita", "lista", "asesor"]);
-    return `¡Excelente! De contado la *${nombreAuto(a)}* queda en *${a.precio > 0 ? pesos(a.precio) : "el precio que te confirmo en un momento"}*. ¿Te gustaría venir a verla?\n\n${enumerar(["Agendar visita / prueba de manejo", "Ver otros autos", LLAMADA])}`;
+    return `¡Excelente! De contado la *${nombreAuto(a)}* queda en *${a.precio > 0 ? pesos(a.precio) : "el precio que te confirmo en un momento"}*. ¿Cuándo te queda venir a verla?`;
   };
   const pedirCita = (intro = "") => {
     calentar("caliente");
@@ -414,7 +427,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     const ops = tresOpciones(libres);
     if (ops.length) { // horarios reales de la agenda: el cliente elige uno y queda apartado
       ir("cita", [...ops.map((x) => `slot:${x.id}`), "otra-hora"]);
-      return `${intro ? `${intro} ` : ""}¿Cuándo puedes venir${que ? ` a ver ${que}` : ""}? Tengo:\n${enumerar([...ops.map((x) => x.texto), "Otro día u hora"])}`;
+      return `${intro ? `${intro} ` : ""}¿Cuándo puedes venir${que ? ` a ver ${que}` : ""}? Tengo espacio ${yO(ops.map((x) => x.texto))}, o dime qué día te acomoda.`;
     }
     ir("cita");
     return `${intro ? `${intro} ` : ""}¿Qué día y a qué hora te gustaría venir${que ? ` a ver ${que}` : ""}?${horario ? ` Puedo recibirte ${horario}.` : ""}`;
@@ -434,22 +447,23 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     lead.quiereAsesor = true;
     calentar("caliente");
     ir("asesor");
-    return `Va, queda anotado: ${lead.cita}${a ? ` para ver la ${nombreAuto(a)}` : ""}. Te confirmo en un momento.`;
+    return variar("cita-ok", [`Perfecto, ahí te espero${a ? ` para que veas la ${nombreAuto(a)}` : ""}. Te confirmo el horario en un ratito.`, "Va, lo aparto y te confirmo en un momento."]);
   };
   function pasarAsesor(intro = "") {
     lead.quiereAsesor = true;
     calentar("caliente");
     ir("asesor");
     // Sofía ES Mario: nunca «le aviso al asesor». Mario recibe el aviso aparte, en su chat «Tú».
-    const llamar = /\b(llam|marc|telefono|tel\b)/.test(t);
+    const llamar = /\b(llam|marc|marqu|telefono|tel\b)/.test(t);
     return `${intro ? `${intro}\n` : ""}${msg.enHorario === false ? `Va, en cuanto me desocupe te ${llamar ? "marco" : "escribo"}${horario ? ` (${horario})` : ""}.` : `Claro, dame unos minutos y te ${llamar ? "marco 📞" : "escribo"}.`}`;
   }
   // Sin inventario: se pregunta el modelo; con precio o información, la corrida (cuánto de enganche) y luego la cita.
-  const preguntarModelo = () => { ir("menu", ["cita", "asesor"]); return "¿Qué modelo te interesa?"; };
+  const preguntarModelo = () => { ir("menu", ["cita", "asesor"]); return variar("modelo", ["¿Qué modelo traes en mente?", "¿Andas buscando sedán o camioneta? Tengo City, Civic, HR-V, BR-V, CR-V y más.", "¿Cuál te late más? Así te paso precio y te armo la corrida."]); };
   const pedirCorrida = () => {
     calentar("tibio");
     ir("corrida");
-    return `Claro, te hago una corrida${c.modelo ? ` ${delModelo(c.modelo)}` : ""}. ¿Como cuánto tienes pensado dar de enganche?`;
+    const del = c.modelo ? ` ${delModelo(c.modelo)}` : "";
+    return variar("corrida", [`Claro, te hago una corrida${del}. ¿Como cuánto tienes pensado dar de enganche?`, `Va, te la armo${del}. ¿Con cuánto de enganche te gustaría arrancar, más o menos?`, `Con gusto te cotizo${del}. ¿Traes algo pensado para el enganche o lo vemos con lo mínimo?`]);
   };
   const conEnganche = (e) => {
     lead.formaPago = "credito";
@@ -508,7 +522,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     else if ((c.paso === "enganche" || (["auto", "cotizado"].includes(c.paso) && montoExplicito(texto))) && !dice.asesor && porId(c.autoId)?.precio > 0 && leerEnganche(texto, porId(c.autoId).precio) !== null) {
       motivo = "cotizacion";
       decir(cotizar(porId(c.autoId), leerEnganche(texto, porId(c.autoId).precio)));
-    } else if (c.paso === "cita" && !dice.asesor && (pareceFecha(texto) || (c.fallos >= 1 && !dice.credito && !dice.contado && !dice.lista && !mencionados.length))) {
+    } else if (c.paso === "cita" && !dice.asesor && pareceFecha(texto)) {
       motivo = "cita-anotada"; // a la segunda se anota lo que haya escrito: el asesor lo confirma
       decir(anotarCita(texto));
     }
@@ -543,12 +557,12 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
         else { motivo = "menu"; decir(preguntarModelo()); }
       }
       else if (primero || dice.saludo) { motivo = "menu"; decir(autos.length ? menu() : preguntarModelo()); }
-      else if (dice.gracias) { motivo = "gracias"; decir("¡Con gusto! 😊 Si necesitas algo más, escribe *menú*."); c.opciones = OPCIONES_MENU; c.paso = "menu"; }
+      else if (dice.gracias) { motivo = "gracias"; decir(variar("gracias", ["¡Con gusto! Aquí ando para lo que ocupes 😊", "A ti. Cualquier duda me escribes."])); c.opciones = OPCIONES_MENU; c.paso = "menu"; }
       else if (c.paso === "enganche") { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? pasarAsesor("No logré entender el enganche 🙈.") : "¿Cuánto darías de enganche? Escríbelo en pesos o porcentaje, por ejemplo «20%» o «100 mil»."); }
-      else if (c.paso === "cita") { motivo = "no-entendi"; c.fallos += 1; decir("¿Qué día y a qué hora te acomoda? Por ejemplo «sábado 11 am»."); }
-      else if (c.paso === "corrida") { motivo = "no-entendi"; c.fallos += 1; decir("¿Más o menos cuánto podrías dar de enganche? Puede ser en pesos o porcentaje, por ejemplo «80 mil» o «20%»."); }
-      else if (!autos.length) { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? pasarAsesor() : "Perdón, no te entendí. ¿Qué modelo te interesa?"); }
-      else { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? pasarAsesor("Perdón, creo que no te estoy entendiendo bien 🙈.") : `Perdón, no te entendí 🙈. Escribe el *número* de una opción o el *auto* que buscas.\n\n${menu("Esto es lo que puedo hacer:")}`); }
+      else if (c.paso === "cita") { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? seCalla() : variar("cita-otra", ["¿Qué día y a qué hora te queda mejor para venir?", "¿Te acomoda más entre semana o el sábado? Dime el día y la hora."])); }
+      else if (c.paso === "corrida") { motivo = "no-entendi"; c.fallos += 1; decir(variar("corrida-otra", ["¿Más o menos cuánto podrías dar de enganche? Aunque sea aproximado.", "Si no lo tienes claro, te la armo con lo mínimo y vemos opciones. ¿Va?"])); }
+      else if (!autos.length) { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? seCalla() : variar("no-entendi", ["Perdona, ¿me lo explicas tantito más? 🙏", "Te leo, pero no me quedó claro. ¿Qué andas buscando?"])); }
+      else { motivo = "no-entendi"; c.fallos += 1; decir(c.fallos >= 2 ? seCalla() : variar("no-entendi", ["Perdona, ¿me lo explicas tantito más? 🙏 ¿Qué auto andas buscando?", "Te leo, pero no me quedó claro. ¿Buscas algún modelo en especial o te paso lo que tengo?"])); }
     }
     if (motivo !== "no-entendi") c.fallos = 0;
     // Primer mensaje: siempre se presenta antes de lo demás.

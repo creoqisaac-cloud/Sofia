@@ -40,9 +40,8 @@ describe("vendedora · conversación", () => {
   it("se presenta con el nombre del cliente y muestra el menú", () => {
     const { ultimo, texto } = charla(["Hola, buenas tardes"]);
     expect(ultimo.motivo).toBe("menu");
-    expect(texto).toMatch(/^¡Hola Ana! 👋 Soy Pedro, de Honda Ejemplo\.\n¿En qué te ayudo\?/);
-    expect(texto).toContain("1️⃣ Ver autos disponibles");
-    expect(texto).toContain("4️⃣ Que te marque por teléfono");
+    expect(texto).toMatch(/^¡Hola Ana! 👋 Soy Pedro, de Honda Ejemplo\.\n¿Qué auto andas buscando\?/);
+    expect(texto).not.toMatch(/1️⃣|4️⃣/); // sin menús numerados: plática normal
   });
 
   it("menú → lista → ficha con foto y precio → cotización → cita: el prospecto queda completo", () => {
@@ -53,7 +52,7 @@ describe("vendedora · conversación", () => {
     expect(r.txt(2)).toContain("💵 *$689,900* de contado");
     expect(r.paso(4).motivo).toBe("cotizacion");
     expect(r.txt(4)).toContain(`• 60 meses: *$${Math.round(mensualidad(689900 * 0.7, 15.9, 60)).toLocaleString("es-MX")}*`);
-    expect(r.ultimo.respuestas[0]!.texto).toBe("Va, queda anotado: el sábado a las 11 para ver la Honda CR-V Touring 2026. Te confirmo en un momento.");
+    expect(r.ultimo.respuestas[0]!.texto).toBe("Perfecto, ahí te espero para que veas la Honda CR-V Touring 2026. Te confirmo el horario en un ratito.");
     expect(r.lead).toMatchObject({ autoId: "crv", interes: "Honda CR-V Touring 2026", precio: 689900, formaPago: "credito", enganche: 206970, plazo: 60, cita: "el sábado a las 11", quiereAsesor: true, calor: "caliente" });
   });
 
@@ -122,17 +121,19 @@ describe("vendedora · conversación", () => {
   it("si no entiende dos veces, pasa con el asesor en vez de dar vueltas", () => {
     const r = charla(["Hola", "asdfgh", "qwerty"]);
     expect(r.paso(1).motivo).toBe("no-entendi");
-    expect(r.txt(1)).toContain("no te entendí");
+    expect(r.txt(1)).toContain("¿me lo explicas tantito más?");
     expect(r.ultimo.motivo).toBe("no-entendi");
-    expect(r.ultimo.respuestas[0]!.texto).toContain("dame unos minutos y te escribo");
+    expect(r.ultimo.respuestas[0]!.texto).toBe("Déjame revisarlo bien y te escribo en un ratito.");
     expect(r.lead).toMatchObject({ quiereAsesor: true });
   });
 
-  it("cita: una fecha clara se anota a la primera; si no, pregunta una vez y luego anota lo que diga", () => {
+  it("cita: una fecha clara se anota a la primera; si no, pregunta otra vez y luego Mario lo atiende (sin repetir lo que escribió)", () => {
     expect(charla(["Hola", "¿puedo ir a ver la City el sábado a las 10?"]).lead).toMatchObject({ autoId: "city", cita: "¿puedo ir a ver la City el sábado a las 10?" });
     const r = charla(["Hola", "3", "no sé", "cuando ustedes digan"]);
-    expect(r.txt(2)).toContain("¿Qué día y a qué hora te acomoda?");
-    expect(r.lead).toMatchObject({ cita: "cuando ustedes digan" });
+    expect(r.txt(2)).toContain("¿Qué día y a qué hora te queda mejor para venir?");
+    expect(r.texto).toBe("Déjame revisarlo bien y te escribo en un ratito.");
+    expect(r.lead).toMatchObject({ quiereAsesor: true });
+    expect(r.lead.cita).toBeUndefined();
   });
 
   it("sin inventario no inventa precios: ofrece la corrida, pregunta el enganche y lleva a la cita con horarios reales", () => {
@@ -148,7 +149,7 @@ describe("vendedora · conversación", () => {
     expect(eng.motivo).toBe("corrida");
     expect(eng.lead).toMatchObject({ formaPago: "credito", enganche: 80000 });
     const t = eng.respuestas[0]!.texto;
-    expect(t).toBe("Va, con 80 mil te armo la corrida. ¿Cuándo puedes venir a ver la CR-V? Tengo:\n1️⃣ mañana martes a las 11 am\n2️⃣ el miércoles 11 a las 4 pm\n3️⃣ Otro día u hora");
+    expect(t).toBe("Va, con 80 mil te armo la corrida. ¿Cuándo puedes venir a ver la CR-V? Tengo espacio mañana martes a las 11 am o el miércoles 11 a las 4 pm, o dime qué día te acomoda.");
     expect(cifras(t)).toEqual([80000]); // ninguna cifra inventada: solo la que dijo el cliente
     const apartada = di("2", eng.conv, 2);
     expect(apartada.reserva).toMatchObject(libres[1]!);
@@ -162,7 +163,7 @@ describe("vendedora · conversación", () => {
     const cfg = { ...CFG, asesor: "Mario Abarca" };
     const charlaSin = (m: string[]) => charla(m, { cfg, inventario: [] });
     const hola = charlaSin(["Hola", "me interesa la CR-V"]);
-    expect(hola.txt(0)).toBe("¡Hola Ana! 👋 Soy Mario Abarca, de Honda Ejemplo.\n¿Qué modelo te interesa?");
+    expect(hola.txt(0)).toBe("¡Hola Ana! 👋 Soy Mario Abarca, de Honda Ejemplo.\n¿Qué modelo traes en mente?");
     expect(hola.texto).toBe("Claro, te hago una corrida de la CR-V. ¿Como cuánto tienes pensado dar de enganche?");
     const noSabe = charlaSin(["Hola, quiero un crédito para el Civic", "no sé la verdad"]);
     expect(noSabe.txt(0)).toContain("Claro, te hago una corrida del Civic.");
@@ -178,8 +179,8 @@ describe("vendedora · conversación", () => {
     expect(contado.texto).toMatch(/^Va, de contado también te armo la corrida\. ¿Qué día y a qué hora te gustaría venir\? Puedo recibirte /);
     expect(contado.lead).toMatchObject({ formaPago: "contado" });
     const raro = charlaSin(["Hola", "asdf", "qwer"]);
-    expect(raro.txt(1)).toBe("Perdón, no te entendí. ¿Qué modelo te interesa?");
-    expect(raro.texto).toBe("Claro, dame unos minutos y te escribo.");
+    expect(raro.txt(1)).toBe("Perdona, ¿me lo explicas tantito más? 🙏");
+    expect(raro.texto).toBe("Déjame revisarlo bien y te escribo en un ratito.");
   });
 
   it("el asesor con título se nombra con artículo; sin título, solo el nombre", () => {
