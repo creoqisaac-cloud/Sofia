@@ -20,6 +20,12 @@ Este repositorio conserva más de una generación de Sofía. La app que hoy usa 
 - El workflow `.github/workflows/prueba.yml` publica GitHub Pages desde las ramas `claude/focused-gauss-q4hxvr` y `claude/laughing-sagan-hbxj3y`. Al publicar, ejecuta además sus verificaciones automatizadas.
 - El equipo de Mario debe seguir encendido, conectado a internet y con Sofía abierta para atender usando WhatsApp Web.
 
+## Operación de WhatsApp Web local
+
+- En el chat propio «Tú» de Mario: `/sofia pendientes` importa y lista chats recientes cuyo último mensaje fue del cliente; **no responde ninguno**. `/sofia responder 1` responde solo al chat 1 de la lista actualizada. `/sofia ayuda` muestra los comandos. No hay orden de respuesta masiva.
+- El modo WhatsApp Web de Windows guarda los mensajes en la computadora. La PWA pública de GitHub Pages no puede ver ese almacén local desde el iPhone/tablet por sí sola; la bandeja del teléfono requiere un puente remoto seguro. No afirmar que la bandeja móvil sincroniza el conector local hasta que ese puente exista.
+- El modo Mario debe iniciar sin `SOFIA_PRUEBA_NUMERO`; ese filtro es únicamente para pruebas y silencia los demás contactos si se hereda.
+
 ## Reglas de edición
 
 - Mantén la interfaz en español claro, móvil primero y usable con una mano.

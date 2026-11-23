@@ -101,7 +101,33 @@ const iaGratis = iaPorApi({ cuenta: entorno.CF_ACCOUNT_ID, llave: entorno.CF_API
 if (iaGratis) entorno.AI = iaGratis;
 if (entorno.SOFIA_WHATSAPP_WEB === "1") {
   const { iniciar } = await import("../../whatsapp-web/cliente.mjs");
-  entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store));
+  const operacionInterna = async (ruta, datos = {}) => {
+    const req = new Request(`http://localhost${ruta}`, {
+      method: "POST",
+      headers: { "content-type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ ...datos, token: entorno.SOFIA_TOKEN }),
+    });
+    const res = await handle(req, entorno, store);
+    const resultado = await res.json();
+    if (!res.ok || resultado.ok === false) throw new Error(resultado.error || `Error ${res.status}`);
+    return resultado;
+  };
+  const operaciones = {
+    async pendientes() {
+      const resumen = await operacionInterna("/api/buzon/sincronizar");
+      const index = (await store.get("inbox:index")) ?? {};
+      const limite = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const pendientes = Object.entries(index)
+        .filter(([clave, c]) => clave.startsWith("wa:") && c.lastDir === "in" && Date.parse(c.lastAt) >= limite)
+        .sort((a, b) => String(b[1].lastAt).localeCompare(String(a[1].lastAt)))
+        .map(([clave, c]) => ({ clave, id: c.id, nombre: c.name, ultimoMensaje: c.lastText, at: c.lastAt }));
+      return { ...resumen, pendientes };
+    },
+    async responderPendiente(clave) {
+      return operacionInterna("/api/buzon/responder", { clave });
+    },
+  };
+  entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store), operaciones);
 }
 
 const server = http.createServer(async (req, res) => {

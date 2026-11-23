@@ -117,6 +117,44 @@ test("solo mi WhatsApp: responde a /sofia en chat propio, ignora notas y chats e
   await assert.doesNotReject(receptor.enviar({ to: self, text: "Sofía contesta" }));
 });
 
+test("Mario: /sofia pendientes no contesta; /sofia responder N responde un solo chat elegido", async () => {
+  const client = new EventEmitter();
+  const self = "5218111112222@c.us";
+  const enviados = [];
+  const ordenes = [];
+  let sincronizaciones = 0;
+  client.info = { wid: { user: "5218111112222", _serialized: self } };
+  client.sendMessage = async (to, text) => { enviados.push({ to, text }); return { id: { _serialized: `salida-${enviados.length}` } }; };
+  const operaciones = {
+    async pendientes() {
+      sincronizaciones++;
+      return { chats: 2, mensajes: 9, pendientes: [
+        { clave: "wa:528100000001", id: "528100000001", nombre: "Ana", ultimoMensaje: "Precio del Civic" },
+        { clave: "wa:528100000002", id: "528100000002", nombre: "Luis", ultimoMensaje: "¿Lo tienes disponible?" },
+      ] };
+    },
+    async responderPendiente(clave) { ordenes.push(clave); },
+  };
+  const receptor = vincular(client, async () => {}, "", false, { operaciones });
+  client.emit("ready");
+  const comando = async (id, body) => {
+    client.emit("message_create", { type: "chat", body, fromMe: true, from: self, to: self, id: { _serialized: id }, timestamp: Math.floor(Date.now() / 1000) });
+    await new Promise(resolve => setTimeout(resolve, 15));
+  };
+  await comando("orden-1", "/sofia pendientes");
+  assert.equal(sincronizaciones, 1);
+  assert.equal(ordenes.length, 0, "listar pendientes nunca envía respuestas a clientes");
+  assert.match(enviados.at(-1).text, /1\. Ana/);
+  assert.match(enviados.at(-1).text, /\/sofia responder 1/);
+  await comando("orden-2", "/sofia responder 2");
+  assert.equal(sincronizaciones, 2, "refresca la lista antes de ejecutar la orden");
+  assert.deepEqual(ordenes, ["wa:528100000002"]);
+  assert.equal(enviados.filter(x => x.text.startsWith("Voy a responder un solo chat:")).length, 1);
+  await comando("orden-3", "/sofia responder todos");
+  assert.deepEqual(ordenes, ["wa:528100000002"], "no acepta respuestas masivas ambiguas");
+  await assert.rejects(receptor.enviar({ to: "528100000002", text: "No debería salir" }), /Destinatario no habilitado/);
+});
+
 test("como persona: «escribiendo…» antes de contestar, y la cita le llega al asesor en su chat «Tú»", async () => {
   const datos = new Map();
   const store = { get: async k => datos.get(k), put: async (k, v) => datos.set(k, v) };

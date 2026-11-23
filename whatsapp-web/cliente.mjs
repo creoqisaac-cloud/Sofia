@@ -33,13 +33,14 @@ export function tiempoEscribiendo(texto) {
 }
 
 // opciones.pausa(texto) → milisegundos de «escribiendo…» antes de mandar cada respuesta (0 = al instante).
-export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, { pausa = () => 0 } = {}) {
+export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, { pausa = () => 0, operaciones = null } = {}) {
   // WhatsApp puede conservar el prefijo móvil mexicano 521 en contactos antiguos.
   const normalizar = n => String(n ?? "").replace(/^521(\d{10})$/, "52$1");
   const permitido = n => !prueba || normalizar(n) === normalizar(prueba);
   let qr = "";
   let conectado = false;
   let cola = Promise.resolve();
+  const comandosOperativosVistos = new Set();
   client.on("qr", codigo => { qr = codigo; conectado = false; });
   client.on("ready", () => { conectado = true; qr = ""; });
   const desconectar = () => { conectado = false; qr = ""; };
@@ -52,6 +53,10 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     if (!/^\d+@(c\.us|lid)$/.test(chat)) return;
     const propio = client.info?.wid?._serialized || (client.info?.wid?.user ? client.info.wid.user + "@c.us" : "");
     const esChatPropio = Boolean(propio) && chat === propio;
+    if (!soloMiWhatsApp && esChatPropio && m.fromMe) {
+      await procesarComandoOperativo(m, propio);
+      return;
+    }
     // El modo personal ignora TODO chat externo. Solo acepta comandos escritos
     // por el dueño en el chat «Tú»; nunca escucha notas ni sus propias respuestas.
     if (soloMiWhatsApp && (!esChatPropio || !m.fromMe || !/^\/sofia(?:\s|$)/i.test(m.body.trim()))) return;
@@ -69,6 +74,42 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
       ? { field: "smb_message_echoes", value: { message_echoes: [{ ...mensaje, to: peer }] } }
       : { field: "messages", value: { messages: [{ ...mensaje, from: peer }] } };
     await recibir({ object: "whatsapp_business_account", entry: [{ changes: [cambio] }] });
+  }
+  async function procesarComandoOperativo(m, propio) {
+    const match = String(m.body).trim().match(/^\/sofia\s+(pendientes|ayuda|responder\s+\d+)\s*$/i);
+    if (!match || comandosOperativosVistos.has(m.id._serialized)) return;
+    comandosOperativosVistos.add(m.id._serialized);
+    if (comandosOperativosVistos.size > 200) comandosOperativosVistos.delete(comandosOperativosVistos.values().next().value);
+    const responderMario = async (texto) => client.sendMessage(propio, texto, { sendSeen: false });
+    try {
+      if (!operaciones) throw new Error("Las órdenes de operación no están disponibles en este conector.");
+      const orden = match[1].toLowerCase();
+      if (orden === "ayuda") {
+        await responderMario("Órdenes de Sofía:\n/sofia pendientes — trae chats recientes sin responderlos.\n/sofia responder 1 — responde solo al chat número 1 de la lista.");
+        return;
+      }
+      if (orden === "pendientes") {
+        const resultado = await operaciones.pendientes();
+        const lista = resultado.pendientes ?? [];
+        if (!lista.length) {
+          await responderMario(`Listo: revisé ${resultado.chats ?? 0} chats (${resultado.mensajes ?? 0} mensajes). No encontré chats pendientes de respuesta.`);
+          return;
+        }
+        const filas = lista.slice(0, 8).map((x, i) => `${i + 1}. ${x.nombre || "Cliente"} · …${String(x.id).slice(-4)}\n   ${(x.ultimoMensaje || "").replace(/\s+/g, " ").slice(0, 110)}`);
+        await responderMario(`Revisé ${resultado.chats ?? 0} chats y traje ${resultado.mensajes ?? 0} mensajes. No respondí ninguno.\n\nPendientes recientes:\n${filas.join("\n")}\n\nPara responder solo uno: /sofia responder 1`);
+        return;
+      }
+      const numero = Number(orden.match(/\d+/)?.[0]);
+      if (!Number.isInteger(numero) || numero < 1 || numero > 8) throw new Error("Elige un número del 1 al 8. Primero usa /sofia pendientes.");
+      const resultado = await operaciones.pendientes(); // vuelve a leer los más recientes antes de enviar
+      const cliente = resultado.pendientes?.[numero - 1];
+      if (!cliente) throw new Error("Ese número ya no tiene un mensaje pendiente. Usa /sofia pendientes para actualizar la lista.");
+      await responderMario(`Voy a responder un solo chat: ${cliente.nombre || "Cliente"} · …${String(cliente.id).slice(-4)}.\nÚltimo mensaje: “${String(cliente.ultimoMensaje || "").replace(/\s+/g, " ").slice(0, 140)}”`);
+      await operaciones.responderPendiente(cliente.clave);
+      await responderMario(`Listo. Sofía respondió a ${cliente.nombre || "ese cliente"}. Para seguir con otro, revisa /sofia pendientes.`);
+    } catch (error) {
+      await responderMario(`No pude completar la orden: ${error?.message ?? error}`);
+    }
   }
   const tipoMensaje = (m) => ({ chat: "text", ptt: "audio", vcard: "contact", multi_vcard: "contact" }[m.type] ?? m.type);
   async function sincronizarPendientes() {
@@ -154,7 +195,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
   };
 }
 
-export function iniciar(dir, recibir) {
+export function iniciar(dir, recibir, operaciones = null) {
   const prueba = process.env.SOFIA_PRUEBA_NUMERO || "";
   const soloMiWhatsApp = process.env.SOFIA_SOLO_MI_WHATSAPP === "1";
   if (prueba && !/^\d{6,15}$/.test(prueba)) throw new Error("SOFIA_PRUEBA_NUMERO requiere el código de país y solo dígitos.");
@@ -164,7 +205,7 @@ export function iniciar(dir, recibir) {
   });
   // SOFIA_ESPERA=0 contesta al instante (para pruebas); si no, con la pausa de una persona escribiendo.
   const pausa = process.env.SOFIA_ESPERA === "0" ? () => 0 : tiempoEscribiendo;
-  const dispositivo = vincular(client, recibir, prueba, soloMiWhatsApp, { pausa });
+  const dispositivo = vincular(client, recibir, prueba, soloMiWhatsApp, { pausa, operaciones });
   // El supervisor del contenedor vuelve a iniciar Chromium con el mismo volumen.
   const reiniciar = () => { setTimeout(() => process.exit(1), 2000).unref(); };
   client.once("disconnected", reiniciar);
