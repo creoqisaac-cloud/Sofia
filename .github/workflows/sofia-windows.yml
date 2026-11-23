@@ -22,6 +22,15 @@ jobs:
         with:
           node-version: 22
 
+      - name: Los scripts se leen sin errores en Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          foreach ($f in "whatsapp-web/windows/instalar.ps1", "whatsapp-web/windows/abrir.ps1") {
+            $errores = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$null, [ref]$errores) | Out-Null
+            if ($errores) { $errores | ForEach-Object { Write-Host "$f : $($_.Extent.StartLineNumber): $($_.Message)" }; throw "Errores en $f" }
+          }
+
       - name: Pruebas del WhatsApp vinculado
         shell: bash
         run: |

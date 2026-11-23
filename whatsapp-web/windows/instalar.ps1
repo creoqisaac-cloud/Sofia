@@ -62,7 +62,8 @@ function Instalar-SofiaNueva {
     $shell = New-Object -ComObject WScript.Shell
     $acceso = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "Sofia Nueva.lnk"))
     $acceso.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-    $acceso.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $destino 'abrir.ps1')`""
+    $acceso.Arguments = "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$(Join-Path $destino 'abrir.ps1')`" -Ventana"
+    $acceso.WindowStyle = 7 # minimizada: solo se ve la ventana de Sofia
     $acceso.WorkingDirectory = $destino
     $acceso.Description = "Sofia Nueva: asistente de ventas por WhatsApp"
     try {
@@ -79,8 +80,11 @@ function Instalar-SofiaNueva {
   }
 
   Write-Host ""
-  Write-Host "Listo: en tu escritorio quedo el acceso 'Sofia Nueva'." -ForegroundColor Green
-  Write-Host "Antes de abrirla cierra las otras Sofias (las de Codex), para que no contesten doble."
+  Write-Host "Listo: en tu escritorio quedo el acceso 'Sofia Nueva'. Se abre sola ahorita." -ForegroundColor Green
+  Write-Host "Cierra las otras Sofias (las de Codex) para que no contesten doble."
+  if ($env:SOFIA_SIN_ACCESO -ne "1" -and $env:CI -ne "true") {
+    Start-Process -WindowStyle Hidden -FilePath (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe") -ArgumentList "-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$(Join-Path $destino 'abrir.ps1')`" -Ventana"
+  }
   Write-Host ""
 }
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { vincular, tiempoEscribiendo } from "./cliente.mjs";
+import { vincular, tiempoEscribiendo, rutaNavegador } from "./cliente.mjs";
 import { eventoVinculado } from "../prueba/servidor/core.mjs";
 
 test("QR, mensaje privado, respuesta de Sofía, duplicado e intervención del asesor", async () => {
@@ -132,3 +132,14 @@ test("tiempo escribiendo: de 1.2 a 8.4 segundos según el largo", () => {
     assert.ok(largo >= 5600 && largo <= 8400, String(largo));
   }
 });
+
+test("navegador: si falta el de puppeteer, usa el Chrome o el Edge que ya tiene Windows", () => {
+  const env = { PROGRAMFILES: "C:\\Program Files", "PROGRAMFILES(X86)": "C:\\Program Files (x86)", LOCALAPPDATA: "C:\\Users\\isaac\\AppData\\Local" };
+  const edge = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+  const chrome = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  assert.equal(rutaNavegador(env, p => p === edge, "win32"), edge);
+  assert.equal(rutaNavegador(env, p => p === edge || p === chrome, "win32"), chrome);
+  assert.equal(rutaNavegador({ ...env, CHROMIUM_PATH: "D:\\otro.exe" }, () => false, "win32"), "D:\\otro.exe");
+  assert.equal(rutaNavegador(env, () => false, "win32"), undefined);
+});
+

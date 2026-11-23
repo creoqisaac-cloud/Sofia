@@ -1,6 +1,30 @@
+import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import QRCode from "qrcode";
 import whatsapp from "whatsapp-web.js";
+
+const require = createRequire(import.meta.url);
+
+/**
+ * El navegador para WhatsApp Web: el indicado en CHROMIUM_PATH, el que bajó puppeteer o, si no está,
+ * el Chrome o Edge que ya tiene la computadora (Edge viene en todo Windows).
+ */
+export function rutaNavegador(env = process.env, existe = fs.existsSync, plataforma = process.platform) {
+  if (env.CHROMIUM_PATH) return env.CHROMIUM_PATH;
+  try {
+    const propio = require("puppeteer").executablePath();
+    if (propio && existe(propio)) return propio;
+  } catch { /* sin el navegador de puppeteer */ }
+  const pf = env.PROGRAMFILES || env.ProgramFiles || "C:\\Program Files";
+  const pf86 = env["PROGRAMFILES(X86)"] || env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const local = env.LOCALAPPDATA || "";
+  const candidatos = plataforma === "win32"
+    ? [pf + "\\Google\\Chrome\\Application\\chrome.exe", pf86 + "\\Google\\Chrome\\Application\\chrome.exe", local && local + "\\Google\\Chrome\\Application\\chrome.exe",
+      pf86 + "\\Microsoft\\Edge\\Application\\msedge.exe", pf + "\\Microsoft\\Edge\\Application\\msedge.exe"]
+    : ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"];
+  return candidatos.filter(Boolean).find((p) => existe(p));
+}
 
 /** Lo que tardaría una persona en escribir ese texto (1.5 a 7 s, con algo de variación). */
 export function tiempoEscribiendo(texto) {
@@ -88,7 +112,7 @@ export function iniciar(dir, recibir) {
   if (prueba && !/^\d{6,15}$/.test(prueba)) throw new Error("SOFIA_PRUEBA_NUMERO requiere el código de país y solo dígitos.");
   const client = new whatsapp.Client({
     authStrategy: new whatsapp.LocalAuth({ dataPath: path.join(dir, "sesion-whatsapp") }),
-    puppeteer: { headless: true, executablePath: process.env.CHROMIUM_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] },
+    puppeteer: { headless: true, executablePath: rutaNavegador(), args: ["--no-sandbox", "--disable-dev-shm-usage"] },
   });
   // SOFIA_ESPERA=0 contesta al instante (para pruebas); si no, con la pausa de una persona escribiendo.
   const pausa = process.env.SOFIA_ESPERA === "0" ? () => 0 : tiempoEscribiendo;
@@ -103,6 +127,6 @@ export function iniciar(dir, recibir) {
   };
   process.once("SIGTERM", cerrar);
   process.once("SIGINT", cerrar);
-  client.initialize().catch(() => { console.error("WhatsApp Web no inició."); reiniciar(); });
+  client.initialize().catch((e) => { console.error("WhatsApp Web no inició: " + (e?.message ?? e)); reiniciar(); });
   return dispositivo;
 }
