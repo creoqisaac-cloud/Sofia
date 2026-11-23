@@ -308,8 +308,9 @@ export function renderAutoMario(root, id) {
     const version = h("input", { class: "m-input", value: a.version ?? "", placeholder: "Touring, Prime, i-Style…" });
     const anio = h("input", { class: "m-input", type: "number", value: a.anio || "" });
     const precio = h("input", { class: "m-input", inputmode: "numeric", value: a.precio || "", placeholder: "Precio de lista" });
-    const desc = h("textarea", { class: "m-input", rows: 3, placeholder: "Promo, equipamiento, colores… (Sofía lo puede mencionar)" });
+    const desc = h("textarea", { class: "m-input", rows: 3, placeholder: "Equipamiento, colores, pasajeros… (ej. «7 pasajeros, híbrida, colores blanco y gris»). Sofía lo usa para contestar." });
     desc.value = a.descripcion ?? "";
+    const promo = h("input", { class: "m-input", value: a.promo ?? "", placeholder: "Ej. «Bono de $30,000 este mes» o «Tasa 9.9% a 36 meses»" });
     const disp = h("input", { type: "checkbox", checked: a.disponible !== false });
     let fotoId = a.fotoId;
     const img = h("img", { class: "m-foto", alt: "", src: fotoUrl(fotoId), hidden: !fotoId });
@@ -321,7 +322,7 @@ export function renderAutoMario(root, id) {
     } });
     const guardar = async () => {
       if (!modelo.value) return toast("Elige el modelo");
-      const nuevo = { ...a, marca: "Honda", modelo: modelo.value, version: version.value.trim(), anio: Number(anio.value) || "", precio: Number(String(precio.value).replace(/[^\d]/g, "")) || 0, descripcion: desc.value.trim(), disponible: disp.checked, palabras: a.palabras ?? [], ...(fotoId ? { fotoId } : {}) };
+      const nuevo = { ...a, marca: "Honda", modelo: modelo.value, version: version.value.trim(), anio: Number(anio.value) || "", precio: Number(String(precio.value).replace(/[^\d]/g, "")) || 0, descripcion: desc.value.trim(), promo: promo.value.trim(), disponible: disp.checked, palabras: a.palabras ?? [], ...(fotoId ? { fotoId } : {}) };
       try { await saveInventory(autos.some((x) => x.id === a.id) ? autos.map((x) => (x.id === a.id ? nuevo : x)) : [...autos, nuevo]); toast("Guardado"); go("/autos"); } catch (e) { toast(e.message, 5000); }
     };
     const borrar = async () => {
@@ -330,7 +331,7 @@ export function renderAutoMario(root, id) {
     };
     cuerpo.replaceChildren(card(
       img, h("button", { class: "m-btn", onclick: () => archivo.click() }, fotoId ? "Cambiar foto" : "Agregar foto"), archivo,
-      campo("Modelo", modelo), campo("Versión", version), h("div", { class: "m-grid2" }, campo("Año", anio), campo("Precio", precio)), campo("Descripción / promo", desc),
+      campo("Modelo", modelo), campo("Versión", version), h("div", { class: "m-grid2" }, campo("Año", anio), campo("Precio", precio)), campo("Qué trae (Sofía lo usa para contestar)", desc), campo("🎁 Promoción vigente (opcional)", promo),
       h("label", { class: "m-row" }, disp, h("span", {}, "Disponible (Sofía lo ofrece)")),
       h("button", { class: "m-btn primary", onclick: guardar }, "Guardar"),
       id !== "nuevo" ? h("button", { class: "m-btn danger", onclick: borrar }, "Quitar auto") : null));
@@ -381,6 +382,8 @@ export function renderAjustesMario(root) {
       // Conducta
       const activo = h("input", { type: "checkbox", checked: Boolean(cfg.activo && cfg.ventas?.activo) });
       const conIa = h("input", { type: "checkbox", checked: Boolean(cfg.ventas?.ia) });
+      const direccion = h("input", { class: "m-input", value: cfg.direccion ?? "", placeholder: "Ej. Av. Constitución 123, Col. Centro, Monterrey" });
+      const mapa = h("input", { class: "m-input", value: cfg.mapa ?? "", inputmode: "url", placeholder: "Link de Google Maps (https://maps.app.goo.gl/…)" });
       const seguir = h("input", { type: "checkbox", checked: cfg.ventas?.seguimiento !== false });
       const resumen = h("input", { type: "checkbox", checked: cfg.ventas?.resumenDiario !== false });
       const pausa = h("select", { class: "m-input" }, [[0, "No se calla"], [10, "10 minutos"], [30, "30 minutos"], [60, "1 hora"]].map(([v, l]) => h("option", { value: v, selected: Number(cfg.pausaMinutos) === v }, l)));
@@ -390,8 +393,11 @@ export function renderAjustesMario(root) {
         h("label", { class: "m-row" }, seguir, h("span", {}, "Seguimiento: escribirle al día siguiente y a los 3 días a quien se quedó callado")),
         h("label", { class: "m-row" }, resumen, h("span", {}, "Resumen del día a las 9 am en mi chat «Tú»")),
         h("label", { class: "m-field" }, h("span", { class: "m-label" }, "Si Mario contesta a mano, Sofía se calla en ese chat"), pausa),
+        h("label", { class: "m-field" }, h("span", { class: "m-label" }, "📍 Dirección de la agencia (la manda cuando preguntan «¿dónde están?»)"), direccion),
+        h("label", { class: "m-field" }, h("span", { class: "m-label" }, "Link de Google Maps"), mapa),
         h("button", { class: "m-btn", onclick: async () => {
-          try { await setAgentConfig({ ...cfg, activo: activo.checked, pausaMinutos: Number(pausa.value), ventas: { ...cfg.ventas, activo: activo.checked, ia: conIa.checked, seguimiento: seguir.checked, resumenDiario: resumen.checked } }); toast("Guardado"); } catch (e) { toast(e.message, 5000); }
+          if (mapa.value.trim() && !/^https:\/\/\S+$/.test(mapa.value.trim())) return toast("El link del mapa debe empezar con https://");
+          try { await setAgentConfig({ ...cfg, activo: activo.checked, pausaMinutos: Number(pausa.value), direccion: direccion.value.trim(), mapa: mapa.value.trim(), ventas: { ...cfg.ventas, activo: activo.checked, ia: conIa.checked, seguimiento: seguir.checked, resumenDiario: resumen.checked } }); toast("Guardado"); } catch (e) { toast(e.message, 5000); }
         } }, "Guardar"));
     } catch (e) { estado.replaceChildren(); falla(estado, e); }
   })();

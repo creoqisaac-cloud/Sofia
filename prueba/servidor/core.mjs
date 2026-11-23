@@ -222,6 +222,8 @@ const AGENTE_BASE = {
   asesor: "Mario Abarca",
   agencia: "Honda",
   marca: "Honda",
+  direccion: "", // la manda Sofía cuando preguntan «¿dónde están?»
+  mapa: "", // link de Google Maps (https://…)
   ventas: { ...VENTAS_BASE, ia: true }, // vendedora (agenda citas); apagada = solo lo de arriba
   estilo: { ejemplos: [], deChats: [], notas: "" }, // cómo escribe el asesor: con IA, Sofía habla como él
   corridas: "", // corridas del asesor (enganche 20/30/40/50 %), tal cual: con IA son las únicas cifras de crédito que da
@@ -281,6 +283,8 @@ function normalizarConfig(c) {
     asesor: String(c.asesor ?? "").trim().slice(0, 80),
     agencia: String(c.agencia ?? "").trim().slice(0, 80),
     marca: String(c.marca ?? AGENTE_BASE.marca).trim().slice(0, 40) || AGENTE_BASE.marca,
+    direccion: String(c.direccion ?? "").trim().slice(0, 200),
+    mapa: /^https:\/\/\S+$/.test(String(c.mapa ?? "").trim()) ? String(c.mapa).trim().slice(0, 300) : "",
     ventas: normalizarVentas(c.ventas),
     estilo: normalizarEstilo(c.estilo),
     corridas: textoCorridas(c.corridas),
@@ -486,12 +490,14 @@ async function avisarSiToca(env, store, cfg, e, r, ahora) {
   const lead = ((await store.get("leads:index")) ?? {})[`${e.canal}:${e.id}`] ?? {};
   if (!cita) {
     // Sin cita pero pidió que lo atienda el asesor (su corrida por aquí, negociar…): también le llega, una vez cada 12 h.
-    if (!r.lead.quiereAsesor) return;
-    const clave = `aviso:${e.canal}:${e.id}`;
+    // También cuando preguntó algo que Sofía no sabe con certeza (colores, existencia, ubicación…) o trae auto a cuenta:
+    // Sofía siguió la plática y a Mario le llega la pregunta para contestarla él (máximo una vez por hora por chat).
+    if (!r.lead.quiereAsesor && !r.lead.duda) return;
+    const clave = `aviso:${r.lead.quiereAsesor ? "" : "duda:"}${e.canal}:${e.id}`;
     const antes = await store.get(clave);
-    if (antes && ahora - new Date(antes) < 12 * 3600 * 1000) return;
+    if (antes && ahora - new Date(antes) < (r.lead.quiereAsesor ? 12 : 1) * 3600 * 1000) return;
     await store.put(clave, ahora.toISOString());
-    await avisarAsesor(env, store, cfg, e, null, ahora, lead);
+    await avisarAsesor(env, store, cfg, e, null, ahora, r.lead.quiereAsesor ? lead : { ...lead, quiereAsesor: false, duda: r.lead.duda });
     return;
   }
   if (!lead.nombreCliente && !r.lead.quiereAsesor) return;
@@ -515,9 +521,10 @@ async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
     .map((m) => `${m.dir === "in" ? nombre : cfg.asesor || "Mario"}: ${String(m.text ?? "").trim()}`)
     .filter((x) => !x.endsWith(": ")).join("\n").slice(-900);
   const corrida = lead.mensualidad ? `Mensualidad mencionada: ${pesos(lead.mensualidad)}${lead.plazo ? ` a ${lead.plazo} meses` : ""}` : "";
-  const siguiente = cita ? "Confirmar la visita y recibirlo en agencia" : lead.quiereAsesor ? "Contactarlo y retomar la conversación" : "Dar seguimiento a la cotización";
+  const soloDuda = !cita && !lead.quiereAsesor && lead.duda;
+  const siguiente = cita ? "Confirmar la visita y recibirlo en agencia" : soloDuda ? "Contestarle ese dato; Sofía sigue la plática mientras" : lead.quiereAsesor ? "Contactarlo y retomar la conversación" : "Dar seguimiento a la cotización";
   const renglones = [
-    cita ? `📅 CITA · ${nombre} · ${cita.texto}` : lead.postventa ? `🛠️ POSTVENTA (devolución, servicio o trámite) · ${nombre} · Sofía le dijo que lo revisas y le confirmas; no le vende en este chat 12 h` : `🔥 PIDE ASESOR · ${nombre}`,
+    cita ? `📅 CITA · ${nombre} · ${cita.texto}` : soloDuda ? `❓ ${/auto a cuenta/i.test(lead.duda) ? "AUTO A CUENTA" : "TE PREGUNTA ALGO QUE NO SÉ"} · ${nombre}\n«${lead.duda}»` : lead.postventa ? `🛠️ POSTVENTA (devolución, servicio o trámite) · ${nombre} · Sofía le dijo que lo revisas y le confirmas; no le vende en este chat 12 h` : `🔥 PIDE ASESOR · ${nombre}`,
     interes && `Vehículo: ${interes}${lead.precio ? ` · ${pesos(lead.precio)}` : ""}`,
     pago,
     corrida,
@@ -649,7 +656,7 @@ async function guardarInventario(store, autos) {
     return {
       id, marca: txt(a.marca), modelo: txt(a.modelo), version: txt(a.version), anio: num(a.anio) || "",
       precio: num(a.precio), tipo: a.tipo === "seminuevo" ? "seminuevo" : "nuevo", km: num(a.km),
-      color: txt(a.color), transmision: txt(a.transmision), descripcion: txt(a.descripcion, 400),
+      color: txt(a.color), transmision: txt(a.transmision), descripcion: txt(a.descripcion, 400), promo: txt(a.promo, 200),
       palabras: (Array.isArray(a.palabras) ? a.palabras : String(a.palabras ?? "").split(",")).map((x) => txt(x, 40)).filter(Boolean).slice(0, 10),
       disponible: a.disponible !== false,
       ...(MEDIA_ID.test(a.fotoId ?? "") ? { fotoId: a.fotoId } : {}),

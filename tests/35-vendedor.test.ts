@@ -419,3 +419,52 @@ describe("vendedora · vende como persona con el inventario", () => {
     expect(r.respuestas[0]!.texto).not.toMatch(/BR-V/);
   });
 });
+
+describe("vendedora · contesta como experto sin inventar", () => {
+  const inv = [
+    { id: "city", marca: "Honda", modelo: "City", anio: 2026, precio: 401900, tipo: "nuevo", palabras: ["city", "sedan"], foto: "https://x/media/city" },
+    { id: "crv", marca: "Honda", modelo: "CR-V", anio: 2027, precio: 830900, tipo: "nuevo", palabras: ["crv", "camioneta"], descripcion: "SUV con gran espacio.", foto: "https://x/media/crv" },
+  ];
+  const cfg = { asesor: "Mario Abarca", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, direccion: "Av. Ejemplo 500, Monterrey" };
+  const charla = (msgs: string[]) => {
+    let conv = {};
+    return msgs.map((texto, i) => {
+      const r = decidir({ cfg, inventario: inv, conv, msg: { texto, nombre: "Laura", primero: i === 0 }, ahora: new Date(Date.parse("2026-11-23T18:00:00Z") + i * 60000), libres: [] }) as Resultado;
+      conv = r.conv;
+      return r;
+    });
+  };
+  it("«¿es automática?» es una pregunta del auto, no una queja de bot", () => {
+    const r = charla(["precio de la crv", "es automatica?"])[1]!;
+    expect(r.motivo).toBe("dato");
+    expect(r.respuestas[0]!.texto).toMatch(/^Buena pregunta 👌 De la CR-V te confirmo la transmisión/);
+    expect(r.lead.duda).toBe("es automatica?");
+  });
+  it("«¿cuánta garantía trae?» antes de comprar no es postventa", () => {
+    const r = charla(["cuanta garantia trae la crv?"])[0]!;
+    expect(r.motivo).toBe("garantia");
+    expect(r.lead.postventa).toBeUndefined();
+  });
+  it("requisitos, ubicación y horario con datos reales de Mario", () => {
+    expect(charla(["que requisitos piden para el credito"])[0]!.respuestas[0]!.texto).toContain("INE vigente, comprobante de domicilio");
+    expect(charla(["donde estan?"])[0]!.respuestas[0]!.texto).toContain("Estoy en Av. Ejemplo 500, Monterrey");
+    expect(charla(["abren el domingo?"])[0]!.respuestas[0]!.texto).toContain("El domingo no abrimos 🙏");
+  });
+  it("auto a cuenta: pide los datos y avisa a Mario para valuarlo", () => {
+    const [a, b] = charla(["tengo un carro para dar a cuenta", "un versa 2019 con 80 mil km"]);
+    expect(a!.motivo).toBe("toma");
+    expect(b!.motivo).toBe("toma");
+    expect(b!.lead).toMatchObject({ autoAToma: "un versa 2019 con 80 mil km" });
+  });
+  it("«sí» avanza, «a 60 meses» sin enganche cotiza con el mínimo y «está muy cara» ofrece salidas", () => {
+    const rs = charla(["precio de la crv", "si"]);
+    expect(rs[1]!.respuestas[0]!.texto).toMatch(/^Para cotizar la \*Honda CR-V 2027\*/);
+    expect(charla(["precio de la crv", "y a 60 meses?"])[1]!.respuestas[0]!.texto).toMatch(/^A 60 meses, con el 20% de enganche \(\$166,180\), la CR-V te queda en/);
+    expect(charla(["precio de la crv", "esta muy cara"])[1]!.respuestas[0]!.texto).toMatch(/o te enseño el City \(\$401,900\)\. ¿Qué mensualidad te quedaría cómoda\?$/);
+  });
+  it("un modelo que no tengo no se cotiza a ciegas", () => {
+    const r = charla(["info del accord"])[0]!;
+    expect(r.motivo).toBe("sin-modelo");
+    expect(r.respuestas[0]!.texto).toContain("El Accord ahorita no lo tengo en piso");
+  });
+});

@@ -217,8 +217,8 @@ const DICE = {
 };
 const MENU = ["menu", "inicio", "opciones", "regresar", "volver"];
 // Clientes que ya compraron o no vienen a comprar: se atienden como Mario, sin menú de ventas.
-const POSTVENTA = ["devolucion", "devoluciones", "devolver", "devuelvan", "devuelven", "reembolso", "rembolso", "reembolsar", "garantia", "refaccion", "refacciones",
-  "taller", "mantenimiento", "cita de servicio", "servicio de mi", "servicio a mi", "factura", "facturar", "facturacion", "falla", "fallas", "queja", "reclamo",
+const POSTVENTA = ["devolucion", "devoluciones", "devolver", "devuelvan", "devuelven", "reembolso", "rembolso", "reembolsar", "mi garantia", "por garantia", "valida la garantia", "valer la garantia", "refaccion", "refacciones",
+  "taller", "mantenimiento", "cita de servicio", "servicio de mi", "servicio a mi", "mi factura", "refacturar", "refacturacion", "falla", "fallas", "queja", "reclamo",
   "reclamacion", "cancelar mi", "cancelacion", "mi apartado", "mi deposito", "ya lo compre", "ya la compre", "ya compre", "me lo entregaron", "me la entregaron",
   "entrega de mi", "mis placas", "tarjeta de circulacion", "endoso", "pagare", "estado de cuenta", "domiciliacion"];
 // Modelos Honda que la gente pide por nombre (sin inventario cargado igual se reconocen para llevarlos a la cita).
@@ -342,7 +342,8 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
   if (comandoPrueba) delete c.silencioHasta; // en el chat «Tú», /sofia siempre reanuda la prueba
   if (c.silencioHasta && now < new Date(c.silencioHasta) && !pideMenu) return quedar("postventa-silencio");
   // Se queja de que le contesta un bot: no se le responde más; Mario lo atiende personalmente.
-  if (!comandoPrueba && /\b(bot|robot|contestadora|maquina|automatico|automatica)\b/.test(limpio)) {
+  // «Automática» sola es la transmisión: solo cuenta si habla de respuestas o mensajes automáticos.
+  if (!comandoPrueba && /\b(bot|robot|contestadora|maquina)\b|\b(respuestas?|mensajes?|contestas|contesta|eres|es una|es un)\s+(automatic[oa]s?)\b/.test(limpio)) {
     Object.assign(lead, { quiereAsesor: true });
     Object.assign(c, { paso: "asesor", desde: now.toISOString(), opciones: null, silencioHasta: new Date(now.getTime() + 12 * HORA).toISOString() });
     return quedar("dice-bot");
@@ -416,6 +417,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       a.precio > 0 ? `💵 *${pesos(a.precio)}* de contado` : "💵 Precio: te lo confirmo en un momento",
       detalles && `🔹 ${detalles}`,
       a.descripcion?.trim(),
+      a.promo?.trim() && `🎁 ${a.promo.trim()}`,
       m && `💳 A crédito desde ~${pesos(m)} al mes (${v.engancheMinimo}% de enganche, ${Math.max(...v.plazos)} meses)*`,
     ].filter(Boolean);
     return `${datos.join("\n")}\n\n${variar("ficha", ["¿Te la cotizo a crédito o prefieres venir a manejarla?", "¿Cómo la quieres, a crédito o de contado? Si gustas también te agendo una prueba de manejo."])}${m ? `\n\n_*Estimado con tasa referencial de ${v.tasaAnual}% anual; sujeto a aprobación._` : ""}`;
@@ -520,13 +522,24 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     const dia = /\bhoy\b/.test(s) ? "hoy"
       : /\bmanana\b/.test(s) && !/\b(en|por|de) la manana\b/.test(s) ? "manana"
         : ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"].find((d) => new RegExp(`\\b${d}\\b`).test(s));
+    const franja = /\btarde\b/.test(s) ? "tarde" : /\b(en|por) la manana\b|\btemprano\b|\bmatutin/.test(s) ? "manana" : null;
     let candidatos = [];
-    if (dia) {
+    if (!dia && franja) {
+      // «En la tarde»: del mismo día que se le había ofrecido.
+      const ofrecidos = (c.opciones ?? []).filter((o) => o.startsWith("slot:")).map((o) => libres.find((l) => l.id === o.slice(5))).filter(Boolean);
+      const dias = new Set(ofrecidos.map(diaDe));
+      candidatos = libres.filter((x) => dias.has(diaDe(x)));
+    } else if (dia) {
       candidatos = libres.filter((x) => { const tx = sinAcentos(x.texto); return dia === "hoy" ? tx.startsWith("hoy") : dia === "manana" ? tx.startsWith("manana") : tx.includes(dia); });
       const primerDia = candidatos[0] && diaDe(candidatos[0]);
       candidatos = candidatos.filter((x) => diaDe(x) === primerDia);
     } else if (hora !== null) {
       candidatos = (c.opciones ?? []).filter((o) => o.startsWith("slot:")).map((o) => libres.find((l) => l.id === o.slice(5))).filter(Boolean);
+    }
+    if (franja) {
+      const enFranja = candidatos.filter((x) => (franja === "tarde" ? minDe(x) >= 14 * 60 : minDe(x) < 12 * 60));
+      if (enFranja.length) candidatos = enFranja;
+      else if (candidatos.length) return pedirCita(franja === "tarde" ? "En la tarde ya no me queda espacio ese día." : "En la mañana ya no me queda espacio ese día.");
     }
     if (!libres.length || (!dia && !candidatos.length)) return anotarCita(txt);
     if (dia && !candidatos.length) return pedirCita(dia === "hoy" ? "Hoy ya no me queda espacio." : "Ese día ya lo tengo lleno.");
@@ -559,6 +572,226 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     }
   };
 
+  /** «la CR-V», «el City»: como se dice en la plática (el nombre completo va en las fichas). */
+  const la = (a) => (a ? `${femenino(a.modelo) ? "la" : "el"} ${a.modelo || nombreAuto(a)}` : "");
+  const dela = (a) => la(a).replace(/^el /, "del ").replace(/^la /, "de la ");
+  const minimo = (a) => Math.round(a.precio * v.engancheMinimo / 100);
+  const plazoMax = Math.max(...v.plazos);
+  /** Algo que no sé con certeza: no se inventa. Lo digo como Mario, sigo vendiendo y a Mario le llega la pregunta. */
+  const confirmo = (tema) => { lead.duda = texto.trim().slice(0, 160); return tema; };
+  /** La pregunta que sigue para avanzar la venta, según lo que ya sé del cliente. */
+  const siguePaso = (a) => {
+    if (!a) { ir("menu", OPCIONES_MENU); return autos.length ? "¿Qué modelo te interesa? Te paso precio, fotos y la corrida." : "¿Qué modelo traes en mente?"; }
+    ir("auto", ["cotizar", "cita", "lista", "asesor"]);
+    return variar("sigue", ["¿La quieres a crédito o de contado?", "¿Te armo la corrida o prefieres venir a manejarla?"]);
+  };
+
+  // ── Respuestas a lo que Sofía acaba de preguntar (sí, no sé, plazos, presupuesto, auto a cuenta) ──
+  function siguePlatica({ actual: a, dice: d }) {
+    const afirma = /^(si+|simon|sale|va|vale|claro|ok|okey|okay|dale|andale|perfecto|me parece( bien)?|de acuerdo|esta bien|por favor|porfa|si por favor|si porfa|si claro|claro que si|si me interesa|me interesa|orale|si va|va que va)$/.test(limpio);
+    // Auto a cuenta: lo que describe de su carro.
+    if (c.paso === "toma" && !d.asesor && (/\b(19|20)\d{2}\b|\bkm\b|kilometr|\bmillas\b/.test(t) || (texto.trim().split(/\s+/).length >= 2 && !d.precio && !d.credito && !d.cita && !d.contado))) {
+      lead.autoAToma = texto.trim().slice(0, 120);
+      lead.duda = `Valuar auto a cuenta: ${lead.autoAToma}`;
+      calentar("caliente");
+      const sig = siguePaso(a);
+      return { motivo: "toma", texto: `Perfecto, con eso te lo valúo y hoy mismo te digo en cuánto te lo tomo 👌 ${a ? `Mientras, ${dela(a)}: ${sig.charAt(0).toLowerCase()}${sig.slice(1)}` : sig}` };
+    }
+    // «No sé cuánto» de enganche: se cotiza con el mínimo.
+    if (c.paso === "enganche" && a?.precio > 0 && (tieneAlguna(t, NO_SABE) || afirma)) return { motivo: "cotizacion", texto: `Te la armo con el mínimo y de ahí vemos 👌\n${cotizar(a, minimo(a))}` };
+    // «¿Y a 60 meses?» sin haber dado enganche: con el mínimo.
+    const p = plazoDicho(t, c.paso === "cotizado");
+    if (p && a?.precio > 0 && !(c.paso === "cotizado" && c.enganche > 0)) {
+      const eng = c.enganche > 0 ? c.enganche : minimo(a);
+      const m = mensualidad(a.precio - eng, v.tasaAnual, p);
+      Object.assign(lead, { formaPago: "credito", plazo: p, mensualidad: Math.round(m) });
+      calentar("caliente");
+      ir("enganche");
+      return { motivo: "plazo", texto: `A ${p} meses, con el ${v.engancheMinimo}% de enganche (${pesos(eng)}), ${la(a)} te queda en *~${pesos(m)}* al mes.* ¿Con cuánto de enganche te gustaría arrancar? Si das más, baja la mensualidad.\n\n_*Estimado con tasa referencial de ${v.tasaAnual}% anual; sujeto a aprobación._` };
+    }
+    // «Como 8 mil al mes»: qué le alcanza, o cuánto enganche ocupa para el que está viendo.
+    const mens = /(\d[\d,.]*)\s*(mil|k)?\s*(pesos\s*)?(al mes|mensual\w*|de mensualidad|por mes|cada mes)/.exec(t) || (c.paso === "presupuesto" && montoExplicito(texto) ? /(\d[\d,.]*)\s*(mil|k)?/.exec(t) : null);
+    if (mens && autos.length && !/enganche/.test(t)) {
+      const objetivo = Number(mens[1].replace(/[,.]/g, "")) * (mens[2] ? 1000 : 1);
+      if (objetivo >= 1500 && objetivo <= 200000) {
+        calentar("caliente");
+        lead.formaPago = "credito";
+        lead.mensualidadDeseada = objetivo;
+        if (a?.precio > 0) {
+          const necesita = Math.max(minimo(a), Math.round(a.precio - financiable(objetivo, v.tasaAnual, plazoMax)));
+          if (necesita <= a.precio * 0.5) {
+            ir("enganche");
+            return { motivo: "presupuesto", texto: `Para que ${la(a)} te quede en ~${pesos(objetivo)} al mes a ${plazoMax} meses, ocuparías unos *${pesos(Math.ceil(necesita / 1000) * 1000)}* de enganche.* ¿Cómo lo ves? Si quieres te la cotizo con otro enganche.\n\n_*Estimado con tasa referencial de ${v.tasaAnual}% anual; sujeto a aprobación._` };
+          }
+        }
+        const alcanzan = autos.filter((x) => x.precio > 0 && mensualidad(x.precio - minimo(x), v.tasaAnual, plazoMax) <= objetivo * 1.03).sort((x, y) => y.precio - x.precio);
+        if (alcanzan.length) return { motivo: "presupuesto", texto: lista(alcanzan, null, `${a?.precio > 0 ? `Para ${la(a)} con esa mensualidad ocuparías mucho enganche. ` : ""}Con ~${pesos(objetivo)} al mes (${v.engancheMinimo}% de enganche a ${plazoMax} meses) te alcanza para:`) };
+        const barato = autos.filter((x) => x.precio > 0).sort((x, y) => x.precio - y.precio)[0];
+        if (barato) { elegirAuto(barato); ir("enganche"); return { motivo: "presupuesto", texto: `Con ${pesos(objetivo)} al mes lo más cercano es ${la(barato)}: con más enganche llegamos. ¿Cuánto podrías dar de enganche?` }; }
+      }
+    }
+    // «Sí» / «va» / «ok»: avanza con lo que se le acababa de ofrecer.
+    if (afirma) {
+      if (c.paso === "auto" && a) return { motivo: "credito", texto: pedirEnganche(a) };
+      if (c.paso === "cotizado") return { motivo: "cita", texto: pedirCita() };
+      if (c.paso === "corrida") return { motivo: "corrida", texto: conEnganche(null) };
+      if (c.paso === "cita") return { motivo: "cita", texto: pedirCita("¡Va!") };
+      if ((c.paso === "menu" || c.paso === "lista") && autos.length) return { motivo: "lista", texto: lista() };
+      if (c.paso === "asesor") return { motivo: "acuse", texto: variar("acuse", ["👍", "Va, aquí ando."]) };
+    }
+    return null;
+  }
+
+  // ── Preguntas de cliente que Mario contesta de memoria (sin IA). Lo que no sé con certeza: «te lo confirmo» ──
+  function experto({ actual: a, mencionados: ms, modelo: mod }) {
+    const r = (motivo, texto, foto) => ({ motivo, texto, foto });
+    // Quiere llamarme
+    if (/\b(te marco|te llamo|puedo (llamarte|marcarte)|te puedo (llamar|marcar)|me (das|pasas) (tu )?(numero|telefono|cel\w*))\b/.test(t)) {
+      lead.duda = "Quiere hablar por teléfono";
+      return r("llamada", "¡Claro! Márcame a este mismo número cuando gustes 📞 Si no te contesto es que estoy con un cliente y te regreso la llamada.");
+    }
+    // Auto a cuenta
+    if (/\b(a cuenta|toma de (mi )?(auto|carro|coche)|me (lo|la) (reciben|toman|aceptan|recibes|tomas)|recibe[ns]? (autos?|carros?|coches?|seminuevos?)|(dar|dejar) (mi|el) (auto|carro|coche|camioneta)|cambiar mi (auto|carro|coche|camioneta)|tengo (un|mi) (auto|carro|coche|camioneta) para)\b/.test(t)) {
+      calentar("tibio");
+      ir("toma");
+      return r("toma", "¡Claro que sí! Recibo tu auto a cuenta 🙌 Pásame marca, modelo, año y kilometraje (y si puedes unas fotos) y te digo en cuánto te lo tomo.");
+    }
+    // Requisitos y documentos del crédito
+    if (/\b(requisitos|que (necesito|piden|ocupo|me piden|documentos)|papeles|documentacion|documentos)\b/.test(t)) {
+      lead.formaPago = "credito";
+      calentar("tibio");
+      const base = "Para el crédito normalmente te pido: INE vigente, comprobante de domicilio reciente y comprobantes de ingresos (recibos de nómina o estados de cuenta de los últimos 3 meses). Con eso lo metemos a revisión y en 1 o 2 días te tengo respuesta.";
+      if (a?.precio > 0) { elegirAuto(a); ir("enganche"); return r("requisitos", `${base}\n\n¿Te armo la corrida ${dela(a)}? ¿Con cuánto de enganche te gustaría arrancar?`); }
+      return r("requisitos", `${base}\n\n${siguePaso(null)}`);
+    }
+    // Buró de crédito
+    if (/\b(buro|mal historial|historial (crediticio )?malo|me rechazaron|sin historial|no tengo historial|no tengo como comprobar|no compruebo|sin comprobar ingresos)\b/.test(t)) {
+      lead.formaPago = "credito";
+      lead.duda = texto.trim().slice(0, 160);
+      calentar("tibio");
+      if (a) { elegirAuto(a); ir("enganche"); }
+      else ir("corrida");
+      return r("buro", `Sí se puede revisar 🙂 Cada caso lo ve la financiera y con un buen enganche hay más chance de que salga. ${a ? `Para ${la(a)}, ¿como cuánto podrías dar de enganche?` : "¿Qué auto te interesa y como cuánto podrías dar de enganche?"}`);
+    }
+    // Enganche mínimo / sin enganche
+    if (/\b(sin enganche|enganche minimo|minimo de enganche|lo minimo|cuanto (es|seria|piden|necesito) (de|del|el|para el) enganche|de cuanto es el enganche|cuanto de enganche)\b/.test(t)) {
+      lead.formaPago = "credito";
+      calentar("tibio");
+      const sin = /sin enganche/.test(t) ? "Sin enganche no se puede, pero el" : "El";
+      if (a?.precio > 0) { elegirAuto(a); ir("enganche"); return r("enganche", `${sin} enganche mínimo es de ${v.engancheMinimo}%: para ${la(a)} son *${pesos(minimo(a))}*. ¿Con cuánto te gustaría arrancar? Si quieres te la armo con el mínimo.`); }
+      ir("menu", OPCIONES_MENU);
+      return r("enganche", `${sin} enganche mínimo es de ${v.engancheMinimo}% del precio. ¿Qué auto te interesa? Te digo cuánto sería.`);
+    }
+    // Formas de pago con tarjeta
+    if (/\b(tarjeta( de credito)?|meses sin intereses|msi)\b/.test(t)) return r("pago", confirmo(`Sí manejo varias formas de pago 🙂 Con tarjeta te confirmo si aplica comisión o meses, depende del banco. ${siguePaso(a)}`));
+    // Seguro
+    if (/\b(incluye|con|el|del|cuanto (es|sale|cuesta) el|y el) seguro\b|\bseguro (de auto|incluido|va incluido|esta incluido)\b/.test(t)) return r("seguro", `El seguro se cotiza aparte según tu perfil y código postal; en la cotización formal te lo incluyo para que veas el total. ${siguePaso(a)}`);
+    // Ubicación
+    if (/\b(donde (estan|se ubican|queda|quedan|los encuentro|te encuentro|es)|ubicacion|direccion|como llego|en que parte|mandame la ubicacion|pasame la ubicacion)\b/.test(t)) {
+      if (cfg.direccion) return r("ubicacion", `Estoy en ${cfg.direccion}${cfg.mapa ? `\n📍 ${cfg.mapa}` : ""}\n\n${pedirCita()}`);
+      lead.duda = "Pidió la ubicación (ponla en Sofía Web → ⚙ para que la mande sola)";
+      return r("ubicacion", `Te mando la ubicación en un momento 📍 ${pedirCita()}`);
+    }
+    // Horario
+    if (/\b(a que hora (abren|cierran|estan|trabajan)|horarios?|que dias (abren|trabajan|estan)|abren (el|los|hoy|manana|en)|estan abiertos|trabajan (el|los|en) (domingo|sabado|fin)|cierran)\b/.test(t)) {
+      const nombresDia = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+      const pide = nombresDia.findIndex((dd) => new RegExp(`\\b${dd}s?\\b`).test(t));
+      const cerrado = pide >= 0 && cfg.horario?.dias && !cfg.horario.dias.includes(pide);
+      const hor = horario ? `Te atiendo ${horario}.` : "";
+      return r("horario", `${cerrado ? `El ${DIAS_LARGOS[pide]} no abrimos 🙏 ` : ""}${hor} ${pedirCita()}`.trim());
+    }
+    // Garantía (antes de comprar)
+    if (/\bgarantia\b/.test(t)) return r("garantia", confirmo(`Todos mis Honda nuevos traen la garantía de fábrica de Honda 👌 El detalle exacto de años y kilómetros${a ? ` ${dela(a)}` : ""} te lo confirmo ahorita. ${siguePaso(a)}`));
+    // Entrega
+    if (/\b(entrega inmediata|cuanto tard\w*|tiempo de entrega|cuando me (lo|la) entreg\w*|en cuanto tiempo|la tienen en piso|lo tienen en piso|hay existencia|tienen existencia)\b/.test(t)) {
+      return r("entrega", confirmo(`Si la unidad está en piso, en cuanto queda aprobado el crédito (o el pago de contado) te la entrego en pocos días; si hay que pedirla te confirmo la fecha exacta. ${a ? `${mayus(dela(a))} te confirmo existencia en un momento. ` : ""}${siguePaso(a)}`));
+    }
+    // Promociones
+    if (/\b(promo\w*|descuentos?|ofertas?|bonos?|rebajas?)\b/.test(t)) {
+      const con = autos.filter((x) => x.promo || /\b(promo|bono|descuento|tasa)\w*/i.test(sinAcentos(x.descripcion ?? "")));
+      if (con.length) {
+        ir("lista", con.slice(0, MAX_LISTA).map((x) => `auto:${x.id}`));
+        return r("promo", `Esto es lo que tengo en promoción:\n${enumerar(con.slice(0, MAX_LISTA).map((x) => `*${nombreAuto(x)}*: ${x.promo || x.descripcion}`))}\n\n¿Cuál te late? Te paso los números.`);
+      }
+      return r("promo", confirmo(`Las promos cambian según el modelo y la forma de pago. ${a ? `${mayus(dela(a))} te confirmo la vigente ahorita. ${siguePaso(a)}` : "Dime cuál te interesa y te digo qué te aplica hoy 🙌"}`));
+    }
+    // Comparar dos modelos
+    if (ms.length >= 2 && /\b(diferencia|diferencias|compar\w*|cual es mejor|cual me conviene|cual recomiendas|vs|versus)\b/.test(t)) {
+      const dos = ms.slice(0, 3);
+      ir("lista", dos.map((x) => `auto:${x.id}`));
+      calentar("tibio");
+      return r("comparar", `${dos.map((x) => `• *${nombreAuto(x)}*: ${x.precio > 0 ? pesos(x.precio) : "precio por confirmar"}${capacidad(x) > 5 ? ` · ${capacidad(x)} pasajeros` : ""}${x.descripcion ? ` — ${x.descripcion.split(/(?<=\.)\s/)[0]}` : ""}`).join("\n")}\n\n¿Para qué la usarías más, ciudad, carretera o familia? Así te digo cuál te conviene.`);
+    }
+    // Para qué la quiere: plataforma, trabajo, primer auto
+    if (autos.length && !ms.length && /\b(uber|didi|plataforma|taxi|indriver|cabify|para trabajar)\b/.test(t)) {
+      const barato = autos.filter((x) => x.precio > 0).sort((x, y) => x.precio - y.precio)[0];
+      if (barato) { const f = ficha(barato); return r("recomienda", `Para plataforma la que más me piden es ${la(barato)}: rendidora, cómoda y la más accesible.\n\n${f}`, barato.foto); }
+    }
+    // Datos técnicos: colores, híbrido, rendimiento, versiones, equipamiento…
+    const TEMAS = [
+      [/\b(colou?res?|blanc[oa]|negr[oa]|gris|roj[oa]|azul|plata|arena)\b/, "los colores que tengo en piso"],
+      [/\b(hibrid\w*|electric\w*|e ?hev)\b/, "si la tengo en versión híbrida y su precio"],
+      [/\b(rendimiento|rinde|consumo|gasolina|litro|km por litro)\b/, "el rendimiento exacto"],
+      [/\b(version\w*|equipad\w*|equipamiento|touring|prime|sport|i-?style|uniq|tope de gama|la mas completa)\b/, "las versiones y su equipamiento"],
+      [/\b(motor|caballos|hp|turbo|potencia|traccion|awd|4x4)\b/, "los datos del motor"],
+      [/\b(cajuela|maletero|medidas|tamano|espacio)\b/, "las medidas exactas"],
+      [/\b(piel|pantalla|carplay|android auto|quemacocos|camara|sensores|sensing|bolsas de aire)\b/, "ese equipamiento"],
+      [/\b(automatic[oa]|estandar|manual|cvt|transmision)\b/, "la transmisión"],
+    ];
+    const tema = TEMAS.find(([re]) => re.test(t));
+    if (tema && (a || mod)) {
+      const objetivo = a ?? null;
+      if (objetivo) {
+        const desc = sinAcentos(`${objetivo.descripcion ?? ""} ${objetivo.transmision ?? ""} ${(objetivo.palabras ?? []).join(" ")}`);
+        const sabe = tema[0].test(desc);
+        const primeraVez = c.autoId !== objetivo.id || !c.paso || !["auto", "cotizado", "enganche"].includes(c.paso);
+        const respuesta = sabe
+          ? `Sí 👌 ${objetivo.transmision && /transmision|automatic|estandar|manual|cvt/.test(t) ? `${la(objetivo)} es ${objetivo.transmision}.` : objetivo.descripcion}`
+          : confirmo(`Buena pregunta 👌 ${mayus(dela(objetivo))} te confirmo ${tema[1]} en un momento.`);
+        if (primeraVez) { const f = ficha(objetivo); return r("dato", `${respuesta} Mientras, te paso la info:\n\n${f}`, objetivo.foto); }
+        return r("dato", `${respuesta} ${siguePaso(objetivo)}`);
+      }
+    }
+    // Un modelo que no tengo en inventario (p. ej. Accord): no se cotiza a ciegas; se ofrece lo parecido.
+    if (mod && autos.length && !ms.length) {
+      const sedan = ["City", "Civic", "Accord"].includes(mod);
+      const parecidos = autos.filter((x) => (["City", "Civic", "Accord"].includes(x.modelo) === sedan)).sort((x, y) => x.precio - y.precio);
+      lead.duda = `Pregunta por ${mod} (no está en inventario)`;
+      return r("sin-modelo", parecidos.length ? lista(parecidos, null, `${femenino(mod) ? "La" : "El"} ${mod} ahorita no ${femenino(mod) ? "la" : "lo"} tengo en piso; te checo disponibilidad. Lo más parecido que tengo:`) : `${femenino(mod) ? "La" : "El"} ${mod} ahorita no ${femenino(mod) ? "la" : "lo"} tengo en piso; te checo disponibilidad y te aviso. ${siguePaso(null)}`);
+    }
+    // Prueba de manejo a domicilio
+    if (/\b(llevar\w* a (mi )?(casa|trabajo|oficina)|a domicilio|me (la|lo) (traen|llevan|puedes traer|pueden traer))\b/.test(t)) return r("domicilio", confirmo(`Déjame checar si te la puedo llevar 🙌 Si no, te recibo aquí en la agencia a la hora que te acomode. ${pedirCita()}`));
+    // Objeción: «está muy cara»
+    if (/\b(muy car[oa]|esta car[oa]|caris\w*|se me hace (mucho|car[oa])|no me alcanza|fuera de mi presupuesto|esta pesad\w*|muy alto|mucho dinero)\b/.test(t)) {
+      calentar("tibio");
+      ir("presupuesto");
+      const m = a?.precio > 0 ? mensualidad(a.precio - minimo(a), v.tasaAnual, plazoMax) : 0;
+      const alt = a ? autos.filter((x) => x.precio > 0 && x.precio < a.precio).sort((x, y) => y.precio - x.precio).slice(0, 2) : [];
+      return r("objecion-precio", `Te entiendo. Se puede acomodar: a más plazo baja la mensualidad${m ? ` (a ${plazoMax} meses queda desde ~${pesos(m)})` : ""}${alt.length ? `, o te enseño ${yO(alt.map((x) => `${la(x)} (${pesos(x.precio)})`))}` : ""}. ¿Qué mensualidad te quedaría cómoda?`);
+    }
+    // Objeción: «lo voy a pensar» / «luego te escribo»
+    if (/\b(lo voy a pensar|lo pienso|dejame (pensarlo|verlo|checarlo|platicarlo)|lo platico|lo consulto|lo voy a platicar|luego te (escribo|aviso|digo|marco)|despues te (escribo|aviso)|te aviso|ahorita no|por ahora no|todavia no)\b/.test(t)) {
+      calentar("tibio");
+      ir("corrida");
+      return r("objecion-pensar", variar("pensar", ["Claro, sin presión 🙂 Si quieres te mando la corrida por escrito para que lo platiques con calma. ¿Te la armo?", "Va, tómate tu tiempo 🙂 ¿Te ayudo con algo para decidir? Si quieres te armo la corrida para que la tengas a la mano."]));
+    }
+    // Está comparando con otra marca
+    if (/\b(rav ?4|toyota|mazda|cx ?5|cx ?30|cx ?50|nissan|kia|hyundai|chevrolet|chevy|volkswagen|vw|tiguan|taos|tucson|sportage|x ?trail|kicks|chirey|tiggo|byd|jetta|sentra|versa|corolla|yaris|mg|seltos|creta)\b/.test(t)) {
+      calentar("tibio");
+      return r("competencia", `Está bien comparar 👌 ${a ? `Si quieres te armo la corrida ${dela(a)} para que compares números lado a lado, y la manejas sin compromiso. ${siguePaso(a)}` : "¿Qué Honda te gustaría comparar? Te paso precio, fotos y corrida."}`);
+    }
+    return null;
+  }
+  function reglaDeMario() {
+    const regla = (cfg.reglas ?? []).find((rg) => (rg.palabras ?? []).some((p) => contienePalabra(texto, p)));
+    return regla ? { motivo: "regla", texto: rellenar(regla.respuesta, vars) } : null;
+  }
+  /** Cuánto se puede financiar con una mensualidad dada (lo inverso de mensualidad). */
+  function financiable(pago, tasaAnual, meses) {
+    const i = tasaAnual / 100 / 12;
+    return i === 0 ? pago * meses : (pago * (1 - (1 + i) ** -meses)) / i;
+  }
+
   try {
     const primero = Boolean(msg.primero) && !c.paso;
     const mencionados = buscarAutos(texto, autos);
@@ -568,9 +801,16 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     const modelo = !mencionados.length ? modeloMencionado(texto) : null;
     if (modelo) { c.modelo = modelo; lead.interes = `${cfg.marca || "Honda"} ${modelo}`; }
     const eng = !autos.length ? engancheDicho(texto) : null;
+    const actual = mencionados.length === 1 ? mencionados[0] : porId(c.autoId);
+    let x = null; // respuesta de las piezas «experto»: { motivo, texto, foto? }
+    const usar = (r) => { motivo = r.motivo; decir(r.texto, r.foto || undefined); };
+
+    // 0. Solo emojis o una reacción a media plática: no hace falta contestar.
+    if (!limpio && !/\d/.test(texto) && c.paso && !primero) return quedar("emoji");
 
     // 1. Lo que contesta a la pregunta anterior de Sofía.
     if (pideMenu) { motivo = "menu"; decir(menu()); }
+    else if ((x = siguePlatica({ actual, dice, mencionados, modelo }))) usar(x);
     else if (c.paso === "nombre" && texto.trim().split(/\s+/).length <= 5 && !dice.asesor) {
       motivo = "nombre"; // después de apartar: su nombre, y la plática ya la sigue el asesor
       lead.nombreCliente = texto.trim().replace(/^(soy|me llamo|a nombre de)\s+/i, "").slice(0, 60);
@@ -600,12 +840,14 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     else if ((c.paso === "enganche" || (["auto", "cotizado"].includes(c.paso) && montoExplicito(texto))) && !dice.asesor && porId(c.autoId)?.precio > 0 && leerEnganche(texto, porId(c.autoId).precio) !== null) {
       motivo = "cotizacion";
       decir(cotizar(porId(c.autoId), leerEnganche(texto, porId(c.autoId).precio)));
-    } else if (["cita", "cotizado", "auto"].includes(c.paso) && !dice.asesor && (pareceFecha(texto) || (c.paso === "cita" && horaDicha(t) !== null))) {
+    } else if (["cita", "cotizado", "auto"].includes(c.paso) && !dice.asesor && !/\b(abren|cierran|horarios?|estan abiertos)\b/.test(t) && (pareceFecha(texto) || (c.paso === "cita" && horaDicha(t) !== null))) {
       motivo = "cita-anotada"; // aparta la hora si está libre; si no, ofrece las de ese día
       decir(citaPara(texto));
     }
     // 2. Lo que pide el cliente, de lo más importante a lo menos.
     else if (dice.asesor) { motivo = "asesor"; decir(pasarAsesor()); }
+    else if ((x = reglaDeMario())) usar(x); // lo que Mario escribió en sus respuestas manda sobre lo de fábrica
+    else if ((x = experto({ actual, dice, mencionados, modelo }))) usar(x);
     else if (/\b(fotos?|fotitos?|imagen|imagenes)\b/.test(t)) {
       motivo = "fotos";
       const a = mencionados.length === 1 ? mencionados[0] : porId(c.autoId);
@@ -653,7 +895,10 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
         const semi = tieneAlguna(t, ["seminuevo", "seminuevos", "usado", "usados"]);
         const nuevos = !semi && tieneAlguna(t, ["nuevo", "nuevos", "0 km"]);
         const filtro = semi ? autos.filter((a) => a.tipo === "seminuevo") : nuevos ? autos.filter((a) => a.tipo === "nuevo") : autos;
-        decir(lista(filtro.length ? filtro : autos, null, filtro.length && (semi || nuevos) ? `Estos son los ${semi ? "seminuevos" : "nuevos"} disponibles:` : null));
+        if (semi && !filtro.length) {
+          lead.duda = "Busca seminuevo";
+          decir("Ahorita lo que tengo son puros nuevos 🙂 pero si buscas seminuevo dime qué modelo y presupuesto traes y te consigo opciones.");
+        } else decir(lista(filtro.length ? filtro : autos, null, filtro.length && (semi || nuevos) ? `Estos son los ${semi ? "seminuevos" : "nuevos"} disponibles:` : null));
       }
       else if (dice.lista || dice.precio || dice.credito || dice.contado || modelo) {
         // Sin inventario no hay cifras: se ofrece la corrida (pide enganche) y el asesor la da exacta en la cita.
@@ -672,6 +917,12 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     }
     if (motivo !== "no-entendi") c.fallos = 0;
     // Primer mensaje: siempre se presenta antes de lo demás.
+    // Viene recomendado («de parte de Juan»): se agradece antes de lo demás.
+    if (resp.length && /\b(de parte de|me recomend\w+|me paso tu (numero|contacto|cel))\b/.test(t) && !c.referido) {
+      c.referido = true;
+      lead.referido = texto.trim().slice(0, 120);
+      resp[0] = { ...resp[0], texto: `¡Qué gusto! Gracias por la confianza 🙌\n${resp[0].texto}` };
+    }
     if (primero && resp.length) resp[0] = { ...resp[0], texto: `${saludo()}\n${resp[0].texto}` };
   } catch {
     resp.length = 0;
