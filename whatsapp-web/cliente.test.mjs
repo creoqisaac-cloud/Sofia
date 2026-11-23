@@ -4,6 +4,45 @@ import { EventEmitter } from "node:events";
 import { vincular, tiempoEscribiendo, rutaNavegador } from "./cliente.mjs";
 import { eventoVinculado } from "../prueba/servidor/core.mjs";
 
+test("prueba personal solo responde a comandos propios y evita el eco", async () => {
+  const client = new EventEmitter();
+  const peer = "528100000001";
+  const self = peer + "@c.us";
+  const otro = "528100000002@c.us";
+  client.info = { wid: { user: peer, _serialized: self } };
+  client.getNumberId = async n => ({ _serialized: n + "@c.us" });
+  const data = new Map(), env = {}, enviados = [];
+  const store = { get: async k => data.get(k), put: async (k,v) => data.set(k,v) };
+  const emitir = (id, from, to, body) => client.emit("message_create", { fromMe: from === self, from, to, body, type: "chat", timestamp: Date.now()/1000, id: { _serialized: id } });
+  client.sendMessage = async (to, text) => {
+    enviados.push(to);
+    emitir("out", self, to, text);
+    return { id: { _serialized: "out" } };
+  };
+  env.WA_WEB = vincular(client, e => eventoVinculado(e, env, store), "", true);
+  client.emit("ready");
+  emitir("1", otro, self, "/sofia hola");
+  emitir("2", self, otro, "/sofia hola");
+  emitir("3", self, self, "nota normal");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(enviados, []);
+  emitir("4", self, self, "/sofia Hola");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(enviados.length);
+  assert.ok(enviados.every(n => n === self));
+  const conversaciones = [...data].filter(([k]) => k.startsWith("inbox:c:wa:"));
+  const [claveConversacion, mensajes] = conversaciones[0];
+  const indice = data.get("inbox:index");
+  const idConversacion = claveConversacion.slice("inbox:c:".length);
+  indice[idConversacion].venta = { paso: "asesor", desde: new Date().toISOString(), fallos: 2 };
+  data.set("inbox:index", indice);
+  emitir("5", self, self, "/sofia menú");
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.ok(enviados.length >= 2, "un comando propio explícito debe reanudar una conversación pausada");
+  assert.ok(data.get(claveConversacion).some(m => m.text?.includes("¿Qué modelo te interesa?")));
+  await assert.rejects(env.WA_WEB.enviar({ to: "528100000002", text: "prueba" }));
+});
+
 test("QR, mensaje privado, respuesta de Sofía, duplicado e intervención del asesor", async () => {
   const datos = new Map();
   const store = { get: async k => datos.get(k), put: async (k, v) => datos.set(k, v) };

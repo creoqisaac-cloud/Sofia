@@ -1,5 +1,7 @@
 # Sofía — asistente comercial con IA para Mario Abarca (Honda)
 
+> **Para trabajar con una IA:** empieza por [`AI_CONTEXT.md`](AI_CONTEXT.md); identifica qué carpeta ejecuta Sofía antes de editar.
+
 > **Versión de prueba gratis, sin servidor y sin IA obligatoria:** carpeta [`prueba/`](prueba/LEEME.md) — clientes con recordatorios, crédito con INE por cámara, correos de placas y asistente de WhatsApp. Web en GitHub Pages + APK Android, datos en el dispositivo, servidor propio opcional (Google Apps Script o `node`).
 
 - Sprint 1: **cerebro, persistencia y simulador**.

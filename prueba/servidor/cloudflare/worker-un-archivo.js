@@ -5141,8 +5141,10 @@ function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora = /* @_
     return mensualidad(a2.precio * (1 - v.engancheMinimo / 100), v.tasaAnual, plazo);
   };
   const saludo = () => {
-    const intro = rellenar(v.presentacion?.trim() || "\xA1Hola {nombre}! \u{1F44B}", vars);
-    return msg.enHorario === false ? `${intro} Ahorita estamos cerrados, pero te ayudo por aqu\xED.` : intro;
+    let intro = rellenar(v.presentacion?.trim() || "\xA1Hola {nombre}! \u{1F44B}", vars);
+    const quien = cfg.asesor || "Mario Abarca";
+    if (!sinAcentos(intro).toLowerCase().includes(sinAcentos(quien).toLowerCase())) intro += ` Soy ${quien}, de ${cfg.agencia || cfg.marca || "Honda"}.`;
+    return intro;
   };
   const menu = (encabezado = "\xBFEn qu\xE9 te ayudo?") => {
     if (!autos.length) {
@@ -5249,7 +5251,7 @@ ${enumerar(["Agendar visita / prueba de manejo", "Ver otros autos", `Hablar con 
 ${enumerar([...ops.map((x) => x.texto), "Otro d\xEDa u hora"])}`;
     }
     ir2("cita");
-    return `${intro ? `${intro} ` : ""}\xBFQu\xE9 d\xEDa y a qu\xE9 hora puedes venir${que ? ` a ver ${que}` : ""}?${horario ? ` Abrimos ${horario}.` : ""}`;
+    return `${intro ? `${intro} ` : ""}\xBFQu\xE9 d\xEDa y a qu\xE9 hora te gustar\xEDa venir${que ? ` a ver ${que}` : ""}?${horario ? ` Puedo recibirte ${horario}.` : ""}`;
   };
   const apartar = (id) => {
     const x = libres.find((l2) => l2.id === id);
@@ -5273,7 +5275,7 @@ ${enumerar([...ops.map((x) => x.texto), "Otro d\xEDa u hora"])}`;
     calentar("caliente");
     ir2("asesor");
     return `${intro ? `${intro}
-` : ""}${msg.enHorario === false ? `Va, le aviso ${aAsesor} para que te escriba en cuanto abramos${horario ? ` (${horario})` : ""}.` : `Va, ahorita le aviso ${aAsesor} para que te escriba.`}`;
+` : ""}${msg.enHorario === false ? `Va, le aviso a Mario para que te escriba en cuanto est\xE9 disponible${horario ? ` (${horario})` : ""}.` : `Va, ahorita le aviso ${aAsesor} para que te escriba.`}`;
   }
   const preguntarModelo = () => {
     ir2("menu", ["cita", "asesor"]);
@@ -5504,11 +5506,12 @@ function promptIA({ cfg = {}, inventario = [], historial = [], libres = [] }) {
   const ejemplos = [...cfg.estilo?.ejemplos ?? [], ...cfg.estilo?.deChats ?? []].slice(0, 40);
   const opciones = libres.slice(0, 30);
   const system = [
-    `Contestas el WhatsApp de ventas ${asesorCon(nombre, "de")}, asesor de ${marca}${agencia !== marca ? ` (${agencia})` : ""} en Monterrey. Escribes por \xE9l, como su equipo.`,
-    `Tu meta: que el cliente venga a la agencia con cita. Ah\xED lo atiende ${quien} y cierra la venta.`,
+    `Eres ${quien}, asesor de ventas de ${marca}${agencia !== marca ? ` (${agencia})` : ""} en Monterrey. Responde en primera persona como Mario, con su estilo cercano, atento y directo. No uses el nombre Sof\xEDa ni te presentes espont\xE1neamente como secretaria o bot. No afirmes que hiciste algo que no hayas hecho. Si preguntan directamente si eres una IA, responde con honestidad que eres el asistente digital que contesta por Mario.`,
+    `Tu meta: ayudar al cliente a elegir un auto, resolver sus dudas y facilitar una visita con cita. La cita no termina la conversaci\xF3n: despu\xE9s de confirmarla, sigue contestando con naturalidad, ofrece ayuda con preparaci\xF3n, documentos o dudas del veh\xEDculo y no repitas la invitaci\xF3n a cada mensaje.`,
     "",
     "C\xF3mo escribes:",
-    "- Como una persona normal por WhatsApp: corto (1 o 2 renglones), sencillo y amable. Sin listas ni men\xFAs.",
+    "- Como una persona normal por WhatsApp: c\xE1lido, muy servicial, atento y con humor ligero cuando encaje. Corto (1 o 2 renglones), sencillo y amable. Sin listas ni men\xFAs.",
+    "- Mant\xE9n siempre un trato respetuoso y profesional. No sexualices al cliente, no hagas insinuaciones ni comentarios sobre su cuerpo o atractivo. No confundas amabilidad con coqueteo.",
     "- Nada de frases de vendedor ni de call center: \xABcon gusto te ayudo\xBB, \xABexcelente elecci\xF3n\xBB, \xABpromoci\xF3n del mes\xBB, \xABlo siento\xBB, \xABno puedo\xBB, \xAB\xBFen qu\xE9 m\xE1s te ayudo?\xBB.",
     "- Una pregunta a la vez. No repitas lo que ya dijiste. Si te saludan, saluda.",
     pila !== quien ? `- Si hablas de \xE9l di \xAB${quien}\xBB, nunca solo \xAB${pila}\xBB ni \xAB${pila} te dice\xBB.` : "",
@@ -5524,12 +5527,13 @@ ${ejemplos.map((x) => `  \xB7 ${x.replace(/\s+/g, " ")}`).join("\n")}` : "",
     `- ${corridas ? "Si su modelo no est\xE1 en CORRIDAS" : "A\xFAn no tienes las cifras"}: no des n\xFAmeros. Dile que se la armas y preg\xFAntale cu\xE1ndo puede venir a verla. Si la quiere por aqu\xED, dile que ahorita se la manda ${quien} (pasar_a_asesor = true).`,
     "- Para la cita ofrece DOS horarios de la lista de libres. Si pide otro, el m\xE1s cercano de la lista.",
     "- Si acepta un horario: pon su id exacto en \xABreservar\xBB, conf\xEDrmale d\xEDa y hora y preg\xFAntale a nombre de qui\xE9n.",
-    `- Con cita y nombre cierra con: \xABAl llegar a la agencia pregunta por ${quien} para que vaya a recibirte.\xBB y pasar_a_asesor = true.`,
+    `- Confirma claramente el d\xEDa y la hora de la cita. Si tienes el nombre, di: \xABAl llegar a la agencia pregunta por ${quien} para que vaya a recibirte.\xBB pasar_a_asesor = true solo sirve para avisarle a ${quien}; no des por terminada la conversaci\xF3n. Si el cliente vuelve a escribir despu\xE9s, responde sus dudas y sigue ayudando.`,
     "- Si duda (\xABluego paso\xBB, \xABsolo estoy viendo\xBB): sin presionar, dale una raz\xF3n para venir (verlo, manejarlo, su corrida).",
     "",
     "Nunca:",
     "- Inventes cifras (precios, mensualidades, tasas, descuentos, aval\xFAos, entregas). Solo las de CORRIDAS o las de los autos con precio.",
-    `- Digas que eres una persona. Si te preguntan en serio si eres bot o IA, dilo: eres un asistente que le ayuda ${asesorCon(nombre, "a")} con sus mensajes, y si quiere, \xE9l le escribe directo.`,
+    "- Digas que la agencia est\xE1 cerrada o que no puedes atender por la hora. Sigue ayudando por aqu\xED y acuerda una visita en un horario disponible.",
+    `- Digas espont\xE1neamente que eres bot, secretaria o asistente. Si te preguntan directamente si eres una IA, dilo con honestidad y ofrece que ${quien} le escriba personalmente.`,
     "",
     `pasar_a_asesor = true tambi\xE9n si pide negociar, descuento o hablar con ${quien}.`,
     `resumen (siempre, para ${quien}): nombre, modelo, contado o cr\xE9dito, enganche, auto a cuenta, cita y qu\xE9 sigue.`,
@@ -5542,7 +5546,7 @@ ${ejemplos.map((x) => `  \xB7 ${x.replace(/\s+/g, " ")}`).join("\n")}` : "",
     "Cliente: a las 4",
     "T\xFA: Listo, ma\xF1ana a las 4. \xBFA nombre de qui\xE9n?",
     "Cliente: Luis Trevi\xF1o",
-    `T\xFA: Gracias Luis. Al llegar a la agencia pregunta por ${quien} para que vaya a recibirte.`,
+    `T\xFA: Gracias Luis. Quedamos ma\xF1ana a las 4. Al llegar pregunta por ${quien} para que vaya a recibirte. \xBFQuieres que te pase qu\xE9 documentos conviene llevar?`,
     "",
     `Modelos ${marca} que la gente suele pedir: City (sed\xE1n y hatchback), Civic, Accord, HR-V, BR-V, CR-V, Pilot y Odyssey. Si piden otro, di que ${quien} te confirma si lo tienen.`,
     `Horario de la agencia: ${textoHorario(cfg.horario) || "el que confirme el asesor"}.`,
@@ -5759,7 +5763,7 @@ function waText(m) {
       return `[${m.type}]`;
   }
 }
-var PERFIL = 3;
+var PERFIL = 4;
 var AGENTE_BASE = {
   perfil: PERFIL,
   activo: true,
@@ -5767,7 +5771,7 @@ var AGENTE_BASE = {
   horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" },
   // 0 = domingo, 1 = lunes … 6 = sábado
   bienvenida: "\xA1Hola {nombre}! Gracias por escribir. En un momento te atiendo.",
-  fueraDeHorario: "\xA1Hola {nombre}! Gracias por tu mensaje. En este momento estoy fuera de horario; te contesto en cuanto regrese.",
+  fueraDeHorario: "\xA1Hola {nombre}! Soy Mario Abarca, de Honda. Cu\xE9ntame, \xBFqu\xE9 modelo est\xE1s buscando?",
   reglas: [],
   // [ { palabras: ["precio", "cuánto cuesta"], respuesta: "…" } ]
   esperaHoras: 12,
@@ -5875,6 +5879,7 @@ async function leerConfig(store) {
   if (c && (c.perfil ?? 1) < PERFIL) {
     c = { ...c, perfil: PERFIL, asesor: ["", "Mario", "Lic. Mario Abarca"].includes(c.asesor ?? "") ? AGENTE_BASE.asesor : c.asesor };
     if (/Soy Sofía/i.test(c.ventas?.presentacion ?? "")) c.ventas = { ...c.ventas, presentacion: "" };
+    if (/en este momento estoy fuera de horario/i.test(c.fueraDeHorario ?? "")) c.fueraDeHorario = AGENTE_BASE.fueraDeHorario;
   }
   return { ...AGENTE_BASE, ...c ?? {}, horario: { ...AGENTE_BASE.horario, ...c?.horario ?? {} }, ventas: { ...AGENTE_BASE.ventas, ...c?.ventas ?? {} } };
 }
@@ -5944,6 +5949,16 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
     if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
     if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
     await avisarSiToca(env, store, cfg, e, r, ahora);
+    if (env.WA_WEB?.etiquetar && Object.keys(r.lead).length) {
+      const etiquetas = [
+        r.lead.quiereAsesor && "Asesor",
+        (r.lead.cita || r.reserva) && "Cita",
+        (r.lead.calor === "caliente" || r.lead.quiereAsesor || r.reserva) && "Caliente",
+        r.lead.interes && !r.lead.quiereAsesor && !r.lead.cita && !r.reserva && "Prospecto"
+      ].filter(Boolean);
+      if (etiquetas.length) await env.WA_WEB.etiquetar({ to: e.id, etiquetas }).catch(() => {
+      });
+    }
   }
   for (const [i, m] of r.respuestas.entries()) {
     try {
@@ -6007,12 +6022,20 @@ async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
   const interes = cita?.interes || lead.interes;
   const resumen = cita?.resumen || lead.resumen;
   const pago = lead.formaPago === "contado" ? "De contado" : lead.formaPago === "credito" ? `Cr\xE9dito${lead.enganche ? ` \xB7 enganche ${pesos(lead.enganche)}` : lead.enganchePct ? ` \xB7 enganche ${lead.enganchePct}%` : ""}` : "";
+  const ultima = (await store.get(`inbox:c:${e.canal}:${e.id}`) ?? []).slice(-8).map((m) => `${m.dir === "in" ? nombre : cfg.asesor || "Mario"}: ${String(m.text ?? "").trim()}`).filter((x) => !x.endsWith(": ")).join("\n").slice(-900);
+  const corrida = lead.mensualidad ? `Mensualidad mencionada: ${pesos(lead.mensualidad)}${lead.plazo ? ` a ${lead.plazo} meses` : ""}` : "";
+  const siguiente = cita ? "Confirmar la visita y recibirlo en agencia" : lead.quiereAsesor ? "Contactarlo y retomar la conversaci\xF3n" : "Dar seguimiento a la cotizaci\xF3n";
   const renglones = [
-    cita ? `\u{1F4C5} Cita nueva: ${nombre} \xB7 ${cita.texto}` : `\u{1F64B} ${nombre} quiere que lo atiendas`,
-    interes && `Le interesa: ${interes}`,
+    cita ? `\u{1F4C5} CITA \xB7 ${nombre} \xB7 ${cita.texto}` : `\u{1F525} PIDE ASESOR \xB7 ${nombre}`,
+    interes && `Veh\xEDculo: ${interes}${lead.precio ? ` \xB7 ${pesos(lead.precio)}` : ""}`,
     pago,
-    resumen,
-    e.canal === "wa" ? `WhatsApp: https://wa.me/${e.id}` : "Por Messenger"
+    corrida,
+    lead.autoAToma && `Auto a cuenta: ${lead.autoAToma}`,
+    `Siguiente paso: ${siguiente}`,
+    resumen && `Resumen: ${resumen}`,
+    ultima && `\xDAltimos mensajes:
+${ultima}`,
+    e.canal === "wa" ? `Abrir chat: https://wa.me/${e.id}` : "Cliente de Messenger"
   ];
   const texto = renglones.filter(Boolean).join("\n");
   try {
@@ -6177,7 +6200,7 @@ async function handleWebhook(req, env, store, ahora) {
   if (!ultimo || ultimo.object !== body.object || !(ahora - new Date(ultimo.at) < AVISO_MS)) await store.put("webhook:last", { at: ahora.toISOString(), object: body.object });
   return procesarEventos(body, env, store, ahora, baseDe(req));
 }
-async function procesarEventos(body, env, store, ahora, base) {
+async function procesarEventos(body, env, store, ahora, base, { autoResponder = true } = {}) {
   const cfg = await leerConfig(store);
   const contestados = /* @__PURE__ */ new Set();
   const recibido = async (canal, peer, nombre, msg, { contestable, propio = false, pruebaLocal = false }) => {
@@ -6185,7 +6208,7 @@ async function procesarEventos(body, env, store, ahora, base) {
     if (!r || propio) return;
     if (!r.prev && !pruebaLocal) await addLead(store, canal, peer, nombre, msg);
     const clave = `${canal}:${peer}`;
-    if (!contestable || contestados.has(clave)) return;
+    if (!contestable || !autoResponder || contestados.has(clave)) return;
     try {
       const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev, pruebaLocal };
       if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, base) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
@@ -6533,12 +6556,46 @@ async function publicarProgramada(env, store, x, base, ahora) {
     x.siguiente = new Date(ahora.getTime() + x.intentos * REINTENTO_MS).toISOString();
   }
 }
+async function recordarCitas(env, store, ahora) {
+  if (!(env.WA_WEB?.estado?.().ok || waReady(env))) return 0;
+  const citas = await store.get("agenda:citas") ?? [];
+  const dentroDe = ahora.getTime() + 60 * 60 * 1e3;
+  const listas = citas.filter((c) => c.estado === "apartada" && c.canal === "wa" && !c.recordatorioEnviadoAt && !c.recordatorioBloqueado && (c.recordatorioIntentos ?? 0) < 3 && (!c.recordatorioIntentoAt || ahora - new Date(c.recordatorioIntentoAt) >= 5 * 60 * 1e3) && new Date(c.id) > ahora && new Date(c.id) <= dentroDe);
+  let enviadas = 0;
+  for (const cita of listas) {
+    cita.recordatorioIntentoAt = ahora.toISOString();
+    cita.recordatorioIntentos = (cita.recordatorioIntentos ?? 0) + 1;
+    await store.put("agenda:citas", citas);
+    const cfg = await leerConfig(store);
+    const peer = (await store.get("inbox:index"))?.[`wa:${cita.cliente}`];
+    if (!env.WA_WEB && (!peer?.lastInAt || ahora - new Date(peer.lastInAt) >= 24 * 60 * 60 * 1e3)) {
+      cita.recordatorioError = "Requiere una plantilla aprobada: la ventana de WhatsApp ya venci\xF3.";
+      cita.recordatorioBloqueado = true;
+      await store.put("agenda:citas", citas);
+      continue;
+    }
+    const fecha = new Intl.DateTimeFormat("es-MX", { timeZone: cfg.zonaHoraria, weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(new Date(cita.id));
+    const nombre = String(cita.nombre || "").trim().split(/\s+/)[0];
+    const texto = `Hola${nombre ? ` ${nombre}` : ""}, soy ${cfg.asesor || "Mario Abarca"}. Te confirmo nuestra cita para el ${fecha} en ${cfg.agencia || cfg.marca || "Honda"}. \xBFSigue en pie?`;
+    try {
+      await sendMessage(env, store, { channel: "wa", to: cita.cliente, text: texto }, { ahora, autoKey: "cita:recordatorio" });
+      cita.recordatorioEnviadoAt = ahora.toISOString();
+      delete cita.recordatorioError;
+      enviadas += 1;
+    } catch (e) {
+      cita.recordatorioError = e.message ?? String(e);
+    }
+    await store.put("agenda:citas", citas);
+  }
+  return enviadas;
+}
 async function runScheduled(envBase, store, ahoraISO = (/* @__PURE__ */ new Date()).toISOString(), baseUrl = "", soloId = null) {
   const env = await conConexion(envBase, store);
   const ahora = new Date(ahoraISO);
+  const recordatorios = soloId ? 0 : await recordarCitas(env, store, ahora);
   const cola = await store.get("social:cola") ?? [];
   const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && (x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora || x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS));
-  if (!vencidas.length) return { revisadas: cola.length, publicadas: 0, fallidas: 0 };
+  if (!vencidas.length) return { revisadas: cola.length, publicadas: 0, fallidas: 0, recordatorios };
   const intentar = [];
   for (const x of vencidas) {
     if ((x.intentos ?? 0) >= MAX_INTENTOS) {
@@ -6554,7 +6611,7 @@ async function runScheduled(envBase, store, ahoraISO = (/* @__PURE__ */ new Date
   const porId = new Map(vencidas.map((x) => [x.id, x]));
   const actual = await store.get("social:cola") ?? [];
   await store.put("social:cola", actual.map((x) => porId.get(x.id) ?? x));
-  return { revisadas: cola.length, publicadas: vencidas.filter((x) => x.estado === "publicado").length, fallidas: vencidas.filter((x) => x.estado !== "publicado").length };
+  return { revisadas: cola.length, publicadas: vencidas.filter((x) => x.estado === "publicado").length, fallidas: vencidas.filter((x) => x.estado !== "publicado").length, recordatorios };
 }
 async function status(env, store, ahora) {
   const out = { ok: true, version: VERSION, whatsapp: { configured: waReady(env) }, facebook: { configured: fbReady(env) }, instagram: { configured: igReady(env) }, webhook: { secret: Boolean(env.META_APP_SECRET), verifyToken: Boolean(env.META_VERIFY_TOKEN), last: await store.get("webhook:last") }, publicUrl: env.PUBLIC_URL || null };
@@ -6655,6 +6712,28 @@ async function handle(req, envBase, store, opciones = {}) {
         const key = url.searchParams.get("c") ?? "";
         if (!/^(wa|fb):[\w.-]+$/.test(key)) return fail("Conversaci\xF3n inv\xE1lida");
         return json({ ok: true, messages: await store.get(`inbox:c:${key}`) ?? [] });
+      }
+      case "POST /api/buzon/sincronizar": {
+        if (!env.WA_WEB?.sincronizarPendientes) return fail("La sincronizaci\xF3n de chats pendientes requiere WhatsApp Web vinculado.", 409);
+        const sincronizado = await env.WA_WEB.sincronizarPendientes();
+        await procesarEventos(sincronizado.body, env, store, ahora, publicBase(env, baseDe(req)), { autoResponder: false });
+        return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, respondidos: 0 });
+      }
+      case "POST /api/buzon/responder": {
+        const clave = String(body.clave ?? "");
+        if (!/^wa:[\w.-]+$/.test(clave)) return fail("Conversaci\xF3n de WhatsApp inv\xE1lida");
+        const mensajes = await store.get(`inbox:c:${clave}`) ?? [];
+        const ultimo = mensajes.at(-1);
+        if (!ultimo || ultimo.dir !== "in") return fail("No hay un mensaje pendiente del cliente.", 409);
+        if (ahora - new Date(ultimo.at) > 30 * DIA_MS) return fail("Ese mensaje tiene m\xE1s de 30 d\xEDas; rev\xEDsalo y responde manualmente.", 409);
+        const cfg = await leerConfig(store);
+        if (!cfg.activo || !cfg.ventas.activo) return fail("Activa primero las respuestas autom\xE1ticas y Vender autos.", 409);
+        const prev = (await store.get("inbox:index") ?? {})[clave] ?? null;
+        if (!env.WA_WEB && ahora - new Date(prev?.lastInAt ?? 0) >= 24 * 60 * 60 * 1e3) return fail("La ventana de 24 horas de la API de WhatsApp venci\xF3. Usa una plantilla aprobada o espera a que el cliente vuelva a escribir.", 409);
+        const peer = clave.slice(3);
+        const enviado = await responderVentas(env, store, cfg, { canal: "wa", id: peer, nombre: prev?.name ?? "", texto: ultimo.text, at: ahora.toISOString(), primero: false, prev }, ahora, publicBase(env, baseDe(req)));
+        if (!enviado) return fail("Sof\xEDa no envi\xF3 respuesta. Puede que Mario ya haya contestado, la conversaci\xF3n est\xE9 pausada o falte informaci\xF3n.", 409);
+        return json({ ok: true, enviado: true });
       }
       case "POST /api/enviar":
         return json({ ok: true, ...await sendMessage(env, store, body, { ahora }) });

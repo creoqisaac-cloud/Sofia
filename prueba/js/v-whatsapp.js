@@ -5,7 +5,7 @@ import { state, customer, save, lastContact, updateCustomer, setFollowUp, DEFAUL
 import { header, section, empty, btn, go, rerender, query, route, field, input, textarea, customerSelect, sendWhatsApp, followUpPicker, stageChip, chip, select } from "./ui.js";
 import { fillTemplate, suggestTemplateId, template, classifyMessage } from "./rules.js";
 import { aiReady, draftMessage, personalizeTemplates, extractLead } from "./ai.js";
-import { connectorReady, inbox, conversation, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus, refreshStatus, getAgentConfig, setAgentConfig, listLeads, markLeads } from "./connector.js";
+import { connectorReady, inbox, conversation, syncPendingChats, replyToPending, sendMessage, waTemplates, downloadMedia, windowOpen, phoneKey, lastStatus, refreshStatus, getAgentConfig, setAgentConfig, listLeads, markLeads } from "./connector.js";
 import { applyIneImage, ensureCredit } from "./v-credit.js";
 import { waFormat } from "./v-inventory.js";
 import { asesorCon } from "./vendedor.js";
@@ -49,7 +49,20 @@ function inboxTab(root) {
     return;
   }
   const list = h("div", { class: "list" }, h("p", { class: "muted" }, "Cargando conversaciones…"));
-  root.append(section("Conversaciones", list));
+  const acciones = h("div", { class: "stack-s" });
+  if (lastStatus()?.whatsapp?.modo === "web") acciones.append(
+    h("p", { class: "muted small" }, "Trae conversaciones recientes donde el último mensaje lo mandó el cliente. Importarlas no responde; luego puedes pedirle a Mario que conteste una por una."),
+    btn("Traer pendientes de WhatsApp", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true; b.textContent = "Leyendo chats…";
+      try {
+        const r = await syncPendingChats();
+        toast(`Listo: ${r.chats} chats, ${r.mensajes} mensajes; no se envió ninguna respuesta.`, 6000);
+        await draw();
+      } catch (err) { toast(err.message, 6000); }
+      b.disabled = false; b.textContent = "Traer pendientes de WhatsApp";
+    }, "ghost"));
+  root.append(section("Conversaciones", acciones, list));
   const draw = async () => {
     try {
       const conv = Object.entries(await inbox()).map(([key, c]) => ({ key, ...c })).sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)));
@@ -199,8 +212,17 @@ export function renderChat(root, key) {
   }
 
   function drawActions() {
+    const pendiente = channel === "wa" && msgs.at(-1)?.dir === "in" && (lastStatus()?.whatsapp?.modo === "web" || open());
     actions.replaceChildren(
       open() ? btn("Enviar", send, "wa") : btn("Enviar plantilla (fuera de 24 h)", templatePicker, "wa"),
+      pendiente ? btn("Mario responde al pendiente", async (e) => {
+        const b = e.currentTarget;
+        if (!(await confirmBox("Responder mensaje pendiente", "Mario responderá ahora al último mensaje de este cliente. Sofía compartirá el contexto de la conversación con él.", "Responder"))) return;
+        b.disabled = true;
+        try { await replyToPending(key); await load(); toast("Respuesta enviada"); }
+        catch (err) { toast(err.message, 6000); }
+        b.disabled = false;
+      }, "primary") : null,
       aiReady() ? btn("✨ Sugerir con IA", () => aiSuggest(false), "ghost") : null,
       c ? btn("Ficha del cliente", () => go(`/cliente/${c.id}`), "ghost") : btn(aiReady() ? "✨ Crear cliente con IA" : "Crear cliente", async (e) => {
         const b = e.currentTarget;
@@ -388,6 +410,7 @@ function drawAgentForm(box, cfg) {
     st ? h("p", { class: st.ultimoError ? "warn small" : "muted small" }, `${st.activo ? "Activo" : "Apagado"} · ahora ${st.enHorario ? "en horario" : "fuera de horario"}${st.ultimoError ? ` · último error: ${st.ultimoError.error}` : ""}`) : null,
     h("label", { class: "row gap-s" }, activo, h("span", {}, "Contestar automáticamente")),
     h("p", { class: "muted small" }, "Variables: {nombre} (del perfil del cliente), {asesor}, {agencia}. Nunca se contesta a sí misma y se calla si tú acabas de escribir."),
+    h("p", { class: "muted small" }, "Responde en la voz de Mario, espera unos segundos y muestra que está escribiendo. En WhatsApp Business crea las etiquetas Prospecto, Caliente, Cita y Asesor; Sofía aplicará las que existan y conservará las demás."),
     h("div", { class: "grid2" }, field("Asesor", asesor), field("Agencia", agencia)),
     // div y no <label>: un toque en el título o entre los chips activaría el botón "L" (lunes).
     h("div", { class: "field" }, h("span", {}, "Días de atención"), diasBox),

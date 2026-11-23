@@ -70,10 +70,58 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
       : { field: "messages", value: { messages: [{ ...mensaje, from: peer }] } };
     await recibir({ object: "whatsapp_business_account", entry: [{ changes: [cambio] }] });
   }
+  const tipoMensaje = (m) => ({ chat: "text", ptt: "audio", vcard: "contact", multi_vcard: "contact" }[m.type] ?? m.type);
+  async function sincronizarPendientes() {
+    if (!conectado) throw new Error("WhatsApp está desconectado.");
+    if (soloMiWhatsApp) throw new Error("La importación de chats no está disponible en el modo de prueba personal.");
+    const limiteAntiguedad = Date.now() / 1000 - 30 * 24 * 60 * 60;
+    const chats = (await client.getChats()).filter((c) => !c.isGroup && c.lastMessage && !c.lastMessage.fromMe && c.timestamp >= limiteAntiguedad && /^\d+@c\.us$/.test(c.id?._serialized ?? ""))
+      .filter((c) => normalizar(c.id._serialized.split("@")[0]) !== normalizar(client.info?.wid?.user)).slice(0, 100);
+    const changes = [];
+    let mensajes = 0;
+    for (const chat of chats) {
+      try {
+        const peer = chat.id._serialized.split("@")[0];
+        const limite = Math.min(30, Math.max(5, Number(chat.unreadCount) + 3));
+        const history = await chat.fetchMessages({ limit: limite });
+        const contacto = await chat.getContact().catch(() => null);
+        await etiquetar({ to: peer, etiquetas: ["Prospecto"] }).catch(() => {});
+        for (const m of history) {
+          if (m.isStatus || !m.id?._serialized || !m.timestamp) continue;
+          const type = tipoMensaje(m);
+          const base = { id: m.id._serialized, type, timestamp: m.timestamp };
+          if (m.body) {
+            if (type === "text") base.text = { body: m.body };
+            else if (["image", "video", "audio", "document", "sticker"].includes(type)) base[type] = { caption: m.body };
+          }
+          if (m.fromMe) changes.push({ field: "smb_message_echoes", value: { message_echoes: [{ ...base, to: peer }] } });
+          else changes.push({ field: "messages", value: { contacts: [{ wa_id: peer, profile: { name: contacto?.pushname || contacto?.name || "" } }], messages: [{ ...base, from: peer }] } });
+          mensajes += 1;
+        }
+      } catch { /* una conversación no accesible no bloquea las demás */ }
+    }
+    return { body: { object: "whatsapp_business_account", entry: [{ changes }] }, chats: chats.length, mensajes };
+  }
+  async function etiquetar({ to, etiquetas = [] }) {
+    if (!conectado || soloMiWhatsApp) return [];
+    const destino = await client.getNumberId(String(to));
+    if (!destino) return [];
+    const chat = await client.getChatById(destino._serialized);
+    const actuales = await chat.getLabels();
+    const todas = await client.getLabels();
+    const normal = (s) => String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const aliases = { asesor: ["asesor", "atender asesor", "pendiente asesor"], cita: ["cita", "cita agendada", "visita"], caliente: ["caliente", "interes caliente", "prioridad"], prospecto: ["prospecto", "cliente potencial", "nuevo prospecto"] };
+    const wanted = etiquetas.flatMap((x) => (aliases[normal(x)] ?? [normal(x)]));
+    const found = todas.filter((l) => wanted.includes(normal(l.name)));
+    if (found.length) await chat.changeLabels([...new Set([...actuales.map((l) => l.id), ...found.map((l) => l.id)])]);
+    return found.map((l) => l.name);
+  }
   client.on("message_create", m => {
     cola = cola.then(() => procesar(m)).catch(() => console.error("No se pudo procesar un mensaje del dispositivo vinculado."));
   });
   return {
+    sincronizarPendientes,
+    etiquetar,
     estado: () => ({ configured: true, ok: conectado, phone: conectado ? client.info?.wid?.user : null, modo: soloMiWhatsApp ? "solo-mi-whatsapp" : "web" }),
     async enviar({ to, text, image }) {
       if (!conectado) throw new Error("El dispositivo de WhatsApp está desconectado.");
@@ -111,7 +159,7 @@ export function iniciar(dir, recibir) {
   const soloMiWhatsApp = process.env.SOFIA_SOLO_MI_WHATSAPP === "1";
   if (prueba && !/^\d{6,15}$/.test(prueba)) throw new Error("SOFIA_PRUEBA_NUMERO requiere el código de país y solo dígitos.");
   const client = new whatsapp.Client({
-    authStrategy: new whatsapp.LocalAuth({ dataPath: path.join(dir, "sesion-whatsapp") }),
+    authStrategy: new whatsapp.LocalAuth({ dataPath: path.join(dir, process.env.SOFIA_WA_PERFIL || "sesion-whatsapp") }),
     puppeteer: { headless: true, executablePath: rutaNavegador(), args: ["--no-sandbox", "--disable-dev-shm-usage"] },
   });
   // SOFIA_ESPERA=0 contesta al instante (para pruebas); si no, con la pausa de una persona escribiendo.

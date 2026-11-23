@@ -197,14 +197,14 @@ function waText(m) {
 // reglas por palabra. Nunca más de una respuesta automática por mensaje.
 
 // De fábrica: contesta por Mario Abarca (Honda), sola y con IA (gratis de Cloudflare), sin configurar nada.
-const PERFIL = 3; // sube cuando cambia lo de fábrica y hay que pasar las configuraciones guardadas a la nueva forma
+const PERFIL = 4; // sube cuando cambia lo de fábrica y hay que pasar las configuraciones guardadas a la nueva forma
 const AGENTE_BASE = {
   perfil: PERFIL,
   activo: true,
   zonaHoraria: "America/Monterrey",
   horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, // 0 = domingo, 1 = lunes … 6 = sábado
   bienvenida: "¡Hola {nombre}! Gracias por escribir. En un momento te atiendo.",
-  fueraDeHorario: "¡Hola {nombre}! Gracias por tu mensaje. En este momento estoy fuera de horario; te contesto en cuanto regrese.",
+  fueraDeHorario: "¡Hola {nombre}! Soy Mario Abarca, de Honda. Cuéntame, ¿qué modelo estás buscando?",
   reglas: [], // [ { palabras: ["precio", "cuánto cuesta"], respuesta: "…" } ]
   esperaHoras: 12, // no repetir la misma respuesta automática al mismo contacto antes de N horas
   pausaMinutos: 30, // si el asesor contestó a mano hace menos de N minutos, el agente no interrumpe
@@ -314,6 +314,7 @@ async function leerConfig(store) {
   if (c && (c.perfil ?? 1) < PERFIL) {
     c = { ...c, perfil: PERFIL, asesor: ["", "Mario", "Lic. Mario Abarca"].includes(c.asesor ?? "") ? AGENTE_BASE.asesor : c.asesor };
     if (/Soy Sofía/i.test(c.ventas?.presentacion ?? "")) c.ventas = { ...c.ventas, presentacion: "" };
+    if (/en este momento estoy fuera de horario/i.test(c.fueraDeHorario ?? "")) c.fueraDeHorario = AGENTE_BASE.fueraDeHorario;
   }
   return { ...AGENTE_BASE, ...(c ?? {}), horario: { ...AGENTE_BASE.horario, ...(c?.horario ?? {}) }, ventas: { ...AGENTE_BASE.ventas, ...(c?.ventas ?? {}) } };
 }
@@ -405,6 +406,15 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
     if (Object.keys(r.lead).length) await actualizarLead(store, e, r.lead, ahora);
     if (r.reserva) await apartarCita(env, store, cfg, e, r, ahora);
     await avisarSiToca(env, store, cfg, e, r, ahora);
+    if (env.WA_WEB?.etiquetar && Object.keys(r.lead).length) {
+      const etiquetas = [
+        r.lead.quiereAsesor && "Asesor",
+        (r.lead.cita || r.reserva) && "Cita",
+        (r.lead.calor === "caliente" || r.lead.quiereAsesor || r.reserva) && "Caliente",
+        r.lead.interes && !r.lead.quiereAsesor && !r.lead.cita && !r.reserva && "Prospecto",
+      ].filter(Boolean);
+      if (etiquetas.length) await env.WA_WEB.etiquetar({ to: e.id, etiquetas }).catch(() => {});
+    }
   }
   for (const [i, m] of r.respuestas.entries()) {
     try {
@@ -485,12 +495,21 @@ async function avisarAsesor(env, store, cfg, e, cita, ahora, lead = {}) {
   const resumen = cita?.resumen || lead.resumen;
   const pago = lead.formaPago === "contado" ? "De contado"
     : lead.formaPago === "credito" ? `Crédito${lead.enganche ? ` · enganche ${pesos(lead.enganche)}` : lead.enganchePct ? ` · enganche ${lead.enganchePct}%` : ""}` : "";
+  const ultima = ((await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? []).slice(-8)
+    .map((m) => `${m.dir === "in" ? nombre : cfg.asesor || "Mario"}: ${String(m.text ?? "").trim()}`)
+    .filter((x) => !x.endsWith(": ")).join("\n").slice(-900);
+  const corrida = lead.mensualidad ? `Mensualidad mencionada: ${pesos(lead.mensualidad)}${lead.plazo ? ` a ${lead.plazo} meses` : ""}` : "";
+  const siguiente = cita ? "Confirmar la visita y recibirlo en agencia" : lead.quiereAsesor ? "Contactarlo y retomar la conversación" : "Dar seguimiento a la cotización";
   const renglones = [
-    cita ? `📅 Cita nueva: ${nombre} · ${cita.texto}` : `🙋 ${nombre} quiere que lo atiendas`,
-    interes && `Le interesa: ${interes}`,
+    cita ? `📅 CITA · ${nombre} · ${cita.texto}` : `🔥 PIDE ASESOR · ${nombre}`,
+    interes && `Vehículo: ${interes}${lead.precio ? ` · ${pesos(lead.precio)}` : ""}`,
     pago,
-    resumen,
-    e.canal === "wa" ? `WhatsApp: https://wa.me/${e.id}` : "Por Messenger",
+    corrida,
+    lead.autoAToma && `Auto a cuenta: ${lead.autoAToma}`,
+    `Siguiente paso: ${siguiente}`,
+    resumen && `Resumen: ${resumen}`,
+    ultima && `Últimos mensajes:\n${ultima}`,
+    e.canal === "wa" ? `Abrir chat: https://wa.me/${e.id}` : "Cliente de Messenger",
   ];
   const texto = renglones.filter(Boolean).join("\n");
   try {
@@ -684,7 +703,7 @@ export async function eventoVinculado(body, env, store) {
   return procesarEventos(body, config, store, new Date(), config.PUBLIC_URL || "");
 }
 
-async function procesarEventos(body, env, store, ahora, base) {
+async function procesarEventos(body, env, store, ahora, base, { autoResponder = true } = {}) {
   const cfg = await leerConfig(store);
   const contestados = new Set(); // como mucho una respuesta automática por contacto en cada aviso de Meta
   // Cada mensaje entrante NUEVO: se guarda, se vuelve prospecto si es el primer contacto y, si toca, se contesta.
@@ -694,7 +713,7 @@ async function procesarEventos(body, env, store, ahora, base) {
     if (!r || propio) return; // reintento de Meta (ya se procesó) o mensaje de nuestro propio número
     if (!r.prev && !pruebaLocal) await addLead(store, canal, peer, nombre, msg);
     const clave = `${canal}:${peer}`;
-    if (!contestable || contestados.has(clave)) return;
+    if (!contestable || !autoResponder || contestados.has(clave)) return;
     try {
       const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev, pruebaLocal };
       if (await (cfg.ventas.activo ? responderVentas(env, store, cfg, e, ahora, base) : responderSolo(env, store, cfg, e, ahora))) contestados.add(clave);
@@ -1077,6 +1096,42 @@ async function publicarProgramada(env, store, x, base, ahora) {
   }
 }
 
+/** Envía recordatorio por WhatsApp cerca de una hora antes, si la cita sigue activa. */
+async function recordarCitas(env, store, ahora) {
+  if (!(env.WA_WEB?.estado?.().ok || waReady(env))) return 0;
+  const citas = (await store.get("agenda:citas")) ?? [];
+  const dentroDe = ahora.getTime() + 60 * 60 * 1000;
+  const listas = citas.filter((c) => c.estado === "apartada" && c.canal === "wa" && !c.recordatorioEnviadoAt && !c.recordatorioBloqueado
+    && (c.recordatorioIntentos ?? 0) < 3
+    && (!c.recordatorioIntentoAt || ahora - new Date(c.recordatorioIntentoAt) >= 5 * 60 * 1000)
+    && new Date(c.id) > ahora && new Date(c.id) <= dentroDe);
+  let enviadas = 0;
+  for (const cita of listas) {
+    cita.recordatorioIntentoAt = ahora.toISOString();
+    cita.recordatorioIntentos = (cita.recordatorioIntentos ?? 0) + 1;
+    await store.put("agenda:citas", citas);
+    const cfg = await leerConfig(store);
+    const peer = (await store.get("inbox:index"))?.[`wa:${cita.cliente}`];
+    if (!env.WA_WEB && (!peer?.lastInAt || ahora - new Date(peer.lastInAt) >= 24 * 60 * 60 * 1000)) {
+      cita.recordatorioError = "Requiere una plantilla aprobada: la ventana de WhatsApp ya venció.";
+      cita.recordatorioBloqueado = true;
+      await store.put("agenda:citas", citas);
+      continue;
+    }
+    const fecha = new Intl.DateTimeFormat("es-MX", { timeZone: cfg.zonaHoraria, weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(new Date(cita.id));
+    const nombre = String(cita.nombre || "").trim().split(/\s+/)[0];
+    const texto = `Hola${nombre ? ` ${nombre}` : ""}, soy ${cfg.asesor || "Mario Abarca"}. Te confirmo nuestra cita para el ${fecha} en ${cfg.agencia || cfg.marca || "Honda"}. ¿Sigue en pie?`;
+    try {
+      await sendMessage(env, store, { channel: "wa", to: cita.cliente, text: texto }, { ahora, autoKey: "cita:recordatorio" });
+      cita.recordatorioEnviadoAt = ahora.toISOString();
+      delete cita.recordatorioError;
+      enviadas += 1;
+    } catch (e) { cita.recordatorioError = e.message ?? String(e); }
+    await store.put("agenda:citas", citas);
+  }
+  return enviadas;
+}
+
 /**
  * Publica lo programado que ya venció. La llaman el cron de Cloudflare (cada 5 min) y servidor.mjs (cada minuto),
  * así funciona aunque la app esté cerrada. Si no hay nada que publicar no escribe nada (cuida el límite gratis de KV).
@@ -1086,10 +1141,11 @@ async function publicarProgramada(env, store, x, base, ahora) {
 export async function runScheduled(envBase, store, ahoraISO = new Date().toISOString(), baseUrl = "", soloId = null) {
   const env = await conConexion(envBase, store);
   const ahora = new Date(ahoraISO);
+  const recordatorios = soloId ? 0 : await recordarCitas(env, store, ahora);
   const cola = (await store.get("social:cola")) ?? [];
   const vencidas = cola.filter((x) => (!soloId || x.id === soloId) && ((x.estado === "pendiente" && new Date(x.siguiente ?? x.cuando) <= ahora)
     || (x.estado === "publicando" && ahora - new Date(x.bloqueo) > BLOQUEO_MS)));
-  if (!vencidas.length) return { revisadas: cola.length, publicadas: 0, fallidas: 0 };
+  if (!vencidas.length) return { revisadas: cola.length, publicadas: 0, fallidas: 0, recordatorios };
 
   // Se apartan antes de llamar a Meta para que otra corrida simultánea no las publique dos veces.
   const intentar = [];
@@ -1106,7 +1162,7 @@ export async function runScheduled(envBase, store, ahoraISO = new Date().toISOSt
   const porId = new Map(vencidas.map((x) => [x.id, x]));
   const actual = (await store.get("social:cola")) ?? [];
   await store.put("social:cola", actual.map((x) => porId.get(x.id) ?? x));
-  return { revisadas: cola.length, publicadas: vencidas.filter((x) => x.estado === "publicado").length, fallidas: vencidas.filter((x) => x.estado !== "publicado").length };
+  return { revisadas: cola.length, publicadas: vencidas.filter((x) => x.estado === "publicado").length, fallidas: vencidas.filter((x) => x.estado !== "publicado").length, recordatorios };
 }
 
 async function status(env, store, ahora) {
@@ -1211,6 +1267,28 @@ export async function handle(req, envBase, store, opciones = {}) {
         const key = url.searchParams.get("c") ?? "";
         if (!/^(wa|fb):[\w.-]+$/.test(key)) return fail("Conversación inválida");
         return json({ ok: true, messages: (await store.get(`inbox:c:${key}`)) ?? [] });
+      }
+      case "POST /api/buzon/sincronizar": {
+        if (!env.WA_WEB?.sincronizarPendientes) return fail("La sincronización de chats pendientes requiere WhatsApp Web vinculado.", 409);
+        const sincronizado = await env.WA_WEB.sincronizarPendientes();
+        await procesarEventos(sincronizado.body, env, store, ahora, publicBase(env, baseDe(req)), { autoResponder: false });
+        return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, respondidos: 0 });
+      }
+      case "POST /api/buzon/responder": {
+        const clave = String(body.clave ?? "");
+        if (!/^wa:[\w.-]+$/.test(clave)) return fail("Conversación de WhatsApp inválida");
+        const mensajes = (await store.get(`inbox:c:${clave}`)) ?? [];
+        const ultimo = mensajes.at(-1);
+        if (!ultimo || ultimo.dir !== "in") return fail("No hay un mensaje pendiente del cliente.", 409);
+        if (ahora - new Date(ultimo.at) > 30 * DIA_MS) return fail("Ese mensaje tiene más de 30 días; revísalo y responde manualmente.", 409);
+        const cfg = await leerConfig(store);
+        if (!cfg.activo || !cfg.ventas.activo) return fail("Activa primero las respuestas automáticas y Vender autos.", 409);
+        const prev = ((await store.get("inbox:index")) ?? {})[clave] ?? null;
+        if (!env.WA_WEB && ahora - new Date(prev?.lastInAt ?? 0) >= 24 * 60 * 60 * 1000) return fail("La ventana de 24 horas de la API de WhatsApp venció. Usa una plantilla aprobada o espera a que el cliente vuelva a escribir.", 409);
+        const peer = clave.slice(3);
+        const enviado = await responderVentas(env, store, cfg, { canal: "wa", id: peer, nombre: prev?.name ?? "", texto: ultimo.text, at: ahora.toISOString(), primero: false, prev }, ahora, publicBase(env, baseDe(req)));
+        if (!enviado) return fail("Sofía no envió respuesta. Puede que Mario ya haya contestado, la conversación esté pausada o falte información.", 409);
+        return json({ ok: true, enviado: true });
       }
       case "POST /api/enviar": return json({ ok: true, ...(await sendMessage(env, store, body, { ahora })) });
       case "GET /api/wa/plantillas": {

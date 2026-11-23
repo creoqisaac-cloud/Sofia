@@ -313,8 +313,10 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
 
   // ── Piezas de conversación ──
   const saludo = () => {
-    const intro = rellenar(v.presentacion?.trim() || "¡Hola {nombre}! 👋", vars);
-    return msg.enHorario === false ? `${intro} Ahorita estamos cerrados, pero te ayudo por aquí.` : intro;
+    let intro = rellenar(v.presentacion?.trim() || "¡Hola {nombre}! 👋", vars);
+    const quien = cfg.asesor || "Mario Abarca";
+    if (!sinAcentos(intro).toLowerCase().includes(sinAcentos(quien).toLowerCase())) intro += ` Soy ${quien}, de ${cfg.agencia || cfg.marca || "Honda"}.`;
+    return intro;
   };
   const menu = (encabezado = "¿En qué te ayudo?") => {
     if (!autos.length) { // sin inventario: todo lleva a la cita
@@ -400,7 +402,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
       return `${intro ? `${intro} ` : ""}¿Cuándo puedes venir${que ? ` a ver ${que}` : ""}? Tengo:\n${enumerar([...ops.map((x) => x.texto), "Otro día u hora"])}`;
     }
     ir("cita");
-    return `${intro ? `${intro} ` : ""}¿Qué día y a qué hora puedes venir${que ? ` a ver ${que}` : ""}?${horario ? ` Abrimos ${horario}.` : ""}`;
+    return `${intro ? `${intro} ` : ""}¿Qué día y a qué hora te gustaría venir${que ? ` a ver ${que}` : ""}?${horario ? ` Puedo recibirte ${horario}.` : ""}`;
   };
   const apartar = (id) => {
     const x = libres.find((l) => l.id === id);
@@ -423,7 +425,7 @@ export function decidir({ cfg = {}, inventario = [], conv = {}, msg = {}, ahora 
     lead.quiereAsesor = true;
     calentar("caliente");
     ir("asesor");
-    return `${intro ? `${intro}\n` : ""}${msg.enHorario === false ? `Va, le aviso ${aAsesor} para que te escriba en cuanto abramos${horario ? ` (${horario})` : ""}.` : `Va, ahorita le aviso ${aAsesor} para que te escriba.`}`;
+    return `${intro ? `${intro}\n` : ""}${msg.enHorario === false ? `Va, le aviso a Mario para que te escriba en cuanto esté disponible${horario ? ` (${horario})` : ""}.` : `Va, ahorita le aviso ${aAsesor} para que te escriba.`}`;
   }
   // Sin inventario: se pregunta el modelo; con precio o información, la corrida (cuánto de enganche) y luego la cita.
   const preguntarModelo = () => { ir("menu", ["cita", "asesor"]); return "¿Qué modelo te interesa?"; };
@@ -609,11 +611,12 @@ export function promptIA({ cfg = {}, inventario = [], historial = [], libres = [
   const ejemplos = [...(cfg.estilo?.ejemplos ?? []), ...(cfg.estilo?.deChats ?? [])].slice(0, 40);
   const opciones = libres.slice(0, 30);
   const system = [
-    `Contestas el WhatsApp de ventas ${asesorCon(nombre, "de")}, asesor de ${marca}${agencia !== marca ? ` (${agencia})` : ""} en Monterrey. Escribes por él, como su equipo.`,
-    `Tu meta: que el cliente venga a la agencia con cita. Ahí lo atiende ${quien} y cierra la venta.`,
+    `Eres ${quien}, asesor de ventas de ${marca}${agencia !== marca ? ` (${agencia})` : ""} en Monterrey. Responde en primera persona como Mario, con su estilo cercano, atento y directo. No uses el nombre Sofía ni te presentes espontáneamente como secretaria o bot. No afirmes que hiciste algo que no hayas hecho. Si preguntan directamente si eres una IA, responde con honestidad que eres el asistente digital que contesta por Mario.`,
+    `Tu meta: ayudar al cliente a elegir un auto, resolver sus dudas y facilitar una visita con cita. La cita no termina la conversación: después de confirmarla, sigue contestando con naturalidad, ofrece ayuda con preparación, documentos o dudas del vehículo y no repitas la invitación a cada mensaje.`,
     "",
     "Cómo escribes:",
-    "- Como una persona normal por WhatsApp: corto (1 o 2 renglones), sencillo y amable. Sin listas ni menús.",
+    "- Como una persona normal por WhatsApp: cálido, muy servicial, atento y con humor ligero cuando encaje. Corto (1 o 2 renglones), sencillo y amable. Sin listas ni menús.",
+    "- Mantén siempre un trato respetuoso y profesional. No sexualices al cliente, no hagas insinuaciones ni comentarios sobre su cuerpo o atractivo. No confundas amabilidad con coqueteo.",
     "- Nada de frases de vendedor ni de call center: «con gusto te ayudo», «excelente elección», «promoción del mes», «lo siento», «no puedo», «¿en qué más te ayudo?».",
     "- Una pregunta a la vez. No repitas lo que ya dijiste. Si te saludan, saluda.",
     pila !== quien ? `- Si hablas de él di «${quien}», nunca solo «${pila}» ni «${pila} te dice».` : "",
@@ -628,12 +631,13 @@ export function promptIA({ cfg = {}, inventario = [], historial = [], libres = [
     `- ${corridas ? "Si su modelo no está en CORRIDAS" : "Aún no tienes las cifras"}: no des números. Dile que se la armas y pregúntale cuándo puede venir a verla. Si la quiere por aquí, dile que ahorita se la manda ${quien} (pasar_a_asesor = true).`,
     "- Para la cita ofrece DOS horarios de la lista de libres. Si pide otro, el más cercano de la lista.",
     "- Si acepta un horario: pon su id exacto en «reservar», confírmale día y hora y pregúntale a nombre de quién.",
-    `- Con cita y nombre cierra con: «Al llegar a la agencia pregunta por ${quien} para que vaya a recibirte.» y pasar_a_asesor = true.`,
+    `- Confirma claramente el día y la hora de la cita. Si tienes el nombre, di: «Al llegar a la agencia pregunta por ${quien} para que vaya a recibirte.» pasar_a_asesor = true solo sirve para avisarle a ${quien}; no des por terminada la conversación. Si el cliente vuelve a escribir después, responde sus dudas y sigue ayudando.`,
     "- Si duda («luego paso», «solo estoy viendo»): sin presionar, dale una razón para venir (verlo, manejarlo, su corrida).",
     "",
     "Nunca:",
     "- Inventes cifras (precios, mensualidades, tasas, descuentos, avalúos, entregas). Solo las de CORRIDAS o las de los autos con precio.",
-    `- Digas que eres una persona. Si te preguntan en serio si eres bot o IA, dilo: eres un asistente que le ayuda ${asesorCon(nombre, "a")} con sus mensajes, y si quiere, él le escribe directo.`,
+    "- Digas que la agencia está cerrada o que no puedes atender por la hora. Sigue ayudando por aquí y acuerda una visita en un horario disponible.",
+    `- Digas espontáneamente que eres bot, secretaria o asistente. Si te preguntan directamente si eres una IA, dilo con honestidad y ofrece que ${quien} le escriba personalmente.`,
     "",
     `pasar_a_asesor = true también si pide negociar, descuento o hablar con ${quien}.`,
     `resumen (siempre, para ${quien}): nombre, modelo, contado o crédito, enganche, auto a cuenta, cita y qué sigue.`,
@@ -646,7 +650,7 @@ export function promptIA({ cfg = {}, inventario = [], historial = [], libres = [
     "Cliente: a las 4",
     "Tú: Listo, mañana a las 4. ¿A nombre de quién?",
     "Cliente: Luis Treviño",
-    `Tú: Gracias Luis. Al llegar a la agencia pregunta por ${quien} para que vaya a recibirte.`,
+    `Tú: Gracias Luis. Quedamos mañana a las 4. Al llegar pregunta por ${quien} para que vaya a recibirte. ¿Quieres que te pase qué documentos conviene llevar?`,
     "",
     `Modelos ${marca} que la gente suele pedir: City (sedán y hatchback), Civic, Accord, HR-V, BR-V, CR-V, Pilot y Odyssey. Si piden otro, di que ${quien} te confirma si lo tienen.`,
     `Horario de la agencia: ${textoHorario(cfg.horario) || "el que confirme el asesor"}.`,

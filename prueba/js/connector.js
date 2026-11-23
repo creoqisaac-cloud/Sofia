@@ -45,6 +45,8 @@ export async function refreshStatus() {
 
 export const inbox = async () => (await call("/api/buzon")).conversations;
 export const conversation = async (key) => (await call("/api/buzon/conversacion", { params: { c: key } })).messages;
+export const syncPendingChats = () => call("/api/buzon/sincronizar", { method: "POST", body: {} });
+export const replyToPending = (clave) => call("/api/buzon/responder", { method: "POST", body: { clave } });
 export const sendMessage = (msg) => call("/api/enviar", { method: "POST", body: msg });
 export const waTemplates = async () => (await call("/api/wa/plantillas")).templates;
 export const publishPost = (post) => call("/api/facebook/publicar", { method: "POST", body: post });

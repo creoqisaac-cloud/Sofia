@@ -99,6 +99,7 @@ function agendaSection() {
       h("div", { class: "row between" }, h("strong", {}, `📅 ${c.texto}`), chip(c.canal === "wa" ? "WhatsApp" : "Messenger")),
       h("div", {}, c.nombre || "Cliente sin nombre", c.interes ? ` · ${c.interes}` : ""),
       c.resumen ? h("p", { class: "preview" }, c.resumen) : null,
+      c.recordatorioEnviadoAt ? h("p", { class: "muted small" }, `Confirmación enviada ${fmtWhen(c.recordatorioEnviadoAt)}`) : c.recordatorioError ? h("p", { class: "warn small" }, `No se pudo enviar el recordatorio: ${c.recordatorioError}`) : h("p", { class: "muted small" }, "Sofía enviará una confirmación aproximadamente 1 hora antes."),
       h("div", { class: "row wrap gap-s" },
         btn("Ver conversación", () => go(`/whatsapp/chat/${encodeURIComponent(`${c.canal}:${c.cliente}`)}`), "small"),
         btn("Cancelar cita", async () => { try { await cancelCita(c); toast("Cita cancelada: ese horario queda libre"); pintar(); } catch (e) { toast(e.message, 5000); } }, "small ghost")))));
