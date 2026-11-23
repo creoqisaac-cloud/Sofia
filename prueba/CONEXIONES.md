@@ -1,5 +1,7 @@
 # Conexiones reales de Sofía: todo gratis, la IA es un extra
 
+> Para entender por qué Cloudflare AI puede estar conectado y la bandeja de Mario seguir vacía, o para elegir dónde debe vivir el servidor, lee primero [`SOFIA_MAPA_Y_PLAN.md`](../SOFIA_MAPA_Y_PLAN.md). Las conexiones de IA, backend y WhatsApp tienen estados y almacenes distintos.
+
 Sofía funciona sin nada de esto. Cada conexión agrega una capacidad real y **ninguna necesita IA ni tarjeta**. La IA de pago solo mejora la redacción y la lectura cuando tú decidas.
 
 | Conexión | Qué hace | Costo |
@@ -140,17 +142,16 @@ Otros cuidados:
 - Contra otro contestador automático, Sofía no manda más de 15 respuestas por hora a un mismo contacto.
 - Corre en tu servidor: contesta aunque el teléfono esté apagado.
 
-### 3.5 IA para que Sofía platique como persona (gratis con Cloudflare)
-Sin IA, Sofía contesta con el menú y tus reglas. Con IA, lleva toda la plática como vendedora: mensajes cortos y naturales, entiende lo que le escriban y te pasa al cliente con un resumen. Nunca inventa precios, descuentos ni aprobaciones, y si le preguntan en serio si es un bot, lo dice.
+### 3.5 IA para que Sofía platique como persona (Cloudflare Workers AI)
+Sin IA, Sofía contesta con el menú y tus reglas. Con IA y el ajuste **Con IA** activado en **WhatsApp → Automático**, el backend puede redactar la respuesta de ventas usando el historial permitido, inventario, corridas y estilo. No inventa precios ni aprobaciones; si el modelo falla, usa las reglas de respaldo.
 
-**Gratis (recomendado para empezar): la IA de Cloudflare.**
-1. En Cloudflare, tu Worker → **Settings → Bindings → Add → Workers AI**. Nombre de variable: `AI`. Guarda y despliega. (Con la terminal ya viene en `wrangler.toml`.)
-2. En Sofía: **WhatsApp → Automático**, marca **Con IA** y guarda. Debe decir «Usa la IA GRATIS de tu Cloudflare».
-3. Cloudflare da una cuota diaria sin costo; revisa cuánto llevas en tu panel, en **Workers AI**. Si un día se acaba, Sofía sigue contestando con el menú.
+**Cloudflare Workers AI** está separado de WhatsApp y del servidor. En **Más → Conexiones → IA gratis de Cloudflare**, pega el Account ID y token de Workers AI y toca **Guardar y probar IA gratis**. La credencial se guarda en el backend al que apunte Sofía en **Conexiones → Servidor**. Esto puede ser el Node local o un Worker remoto. Si la app apunta al Worker, eso no comparte automáticamente los chats y la sesión que están guardados en la PC de Mario.
+
+Otra forma es enlazar el binding `AI` en el Worker, con nombre exacto `AI` (el archivo `wrangler.toml` ya declara el binding). El backend usa Workers AI primero para aprovechar la cuota gratuita; Claude se usa si Cloudflare no está configurado. La cuota gratuita y los permisos de API dependen de la cuenta de Cloudflare; consulta el panel de Workers AI. Si se agota la cuota o falla el modelo, queda la respuesta por reglas como respaldo.
 
 **Para que hable como tú:** en **Más → Mi estilo de venta** importa 2 o 3 chats tuyos donde vendiste (en WhatsApp: el chat → ⋮ → Más → Exportar chat → Sin archivos). Después, en **WhatsApp → Automático**, vuelve a tocar **Guardar**: Sofía recibe tus mensajes como ejemplo y copia tu forma de escribir.
 
-**Opcional, de pago: Claude**, que es la que habla más natural. Conecta tu llave en **Más → Conexiones → Inteligencia artificial** y toca **Usar esta llave también en mi servidor**. Con Haiku 5.5 sale en centavos por cada mil mensajes. Si hay llave de Claude, Sofía usa Claude; si no, la gratis de Cloudflare.
+**Opcional, de pago: Claude.** Se puede conectar desde **Más → Conexiones → Inteligencia artificial**. La IA de la interfaz (borradores y funciones asistidas) es independiente de la IA de la vendedora: para que el backend use Claude, también hay que guardar la llave en el servidor. Si Cloudflare y Claude están configurados, el backend actual prioriza Cloudflare.
 
 ---
 

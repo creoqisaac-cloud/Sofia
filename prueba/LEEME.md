@@ -1,14 +1,16 @@
 # Sofía: herramienta comercial para asesores de autos
 
-Funciona **desde el primer minuto, gratis y sin servidor**. Los datos se guardan en el teléfono, la tablet o la computadora.
+> **Aclaración de conexiones:** la web, el servidor de Sofía, la sesión WhatsApp de Mario y el proveedor de IA son componentes distintos. Si ves una bandeja vacía, consulta [`SOFIA_MAPA_Y_PLAN.md`](../SOFIA_MAPA_Y_PLAN.md): tener la IA conectada no implica que la web llegue a los chats locales.
 
-Los agentes también son **gratis y sin IA**: corren en tu propia cuenta de Google y en un servidor gratis de Cloudflare. La IA es un extra opcional que mejora la redacción y la lectura. Para conectarlos, ver [CONEXIONES.md](CONEXIONES.md).
+Funciona **desde el primer minuto, gratis y sin servidor** para el CRM local. Las funciones compartidas o automáticas requieren su conexión correspondiente; la bandeja de WhatsApp requiere que la PWA alcance el mismo backend que recibió los mensajes.
+
+Los agentes también pueden trabajar **gratis y sin IA**: correo/placas y calendario usan Google Apps Script; la vendedora y redes corren en el backend elegido (Node en tu PC/servidor o Worker Cloudflare). La IA es un extra opcional. Para separar correctamente las conexiones, lee [el mapa de Sofía](../SOFIA_MAPA_Y_PLAN.md) y luego [CONEXIONES.md](CONEXIONES.md).
 
 | Agente (gratis, sin IA) | Dónde corre | Qué hace solo |
 |---|---|---|
 | **Correo de placas** | Tu cuenta de Google | Envía desde tu Gmail con los documentos adjuntos, lee las respuestas de la gestoría, propone el estado y manda el seguimiento si no contestan |
-| **Sofía vendedora (WhatsApp y Messenger)** | Conector (Cloudflare) | Atiende a cada cliente a cualquier hora: le muestra tus autos con foto y precio, cotiza a crédito, anota la prueba de manejo y te lo pasa cuando pide hablar contigo. Todo queda en Prospectos (🔥 los que quieren cita). Con IA opcional, también contesta lo que el menú no entiende |
-| **Redes** | Conector (Cloudflare) | Publica en tu página de Facebook y en Instagram a la hora que programaste |
+| **Sofía vendedora (WhatsApp y Messenger)** | Backend configurado (Node o Worker) + conexión de mensajería | Atiende a cada cliente cuando el backend recibe el mensaje: muestra autos, usa las corridas cargadas, agenda, anota prospectos y avisa al asesor |
+| **Redes** | Backend configurado (Node o Worker) | Publica en tu página de Facebook y en Instagram a la hora que programaste |
 | **Recordatorios** | Tu cuenta de Google | Copia cada recordatorio al calendario **Sofía** para que suene en el iPhone |
 | **Lector de INE** | El teléfono, y Google como segunda opinión | Lee frente y reverso, valida CURP, clave de elector y la zona de lectura mecánica del reverso, y compara los lectores campo por campo |
 
@@ -32,7 +34,7 @@ Los agentes también son **gratis y sin IA**: corren en tu propia cuenta de Goog
 
 ## IA: opcional y bajo tu control
 
-Todo lo de las columnas "Sin conexiones" y "Con conexiones gratis" funciona sin IA. La IA se conecta en **Más → Conexiones** con tu propia llave de Anthropic. Puedes elegir la calidad (Opus 5.5, Sonnet 5.5 o Haiku 5.5) y apagar la lectura de INE con IA. Lo que redacta la IA nunca se envía a un cliente sin que tú lo revises y toques **Enviar**.
+La IA para borradores de la app y la IA que escribe respuestas automáticas en el backend son conexiones separadas. Workers AI se configura en **Más → Conexiones → IA gratis de Cloudflare**; para que la vendedora lo use también activa **Con IA** en **WhatsApp → Automático**. Para entender qué ve cada conexión, consulta [el mapa de Sofía](../SOFIA_MAPA_Y_PLAN.md).
 
 ## Datos y respaldo
 

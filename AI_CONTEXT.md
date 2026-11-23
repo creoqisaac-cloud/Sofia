@@ -2,6 +2,8 @@
 
 Lee esta guía antes de editar. El usuario puede compartir este archivo con Codex, Claude, DeepSeek u otra IA.
 
+Para distinguir **la PWA, el backend, WhatsApp Web local, el Worker Cloudflare y Cloudflare AI** y diagnosticar por qué una bandeja aparece vacía, lee también [`SOFIA_MAPA_Y_PLAN.md`](SOFIA_MAPA_Y_PLAN.md). Es el mapa de arquitectura y decisiones actualizado al 23 de noviembre de 2026. Una PWA puede decir «Servidor conectado» y aun así estar conectada al Worker equivocado para leer los chats locales.
+
 ## Qué proyecto cambiar
 
 Este repositorio conserva más de una generación de Sofía. La app que hoy usa Mario para WhatsApp es la **PWA de `prueba/`**, y el conector que mantiene la sesión está en `whatsapp-web/`.
@@ -24,6 +26,7 @@ Este repositorio conserva más de una generación de Sofía. La app que hoy usa 
 
 - En el chat propio «Tú» de Mario: `/sofia pendientes` importa y lista chats recientes cuyo último mensaje fue del cliente; **no responde ninguno**. `/sofia responder 1` responde solo al chat 1 de la lista actualizada. `/sofia ayuda` muestra los comandos. No hay orden de respuesta masiva.
 - El modo WhatsApp Web de Windows guarda los mensajes en la computadora. La PWA pública de GitHub Pages no puede ver ese almacén local desde el iPhone/tablet por sí sola; la bandeja del teléfono requiere un puente remoto seguro. No afirmar que la bandeja móvil sincroniza el conector local hasta que ese puente exista.
+- El proceso local vinculado escucha en loopback (`127.0.0.1`); el puerto es temporal. Un Worker de Cloudflare y el Node local tienen almacenes distintos. «Workers AI conectado» indica disponibilidad del modelo para el backend seleccionado; no conecta WhatsApp ni sincroniza mensajes.
 - El modo Mario debe iniciar sin `SOFIA_PRUEBA_NUMERO`; ese filtro es únicamente para pruebas y silencia los demás contactos si se hereda.
 
 ## Reglas de edición
