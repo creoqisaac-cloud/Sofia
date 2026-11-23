@@ -1490,9 +1490,17 @@ export async function candidatosRevivir(store, ahora = new Date()) {
 }
 
 function mensajeRevivir(d, s1, s2, auto, i) {
-  const n = primerNombre(d.nombre);
+  const pila = primerNombre(d.nombre);
+  const n = /\p{L}{2,}/u.test(pila ?? "") && !/\d/.test(pila) ? pila : ""; // «M.», «..» o emojis: sin nombre
   const { de, lo } = conArticulo(d.modelo);
   const promo = auto?.promo ? ` Este mes ${de} trae ${auto.promo.replace(/\.$/, "")}.` : "";
+  // Nos escribió y se quedó sin respuesta: primero una disculpa.
+  if (d.esperaba) {
+    return [
+      `¡Hola${n ? ` ${n}` : ""}! Perdón la demora 🙏 Soy Mario Abarca, de Honda. Con gusto te ayudo con ${de}.${promo} ¿Te queda ${s1} o ${s2} para que ${lo} manejes y te armo la corrida?`,
+      `Hola${n ? ` ${n}` : ""}, una disculpa por no contestarte antes 🙏 Aquí Mario de Honda.${promo} Si quieres te espero ${s1} o ${s2} para que ${lo} veas y vemos números. ¿Cuál te acomoda?`,
+    ][i % 2];
+  }
   const v = [
     `¡Hola${n ? ` ${n}` : ""}! 👋 ¿Cómo vas? Soy Mario Abarca, de Honda. ¿Sigues buscando ${de}?${promo} Me gustaría que ${lo} manejaras sin compromiso y de una vez te armo la corrida a tu medida. ¿Te queda ${s1} o ${s2}?`,
     `Hola${n ? ` ${n}` : ""}, ¿qué tal? Aquí Mario de Honda 🙌 Me acordé de ti por ${de}.${promo} ¿Te aparto un horario para que ${lo} veas y manejes? Tengo ${s1} o ${s2}.`,
