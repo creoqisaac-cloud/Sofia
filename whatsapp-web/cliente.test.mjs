@@ -75,5 +75,5 @@ test("solo mi WhatsApp: responde a /sofia en chat propio, ignora notas y chats e
   assert.equal(cambio.value.messages[0].pruebaLocal, true);
   assert.equal(cambio.value.messages[0].from, self);
   await assert.rejects(receptor.enviar({ to: "528100000003", text: "No debería salir" }), /Destinatario no habilitado/);
-  assert.doesNotReject(receptor.enviar({ to: self, text: "Sofía contesta" }));
+  await assert.doesNotReject(receptor.enviar({ to: self, text: "Sofía contesta" }));
 });
