@@ -615,7 +615,9 @@ async function actualizarLead(store, e, cambios, ahora) {
   const leads = (await store.get("leads:index")) ?? {};
   const clave = `${e.canal}:${e.id}`;
   const l = Object.hasOwn(leads, clave) ? leads[clave] : { canal: e.canal, id: e.id, nombre: e.nombre || "", primerMensaje: String(e.texto ?? "").slice(0, 300), at: ahora.toISOString(), importado: false };
+  if (l.calorManual && cambios.calor) cambios = { ...cambios, calor: undefined }; // Mario ya lo acomodó a mano
   Object.assign(l, cambios, { actualizado: ahora.toISOString() });
+  if (l.calor === undefined) delete l.calor;
   // Pide cita o asesor: vuelve a "nuevos" aunque ya se hubiera agregado como cliente (la app lo avisa).
   if (cambios.cita || cambios.quiereAsesor) { l.importado = false; delete l.importadoAt; }
   leads[clave] = l;
@@ -914,12 +916,16 @@ async function sendMessage(env, store, b, { ahora = new Date(), autoKey, indice 
   if (env.WA_WEB?.enviar) {
     if (b.template) throw new Error("Las plantillas de Meta requieren la API oficial.");
     let media;
-    if (b.imageId) {
-      const foto = MEDIA_ID.test(String(b.imageId)) ? await store.get(`media:${b.imageId}`) : null;
-      if (!foto?.datos || !FOTOS.includes(foto.mime) || foto.datos.length > 7_000_000) throw new Error("No encontré una foto válida del inventario.");
-      media = { mime: foto.mime, datos: foto.datos };
+    // La vendedora manda la foto como dirección pública (…/media/<id>); con WhatsApp vinculado se adjunta la
+    // imagen guardada en vez de pegar el link en el texto.
+    const imageId = b.imageId || String(b.image ?? "").match(/\/media\/([\w-]+)$/)?.[1];
+    if (imageId) {
+      const foto = MEDIA_ID.test(String(imageId)) ? await store.get(`media:${imageId}`) : null;
+      if (!foto?.datos || !FOTOS.includes(foto.mime) || foto.datos.length > 7_000_000) {
+        if (b.imageId) throw new Error("No encontré una foto válida del inventario.");
+      } else media = { mime: foto.mime, datos: foto.datos };
     }
-    const id = await env.WA_WEB.enviar({ ...b, media });
+    const id = await env.WA_WEB.enviar({ ...b, ...(media || imageId ? { image: undefined } : {}), media });
     await addMessage(store, "wa", String(b.to), "", { id, dir: "out", type: media ? "image" : "text", text: b.text || "", at, status: "sent", ...(media ? { media: { mime: media.mime } } : {}), ...auto }, autoKey, indice);
     return { id };
   }
@@ -1422,6 +1428,22 @@ export async function handle(req, envBase, store, opciones = {}) {
         }
         if (marcados) await store.put("leads:index", leads);
         return json({ ok: true, marcados });
+      }
+      case "POST /api/prospectos/actualizar": {
+        // Mario acomoda al cliente en su tablero (temperatura, nota, nombre). Lo que él decide, Sofía ya no lo cambia.
+        const leads = (await store.get("leads:index")) ?? {};
+        const clave = String(body.clave ?? "");
+        const l = Object.hasOwn(leads, clave) ? leads[clave] : null;
+        if (!l) return fail("No encontré ese cliente", 404);
+        if (body.calor !== undefined) {
+          if (!["caliente", "tibio", "frio", "cerrado", "perdido"].includes(body.calor)) return fail("Temperatura inválida");
+          Object.assign(l, { calor: body.calor, calorManual: true });
+        }
+        if (body.nota !== undefined) l.nota = String(body.nota).slice(0, 500);
+        if (body.nombreCliente !== undefined) l.nombreCliente = String(body.nombreCliente).trim().slice(0, 60);
+        l.actualizado = ahora.toISOString();
+        await store.put("leads:index", leads);
+        return json({ ok: true, prospecto: { clave, ...l } });
       }
 
       // Programador de publicaciones

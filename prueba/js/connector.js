@@ -90,7 +90,8 @@ export const trySales = (body) => call("/api/vendedora/probar", { method: "POST"
  */
 export const listLeads = async () => (await call("/api/prospectos")).prospectos;
 /** Marca prospectos (por su clave) como ya convertidos en clientes. */
-export const markLeads = (ids, importado = true) => call("/api/prospectos/marcar", { method: "POST", body: { ids, importado } });
+export const updateLead = async (clave, cambios) => (await call("/api/prospectos/actualizar", { method: "POST", body: { clave, ...cambios } })).prospecto;
+export const markLeads =(ids, importado = true) => call("/api/prospectos/marcar", { method: "POST", body: { ids, importado } });
 
 // ── Programador de publicaciones (Facebook e Instagram) ──
 /** post: { texto, imagen (data URL, JPG para Instagram), cuando (ISO; sin cuando sale de inmediato con la hora del servidor), canales: ["facebook", "instagram"] } */

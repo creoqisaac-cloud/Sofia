@@ -17,6 +17,7 @@ import { renderStyle } from "./v-style.js";
 import { renderSocial } from "./v-social.js";
 import { renderInventory, renderCarForm, renderSimulator } from "./v-inventory.js";
 import { renderSalesDesk } from "./v-sales-desk.js";
+import { renderHoyMario, renderChatsMario, renderChatMario, renderCarteraMario, renderAutosMario, renderAutoMario, renderAjustesMario } from "./mario.js";
 import { connectorReady, inbox, refreshStatus } from "./connector.js";
 import { googleReady, googleStatus, saveEvent, deleteEvent, closeEmailCase } from "./google.js";
 import { isNative, nativeNotifications, syncNativeReminders, onNotificationTap, webNotify } from "./native.js";
@@ -31,15 +32,15 @@ const ICONS = {
   ajustes: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>'),
   redes: svg('<path d="M3 10v4l3 .5V18a1.5 1.5 0 003 0v-3l9 3V6L6 9.5 3 10z"/><path d="M21 10v4"/>'),
   mas: svg('<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'),
+  autos: svg('<path d="M4 16v-3l2-5h12l2 5v3"/><path d="M3 16h18v3H3z"/><circle cx="7.5" cy="16" r="1.5"/><circle cx="16.5" cy="16" r="1.5"/>'),
   comentario: svg('<path d="M4 5h16v11H9l-5 4V5z"/><path d="M8 9.5h8M8 12.5h5"/>'),
 };
 
 const NAV = [
   ["/", "Hoy", ICONS.hoy],
-  ["/clientes", "Clientes", ICONS.clientes],
-  ["/whatsapp", "WhatsApp", ICONS.whatsapp],
-  ["/redes", "Redes", ICONS.redes],
-  ["/mas", "Más", ICONS.mas],
+  ["/chats", "Chats", ICONS.whatsapp],
+  ["/cartera", "Clientes", ICONS.clientes],
+  ["/autos", "Autos", ICONS.autos],
 ];
 // Pantallas que se abren desde "Más" (la pestaña Más queda marcada).
 const UNDER_MORE = ["/mas", "/recordatorios", "/ajustes", "/conexiones", "/estilo"];
@@ -68,7 +69,14 @@ function render() {
   view.replaceChildren();
   const seg = path.split("/").filter(Boolean);
   try {
-    if (path === "/") renderHome(view);
+    if (path === "/") renderHoyMario(view);
+    else if (seg[0] === "chats") renderChatsMario(view);
+    else if (seg[0] === "chat" && seg[1]) renderChatMario(view, decodeURIComponent(seg[1]));
+    else if (seg[0] === "cartera") renderCarteraMario(view);
+    else if (seg[0] === "autos") renderAutosMario(view);
+    else if (seg[0] === "auto" && seg[1]) renderAutoMario(view, decodeURIComponent(seg[1]));
+    else if (seg[0] === "sofia") renderAjustesMario(view);
+    else if (seg[0] === "inicio") renderHome(view);
     else if (seg[0] === "clientes") renderCustomers(view);
     else if (seg[0] === "cliente" && seg[1] === "nuevo") renderCustomerForm(view, null);
     else if (seg[0] === "cliente" && seg[2] === "editar") renderCustomerForm(view, seg[1]);
@@ -94,9 +102,8 @@ function render() {
   }
   for (const a of document.querySelectorAll("nav.bottom a")) {
     const p = a.getAttribute("href").slice(1);
-    a.classList.toggle("on", p === "/" ? path === "/" : p === "/mas" ? UNDER_MORE.includes(path)
-      : path.startsWith(p) || (p === "/clientes" && path.startsWith("/cliente")) || (p === "/whatsapp" && UNDER_WA.some((x) => path.startsWith(x))));
-    if (p === "/whatsapp") {
+    a.classList.toggle("on", p === "/" ? path === "/" : path.startsWith(p) || (p === "/chats" && path.startsWith("/chat/")) || (p === "/autos" && path.startsWith("/auto/")));
+    if (p === "/chats") {
       a.querySelector(".badge")?.remove();
       if (unread) a.querySelector(".ic").append(h("span", { class: "badge" }, String(unread)));
     }
@@ -106,7 +113,6 @@ function render() {
 function shell() {
   document.body.append(
     h("main", { id: "view" }),
-    h("button", { class: "fab", "aria-label": "Dejar un comentario sobre la app", title: "Comentarios", onclick: feedback, html: ICONS.comentario }),
     h("nav", { class: "bottom" }, NAV.map(([p, label, icon]) => h("a", { href: `#${p}` }, h("span", { class: "ic", "aria-hidden": "true", html: icon }), h("span", {}, label)))));
 }
 
@@ -164,14 +170,14 @@ async function checkInbox() {
   if (!connectorReady() || document.visibilityState !== "visible") return;
   try {
     const conv = Object.entries(await inbox());
-    unread = conv.filter(([k, c]) => c.lastDir === "in" && (!state.waSeen[k] || state.waSeen[k] < c.lastAt)).length;
+    unread = conv.filter(([k, c]) => k.startsWith("wa:") && c.lastDir === "in" && Date.now() - new Date(c.lastAt) < 30 * 864e5).length;
     const newest = conv.map(([, c]) => c).filter((c) => c.lastDir === "in").sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)))[0];
-    if (newest && lastSeenAt && newest.lastAt > lastSeenAt && !route().startsWith("/whatsapp/chat")) {
+    if (newest && lastSeenAt && newest.lastAt > lastSeenAt && !route().startsWith("/chat/")) {
       toast(`💬 ${newest.name || "Cliente"}: ${(newest.lastText ?? "").slice(0, 60)}`, 6000);
       webNotify("Nuevo mensaje", `${newest.name || "Cliente"}: ${newest.lastText ?? ""}`);
     }
     if (newest) lastSeenAt = newest.lastAt > (lastSeenAt ?? "") ? newest.lastAt : lastSeenAt;
-    const a = document.querySelector('nav.bottom a[href="#/whatsapp"] .ic');
+    const a = document.querySelector('nav.bottom a[href="#/chats"] .ic');
     a?.querySelector(".badge")?.remove();
     if (unread && a) a.append(h("span", { class: "badge" }, String(unread)));
   } catch { /* sin red: se reintenta en la siguiente vuelta */ }
