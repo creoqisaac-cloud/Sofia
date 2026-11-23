@@ -129,7 +129,39 @@ if (entorno.SOFIA_WHATSAPP_WEB === "1") {
     async etiquetarNoLeidos() {
       return operacionInterna("/api/whatsapp/etiquetar-no-leidos");
     },
+    // «sofia háblale a los interesados en CR-V»: primero enseña a quién y qué; solo manda con «sofia sí».
+    async orden(texto) {
+      const { interpretarOrden, mensajePara } = await import("../js/ordenes.js");
+      const leads = (await store.get("leads:index")) ?? {};
+      const prospectos = Object.entries(leads).map(([clave, l]) => ({ clave, ...l }));
+      const r = interpretarOrden(texto, { prospectos, bandeja: (await store.get("inbox:index")) ?? {}, citas: (await store.get("agenda:citas")) ?? [], inventario: (await store.get("ventas:inventario")) ?? [] });
+      const inventario = (await store.get("ventas:inventario")) ?? [];
+      const foto = r.foto ? inventario.find((a) => a.fotoId && String(a.modelo).toUpperCase().replace(/[^A-Z]/g, "") === r.foto.toUpperCase().replace(/[^A-Z]/g, "")) : null;
+      const destinatarios = r.destinatarios.slice(0, 40); // tope por orden: protege el número de Mario
+      ordenPendiente = destinatarios.length ? { destinatarios, plantilla: r.mensaje, fotoId: foto?.fotoId, vence: Date.now() + 15 * 60e3 } : null;
+      return { ...r, destinatarios, recortados: r.destinatarios.length - destinatarios.length, ejemplo: destinatarios[0] ? mensajePara(r.mensaje, destinatarios[0]) : "", conFoto: Boolean(foto) };
+    },
+    async mandarOrden(avance) {
+      const o = ordenPendiente;
+      ordenPendiente = null;
+      if (!o || Date.now() > o.vence) throw new Error("No hay una orden por confirmar (o ya pasaron 15 minutos). Vuelve a escribirla.");
+      const { mensajePara } = await import("../js/ordenes.js");
+      let ok = 0;
+      const fallidos = [];
+      for (const [i, d] of o.destinatarios.entries()) {
+        try { await operacionInterna("/api/enviar", { channel: "wa", to: d.id, text: mensajePara(o.plantilla, d), ...(o.fotoId ? { imageId: o.fotoId } : {}) }); ok++; }
+        catch { fallidos.push(d.nombre || `…${String(d.id).slice(-4)}`); }
+        if (i < o.destinatarios.length - 1) {
+          if ((i + 1) % 10 === 0) await avance?.(`Llevo ${i + 1} de ${o.destinatarios.length}…`);
+          await new Promise((r) => setTimeout(r, 8000 + Math.random() * 7000)); // ritmo de persona
+        }
+      }
+      return { ok, total: o.destinatarios.length, fallidos };
+    },
+    cancelarOrden() { const habia = Boolean(ordenPendiente); ordenPendiente = null; return habia; },
+    async resumen() { return operacionInterna("/api/resumen/enviar"); },
   };
+  let ordenPendiente = null;
   entorno.WA_WEB = iniciar(DATA_DIR, evento => eventoVinculado(evento, entorno, store), operaciones);
 }
 

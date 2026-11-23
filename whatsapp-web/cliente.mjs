@@ -118,16 +118,20 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     await recibir({ object: "whatsapp_business_account", entry: [{ changes: [cambio] }] });
   }
   async function procesarComandoOperativo(m, propio) {
-    const match = String(m.body).trim().match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)(pendientes|ayuda|ayúdame|responder\s+(?:todos|\d+(?:\s*(?:,|y)\s*\d+)*)|etiquetar\s+no\s+le[ií]dos)\s*$/i);
-    if (!match || comandosOperativosVistos.has(m.id._serialized)) return;
+    const texto = String(m.body).trim();
+    const match = texto.match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)(pendientes|ayuda|ayúdame|responder\s+(?:todos|\d+(?:\s*(?:,|y)\s*\d+)*)|etiquetar\s+no\s+le[ií]dos)\s*$/i);
+    // Cualquier otra cosa después de «sofia» es una orden en palabras de Mario («sofia háblale a los de CR-V»).
+    const libre = match ? null : texto.match(/^\/?\s*sof[ií]a(?:\s+|[,;:]\s*)([\s\S]{2,})$/i);
+    if ((!match && !libre) || comandosOperativosVistos.has(m.id._serialized)) return;
     comandosOperativosVistos.add(m.id._serialized);
     if (comandosOperativosVistos.size > 200) comandosOperativosVistos.delete(comandosOperativosVistos.values().next().value);
     const responderMario = async (texto) => client.sendMessage(propio, texto, { sendSeen: false });
     try {
       if (!operaciones) throw new Error("Las órdenes de operación no están disponibles en este conector.");
+      if (libre) { await ordenLibre(libre[1].trim(), responderMario); return; }
       const orden = match[1].toLowerCase();
       if (orden === "ayuda" || orden === "ayúdame") {
-        await responderMario("Órdenes de Sofía:\n/sofia pendientes — trae chats recientes sin responderlos.\n/sofia responder 1 — responde solo al chat número 1 de la lista.\n/sofia responder 1,3,5 — responde esos chats de la lista.\n/sofia responder todos — responde todos los de la lista que te mostré.\n/sofia etiquetar no leídos — agrega la etiqueta Prospecto a chats no leídos, sin mandar mensajes.");
+        await responderMario("Órdenes de Sofía (escríbelas aquí, en tu chat «Tú»):\n\n🗣️ *sofia háblale a los interesados en CR-V* — o «a los calientes diles que llegó la promo», «revive a los que no contestaron de octubre», «confírmales la cita a los de mañana», «manda foto de la HR-V a los de HR-V». Te enseño a quién y qué antes de mandar.\n✅ *sofia sí* — manda la orden que te enseñé · *sofia no* — la cancela.\n☀️ *sofia resumen* — tu día: citas, pendientes y calientes.\n📥 *sofia pendientes* — chats sin responder · *sofia responder 1,3* o *todos*.\n🏷️ *sofia etiquetar no leídos* — etiqueta Prospecto, sin mandar mensajes.");
         return;
       }
       if (/^etiquetar\s+no\s+le[ií]dos$/.test(orden)) {
@@ -179,6 +183,36 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
     } catch (error) {
       await responderMario(`No pude completar la orden: ${error?.message ?? error}`);
     }
+  }
+  async function ordenLibre(orden, responderMario) {
+    const o = orden.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    if (/^(si|simon|manda(lo|las|les)?|mandal[oa]s?|dale|confirmo|envia(lo|les)?|adelante|va)\b[\s!.]*$/.test(o)) {
+      if (!operaciones.mandarOrden) throw new Error("Este conector no puede mandar órdenes.");
+      await responderMario("Va, empiezo a mandar uno por uno, con unos segundos entre cada uno. Te aviso al terminar.");
+      const r = await operaciones.mandarOrden(responderMario);
+      await responderMario(`Listo: mandé ${r.ok} de ${r.total}.${r.fallidos.length ? ` No pude con: ${r.fallidos.join(", ")}.` : ""}`);
+      return;
+    }
+    if (/^(no|cancela(r|la)?|olvidalo|mejor no)\b/.test(o)) {
+      await responderMario(operaciones.cancelarOrden?.() ? "Cancelado: no mandé nada." : "No había ninguna orden por mandar.");
+      return;
+    }
+    if (/^resumen\b/.test(o)) { await operaciones.resumen(); return; }
+    if (!operaciones.orden) throw new Error("Este conector no entiende órdenes libres todavía.");
+    const r = await operaciones.orden(orden);
+    if (!r.destinatarios.length) {
+      await responderMario(`Entendí: ${r.filtros.join(" · ")}. No encontré clientes con eso. Prueba con otro modelo, mes o «todos». (Escribe *sofia ayuda* para ver ejemplos.)`);
+      return;
+    }
+    const lista = r.destinatarios.slice(0, 15).map((d) => `• ${d.nombre || `…${String(d.id).slice(-4)}`}${d.motivo ? ` (${String(d.motivo).replace(/^Honda\s+/i, "")})` : ""}`).join("\n");
+    await responderMario([
+      `📋 Entendí: ${r.tipo === "cita" ? "confirmar cita a" : "escribirle a"} ${r.filtros.join(" · ")} — *${r.destinatarios.length} cliente${r.destinatarios.length === 1 ? "" : "s"}*:`,
+      lista + (r.destinatarios.length > 15 ? `\n…y ${r.destinatarios.length - 15} más` : ""),
+      r.recortados ? `(Solo los primeros 40; los otros ${r.recortados} van en otra orden.)` : "",
+      `Así le llega al primero:\n«${r.ejemplo}»`,
+      r.conFoto ? "📷 Va con la foto del auto." : r.avisoFoto || "",
+      "Responde *sofia sí* para mandar o *sofia no* para cancelar (tienes 15 min).",
+    ].filter(Boolean).join("\n\n"));
   }
   const tipoMensaje = (m) => ({ chat: "text", ptt: "audio", vcard: "contact", multi_vcard: "contact" }[m.type] ?? m.type);
   async function sincronizarPendientes() {

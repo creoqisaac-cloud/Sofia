@@ -261,3 +261,42 @@ test("LID sin número: no se registra ni truena, solo deja aviso", async () => {
   await new Promise((listo) => setTimeout(listo, 2000));
   assert.equal(eventos.length, 0);
 });
+
+test("Mario: «sofia háblale a…» primero enseña a quién y qué; solo manda con «sofia sí»", async () => {
+  const client = new EventEmitter();
+  const self = "5218111112222@c.us";
+  const enviados = [];
+  let mandadas = 0;
+  client.info = { wid: { user: "5218111112222", _serialized: self } };
+  client.getContactLidAndPhone = async (lids) => lids.map((lid) => ({ lid, pn: self }));
+  client.sendMessage = async (to, text) => { enviados.push({ to, text }); return { id: { _serialized: `salida-${enviados.length}` } }; };
+  let pendiente = false;
+  const operaciones = {
+    async orden(texto) {
+      pendiente = true;
+      return { tipo: "mensaje", filtros: [`interesados en CR-V (${texto.length})`], destinatarios: [{ clave: "wa:5281", id: "5281", nombre: "Ana", motivo: "Honda CR-V 2027" }], recortados: 0, ejemplo: "¡Hola Ana! ¿Sigues interesada en la CR-V?", conFoto: false, avisoFoto: "" };
+    },
+    async mandarOrden() { if (!pendiente) throw new Error("No hay una orden por confirmar"); pendiente = false; mandadas++; return { ok: 1, total: 1, fallidos: [] }; },
+    cancelarOrden() { const h = pendiente; pendiente = false; return h; },
+  };
+  vincular(client, async () => {}, "", false, { operaciones });
+  client.emit("ready");
+  const comando = async (id, body) => {
+    client.emit("message_create", { type: "chat", body, fromMe: true, from: self, to: self, id: { _serialized: id }, timestamp: Math.floor(Date.now() / 1000) });
+    await new Promise(resolve => setTimeout(resolve, 15));
+  };
+  await comando("libre-1", "Sofía, háblale a los interesados en CR-V");
+  assert.equal(mandadas, 0, "la orden sola nunca manda");
+  assert.match(enviados.at(-1).text, /📋 Entendí: escribirle a interesados en CR-V/);
+  assert.match(enviados.at(-1).text, /• Ana \(CR-V 2027\)/);
+  assert.match(enviados.at(-1).text, /sofia sí\* para mandar/);
+  await comando("libre-2", "sofia no");
+  assert.match(enviados.at(-1).text, /Cancelado: no mandé nada/);
+  await comando("libre-3", "sofia sí");
+  assert.equal(mandadas, 0);
+  assert.match(enviados.at(-1).text, /No pude completar la orden: No hay una orden por confirmar/);
+  await comando("libre-4", "sofia háblale a los de CR-V");
+  await comando("libre-5", "sofia sí");
+  assert.equal(mandadas, 1);
+  assert.match(enviados.at(-1).text, /Listo: mandé 1 de 1\./);
+});

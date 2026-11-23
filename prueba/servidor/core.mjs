@@ -1263,13 +1263,15 @@ async function darSeguimiento(env, store, cfg, ahora) {
 }
 
 /** A las 9 am (días de trabajo), un resumen a Mario en su chat «Tú»: citas de hoy, quién espera respuesta y los calientes. */
-async function resumenDelDia(env, store, cfg, ahora) {
+async function resumenDelDia(env, store, cfg, ahora, ahoraMismo = false) {
   const l = relojLocal(cfg, ahora);
-  if (cfg.ventas.resumenDiario === false || !cfg.horario.dias.includes(l.dia) || l.min < 9 * 60 || l.min >= 12 * 60) return false;
-  if ((await store.get("resumen:enviado")) === l.fecha) return false;
+  if (!ahoraMismo) {
+    if (cfg.ventas.resumenDiario === false || !cfg.horario.dias.includes(l.dia) || l.min < 9 * 60 || l.min >= 12 * 60) return false;
+    if ((await store.get("resumen:enviado")) === l.fecha) return false;
+  }
   const mario = numeroDeMario(env);
   if (!mario) return false;
-  await store.put("resumen:enviado", l.fecha);
+  if (!ahoraMismo) await store.put("resumen:enviado", l.fecha);
   const DIA = 24 * 3600e3;
   const leads = (await store.get("leads:index")) ?? {};
   const index = (await store.get("inbox:index")) ?? {};
@@ -1445,6 +1447,13 @@ export async function handle(req, envBase, store, opciones = {}) {
         const sincronizado = await env.WA_WEB.sincronizarPendientes();
         await procesarEventos(sincronizado.body, env, store, ahora, publicBase(env, baseDe(req)), { autoResponder: false });
         return json({ ok: true, chats: sincronizado.chats, mensajes: sincronizado.mensajes, fijados: sincronizado.fijados ?? [], respondidos: 0 });
+      }
+      case "POST /api/resumen/enviar": {
+        // «sofia resumen» o el botón de la app: el resumen del día, ahora mismo, al chat «Tú» de Mario.
+        if (!env.WA_WEB?.estado?.().ok) return fail("El resumen necesita el WhatsApp de Mario vinculado.", 409);
+        const enviado = await resumenDelDia(env, store, await leerConfig(store), ahora, true);
+        if (!enviado) return fail("No pude mandar el resumen.", 409);
+        return json({ ok: true });
       }
       case "POST /api/buzon/responder": {
         const clave = String(body.clave ?? "");
