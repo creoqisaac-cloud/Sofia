@@ -867,8 +867,9 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     await handle(signed(waMsg("wamid.CF2", "si a credito", mas(LUNES_10, 1))), e, store, { ahora: mas(LUNES_10, 1) });
     expect(waEnvios()[0]!.text.body).toBe("sale, ¿qué día puedes venir?");
     expect((await (await handle(req("/api/estado?token=clave"), e, store)).json()).agente.ventas.ia).toMatchObject({ activa: true, motor: "cloudflare", modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" });
-    // Con llave de Claude, manda Claude.
-    expect((await (await handle(req("/api/estado?token=clave"), { ...e, ANTHROPIC_API_KEY: "sk-ant-x" }, store)).json()).agente.ventas.ia.motor).toBe("claude");
+    // Cloudflare tiene prioridad para conservar la cuota gratis, pero Claude queda como motor si Cloudflare no está configurado.
+    expect((await (await handle(req("/api/estado?token=clave"), { ...e, ANTHROPIC_API_KEY: "sk-ant-x" }, store)).json()).agente.ventas.ia.motor).toBe("cloudflare");
+    expect((await (await handle(req("/api/estado?token=clave"), { ...env(), ANTHROPIC_API_KEY: "sk-ant-x" }, store)).json()).agente.ventas.ia.motor).toBe("claude");
   });
 
   it("IA gratis de Cloudflare por su API (servidor en Windows o Linux): platica igual que en el Worker", async () => {
