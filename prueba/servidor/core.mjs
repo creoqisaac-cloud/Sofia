@@ -1619,6 +1619,8 @@ export async function revivirUno(env, store, ahora = new Date()) {
   const hechosHoy = estado.dia === hoy ? estado.hoy ?? 0 : 0;
   if (hechosHoy >= (estado.tope ?? 60)) return 0;
   reviviendo = true;
+  // Mientras la IA piensa (hasta ~20 s) Mario puede tocar «Parar»: siempre se relee el estado antes de guardar o mandar.
+  const actual = async () => (await store.get("revivir:estado")) ?? {};
   try {
     const [d] = await candidatosRevivir(store, ahora);
     if (!d) { await store.put("revivir:estado", { ...estado, activa: false, terminado: ahora.toISOString() }); return 0; }
@@ -1628,7 +1630,8 @@ export async function revivirUno(env, store, ahora = new Date()) {
     if (!d.clasificado && motoresIA(env, "fondo").length) {
       const { l, r } = await revisarChat(env, store, cfg, d.clave, index[d.clave] ?? {});
       if (r && (l.personal || ["personal", "postventa", "otro"].includes(l.tipo))) {
-        await store.put("revivir:estado", { ...estado, saltados: [...(estado.saltados ?? []), d.clave].slice(-2000) });
+        const ya = await actual();
+        await store.put("revivir:estado", { ...ya, saltados: [...(ya.saltados ?? []), d.clave].slice(-2000) });
         return 0;
       }
       modelo = modeloEn(l.interes || "") || modelo;
@@ -1640,8 +1643,10 @@ export async function revivirUno(env, store, ahora = new Date()) {
     if (!par) return 0;
     const auto = modelo ? disponiblesInv(await store.get("ventas:inventario")).find((a) => modeloEn(a.modelo) === modelo) : null;
     const texto = mensajeRevivir({ ...d, modelo }, par[0].texto, par[1].texto, auto, i);
+    const ya = await actual();
+    if (!ya.activa) return 0; // lo pararon mientras tanto
     // Se marca antes de mandar: si algo falla no se le vuelve a escribir.
-    await store.put("revivir:estado", { ...estado, dia: hoy, hoy: hechosHoy + 1, enviados: [...(estado.enviados ?? []), d.clave].slice(-2000), ultimo: { nombre: d.nombre, at: ahora.toISOString() } });
+    await store.put("revivir:estado", { ...ya, dia: hoy, hoy: hechosHoy + 1, enviados: [...(ya.enviados ?? []), d.clave].slice(-2000), ultimo: { nombre: d.nombre, at: ahora.toISOString() } });
     await sendMessage(env, store, { channel: "wa", to: d.id, text: texto }, { ahora, autoKey: "revivir" });
     // El chat queda listo para apartar: «el martes a las 10», «el primero», «sí».
     const idx = (await store.get("inbox:index")) ?? {};
