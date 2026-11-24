@@ -168,6 +168,8 @@ if (entorno.SOFIA_WHATSAPP_WEB === "1") {
       }
       return { ok, total: o.destinatarios.length, fallidos };
     },
+    // Modo Jarvis: recordatorios, notas, preguntas y «apágate/préndete». Lo mismo que «Dile a Sofía» en la app.
+    async jarvis(texto) { return operacionInterna("/api/jarvis", { texto }); },
     cancelarOrden() { const habia = Boolean(ordenPendiente); ordenPendiente = null; return habia; },
     async resumen() { return operacionInterna("/api/resumen/enviar"); },
     // Nota de voz → texto con Whisper de Cloudflare (gratis), con las llaves del archivo o las guardadas en ⚙.

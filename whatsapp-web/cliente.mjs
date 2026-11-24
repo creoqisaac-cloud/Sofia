@@ -148,6 +148,7 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
       if (libre) { await ordenLibre(libre[1].trim(), responderMario); return; }
       const orden = match[1].toLowerCase();
       if (orden === "ayuda" || orden === "ayúdame") {
+        if (operaciones.jarvis) await responderMario((await operaciones.jarvis("ayuda")).respuesta);
         await responderMario("Órdenes de Sofía (escríbelas aquí, en tu chat «Tú»):\n\n🗣️ *sofia háblale a los interesados en CR-V* — o «a los calientes diles que llegó la promo», «revive a los que no contestaron de octubre», «confírmales la cita a los de mañana», «manda foto de la HR-V a los de HR-V». Te enseño a quién y qué antes de mandar.\n✅ *sofia sí* — manda la orden que te enseñé · *sofia no* — la cancela.\n☀️ *sofia resumen* — tu día: citas, pendientes y calientes.\n📥 *sofia pendientes* — chats sin responder · *sofia responder 1,3* o *todos*.\n🏷️ *sofia etiquetar no leídos* — etiqueta Prospecto, sin mandar mensajes.");
         return;
       }
@@ -215,6 +216,11 @@ export function vincular(client, recibir, prueba = "", soloMiWhatsApp = false, {
       return;
     }
     if (/^resumen\b/.test(o)) { await operaciones.resumen(); return; }
+    // Modo Jarvis: recordatorios, notas, «qué onda con Ana», «apágate»… Solo los envíos a varios siguen abajo.
+    if (operaciones.jarvis) {
+      const j = await operaciones.jarvis(orden);
+      if (j.tipo !== "masivo") { await responderMario(j.respuesta); return; }
+    }
     if (!operaciones.orden) throw new Error("Este conector no entiende órdenes libres todavía.");
     const r = await operaciones.orden(orden);
     if (!r.destinatarios.length) {

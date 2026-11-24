@@ -65,7 +65,7 @@ test("QR, mensaje privado, respuesta de Sofía, duplicado e intervención del as
   client.emit("ready");
   assert.equal(receptor.estado().ok, true);
   assert.doesNotMatch(await receptor.pagina(), /data:image/);
-  const m = { type: "chat", body: "Hola", id: { _serialized: "cliente-1" }, timestamp: Math.floor(Date.now()/1000), from: "10@lid" };
+  const m = { type: "chat", body: "Busco una CR-V", id: { _serialized: "cliente-1" }, timestamp: Math.floor(Date.now()/1000), from: "10@lid" };
   const emitir = async cambios => {
     client.emit("message_create", { ...m, ...cambios });
     await new Promise(resolve => setImmediate(resolve));

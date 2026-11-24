@@ -24,6 +24,7 @@
 import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres, pesos, cifras } from "../js/vendedor.js";
 import { iaPorApi } from "./ia-cloudflare.mjs";
 import { modeloEn } from "../js/ordenes.js";
+import { entenderOrden, leerCuando, cuandoTexto, buscarCliente, peticionesDe, AYUDA_JARVIS } from "../js/jarvis.js";
 
 export const VERSION = "conector-1.2";
 const MAX_MSGS = 500;
@@ -529,6 +530,8 @@ async function avisarSiToca(env, store, cfg, e, r, ahora) {
     // También cuando preguntó algo que Sofía no sabe con certeza (colores, existencia, ubicación…) o trae auto a cuenta:
     // Sofía siguió la plática y a Mario le llega la pregunta para contestarla él (máximo una vez por hora por chat).
     if (!r.lead.quiereAsesor && !r.lead.duda) return;
+    const vigilado = await store.get(`aviso:pide:ultimo:${e.canal}:${e.id}`);
+    if (vigilado && ahora - new Date(vigilado) < 30 * 60e3) return; // ya le llegó a Mario el aviso con lo que pide
     const clave = `aviso:${r.lead.quiereAsesor ? "" : "duda:"}${e.canal}:${e.id}`;
     const antes = await store.get(clave);
     if (antes && ahora - new Date(antes) < (r.lead.quiereAsesor ? 12 : 1) * 3600 * 1000) return;
@@ -540,6 +543,184 @@ async function avisarSiToca(env, store, cfg, e, r, ahora) {
   Object.assign(cita, { nombre: lead.nombreCliente || cita.nombre, interes: lead.interes || cita.interes, resumen: lead.resumen || cita.resumen, avisada: true });
   await store.put("agenda:citas", citas);
   await avisarAsesor(env, store, cfg, e, cita, ahora, lead);
+}
+
+// ───────── Modo Jarvis: recordatorios, notas, órdenes libres y avisos de lo que Sofía no puede dar ─────────
+// jarvis:recordatorios → [ { id, texto, at, clave?, nombre?, hecho, avisado, creado } ]
+// jarvis:pendiente     → { texto, vence } (pidió un recordatorio sin decir cuándo: la siguiente orden lo completa)
+
+/** Manda un WhatsApp a Mario (su chat «Tú» con WhatsApp vinculado, o ASESOR_WHATSAPP). Devuelve true si salió. */
+async function avisarAMario(env, store, texto, ahora) {
+  const vinculado = env.WA_WEB?.estado?.();
+  const numero = String(env.ASESOR_WHATSAPP || (vinculado?.ok ? vinculado.phone : "") || "").replace(/\D/g, "");
+  if (!numero || !(vinculado?.ok || waReady(env))) return false;
+  try {
+    await sendMessage(env, store, { channel: "wa", to: numero.length === 10 ? `52${numero}` : numero, text: texto }, { ahora });
+    return true;
+  } catch (err) { console.warn(`Aviso a Mario: ${err.message ?? err}`); return false; }
+}
+
+const fichaCorta = (clave, l = {}) => [
+  `${l.nombreCliente || l.nombre || "Cliente"} · …${String(clave).slice(-4)}`,
+  l.interes && `🚗 ${l.interes}${l.calor ? ` · ${l.calor}` : ""}${l.formaPago ? ` · ${l.formaPago}` : ""}`,
+  l.resumen && `🧠 ${l.resumen}`,
+  l.siguiente && `➡️ ${l.siguiente}`,
+  l.notas?.length && `📝 ${l.notas.slice(-3).map((n) => n.texto).join(" · ")}`,
+  clave.startsWith("wa:") && `Abrir chat: https://wa.me/${clave.slice(3)}`,
+].filter(Boolean).join("\n");
+
+async function recordatoriosPendientes(store) {
+  return ((await store.get("jarvis:recordatorios")) ?? []).filter((r) => !r.hecho).sort((a, b) => a.at - b.at);
+}
+
+/** Lo que Mario le dice a Sofía (app o chat «Tú»). Devuelve { tipo, respuesta } o { tipo: "masivo" } para el flujo de envíos. */
+export async function ordenJarvis(env, store, texto, ahora = new Date(), { conIA = true } = {}) {
+  const cfg = await leerConfig(store);
+  const tz = cfg.zonaHoraria || "America/Monterrey";
+  const t0 = ahora.getTime();
+  let o = entenderOrden(texto, t0, tz);
+  // «recuérdame marcarle a Juan» → «¿para cuándo?» → «mañana a las 10»
+  const pend = await store.get("jarvis:pendiente");
+  if (pend && pend.vence > t0 && (!o || o.accion === "falta-cuando" || o.accion === "citas")) {
+    const c = leerCuando(texto, t0, tz);
+    if (c) { o = { accion: "recordar", texto: pend.texto, at: c.at }; await borrar(store, "jarvis:pendiente"); }
+  }
+  // Lo que las reglas no entienden: la IA lo traduce a una de las órdenes conocidas (nunca inventa datos).
+  if (!o && conIA && motoresIA(env, "chat").length) {
+    const r = await preguntarIA(env, {
+      system: `Traduce la orden de ${cfg.asesor || "Mario"} (asesor de ventas de autos) a una acción. Acciones: recordar (quiere que le recuerdes algo; en «cuando» copia la fecha/hora tal cual la dijo, ej. «mañana a las 10»), nota (anotar un dato de un cliente), cliente (pregunta por un cliente), citas (pregunta por citas; dia 0 hoy, 1 mañana), personal (un contacto no es cliente), apagar, prender, recordatorios, masivo (mandar mensajes a varios clientes), ninguna (no es una orden). En «texto» va la tarea o la nota sin la fecha.`,
+      messages: [{ role: "user", content: String(texto).slice(0, 500) }],
+    }, { tarea: "chat", max: 150, esquema: { type: "object", properties: { accion: { type: "string" }, texto: { type: "string" }, cuando: { type: "string" }, dia: { type: "number" } }, required: ["accion", "texto", "cuando"], additionalProperties: false } }).catch(() => null);
+    if (r?.accion === "recordar") {
+      const c = leerCuando(r.cuando || texto, t0, tz);
+      o = c ? { accion: "recordar", texto: r.texto || texto, at: c.at } : { accion: "falta-cuando", texto: r.texto || texto };
+    } else if (["nota", "cliente", "personal"].includes(r?.accion)) o = { accion: r.accion, texto: r.accion === "nota" ? r.texto || texto : texto };
+    else if (r?.accion === "citas") o = { accion: "citas", dia: r.dia === 1 ? 1 : 0 };
+    else if (["apagar", "prender", "recordatorios", "masivo"].includes(r?.accion)) o = { accion: r.accion };
+  }
+  if (!o) return { tipo: "no-entendi", respuesta: `No te entendí 🙈. Esto es lo que puedo hacer:\n\n${AYUDA_JARVIS}` };
+  const leads = (await store.get("leads:index")) ?? {};
+  const quien = (x) => buscarCliente(x, leads);
+  switch (o.accion) {
+    case "ayuda": return { tipo: "ayuda", respuesta: AYUDA_JARVIS };
+    case "masivo": return { tipo: "masivo" };
+    case "falta-cuando":
+      await store.put("jarvis:pendiente", { texto: o.texto, vence: t0 + 15 * 60e3 });
+      return { tipo: "pregunta", respuesta: `¿Para cuándo te recuerdo «${o.texto}»? (ej. «mañana a las 10», «en 2 horas», «el jueves en la tarde»)` };
+    case "recordar": {
+      const c = quien(o.texto);
+      const lista = (await store.get("jarvis:recordatorios")) ?? [];
+      const nuevo = { id: `r${t0.toString(36)}${Math.random().toString(36).slice(2, 5)}`, texto: o.texto, at: o.at, hecho: false, avisado: false, creado: ahora.toISOString(), ...(c ? { clave: c.clave, nombre: c.nombreCliente || c.nombre || "" } : {}) };
+      await store.put("jarvis:recordatorios", [...lista.filter((r) => !r.hecho || t0 - r.at < 30 * DIA_MS), nuevo].slice(-300));
+      return { tipo: "recordatorio", recordatorio: nuevo, respuesta: `⏰ Listo, te lo recuerdo ${cuandoTexto(o.at, ahora, tz)}: «${o.texto}».${c ? `\nCliente: ${c.nombreCliente || c.nombre || "…" + c.clave.slice(-4)}${c.ambiguo ? ` (hay ${c.ambiguo} con ese nombre; tomé el más reciente)` : ""}` : ""}` };
+    }
+    case "recordatorios": {
+      const p = await recordatoriosPendientes(store);
+      if (!p.length) return { tipo: "lista", respuesta: "No tienes recordatorios pendientes 👌" };
+      return { tipo: "lista", recordatorios: p, respuesta: `📋 Tus recordatorios:\n${p.map((r, i) => `${i + 1}. ${cuandoTexto(r.at, ahora, tz)} — ${r.texto}${r.avisado ? " (ya te avisé)" : ""}`).join("\n")}\n\nPara quitar uno: *sofia listo 2*` };
+    }
+    case "hecho": {
+      const lista = (await store.get("jarvis:recordatorios")) ?? [];
+      const p = lista.filter((r) => !r.hecho).sort((a, b) => a.at - b.at);
+      const c = o.n ? null : quien(o.texto);
+      const elegidos = o.n ? [p[o.n - 1]].filter(Boolean) : c ? p.filter((r) => r.clave === c.clave) : p.filter((r) => r.avisado).slice(-1);
+      if (!elegidos.length) return { tipo: "lista", respuesta: o.n ? `No hay recordatorio ${o.n}. Escribe *sofia recordatorios* para ver la lista.` : "¿Cuál? Escribe *sofia recordatorios* y luego *sofia listo 2*." };
+      for (const r of elegidos) r.hecho = true;
+      await store.put("jarvis:recordatorios", lista);
+      return { tipo: "hecho", respuesta: `✅ Hecho: ${elegidos.map((r) => `«${r.texto}»`).join(", ")}.` };
+    }
+    case "nota": {
+      const c = quien(o.texto);
+      if (!c) {
+        const notas = (await store.get("jarvis:notas")) ?? [];
+        await store.put("jarvis:notas", [...notas, { texto: o.texto, at: ahora.toISOString() }].slice(-200));
+        return { tipo: "nota", respuesta: `📝 Anotado: «${o.texto}». (No vi a qué cliente va; quedó en tus notas generales.)` };
+      }
+      const l = leads[c.clave];
+      l.notas = [...(l.notas ?? []), { texto: o.texto, at: ahora.toISOString() }].slice(-30);
+      await store.put("leads:index", leads);
+      return { tipo: "nota", respuesta: `📝 Anotado en la ficha de ${l.nombreCliente || l.nombre || "…" + c.clave.slice(-4)}: «${o.texto}».` };
+    }
+    case "cliente": {
+      const c = quien(o.texto);
+      if (!c) return { tipo: "cliente", respuesta: "No encontré a ese cliente. Dime su nombre como está en WhatsApp o los últimos 4 dígitos de su número." };
+      const chat = (await store.get(`inbox:c:${c.clave}`)) ?? [];
+      const ult = chat.filter((m) => String(m.text ?? "").trim()).slice(-3).map((m) => `${m.dir === "in" ? "Él/ella" : m.auto ? "Sofía" : "Tú"}: ${String(m.text).replace(/\s+/g, " ").slice(0, 120)}`).join("\n");
+      const recs = (await recordatoriosPendientes(store)).filter((r) => r.clave === c.clave);
+      return { tipo: "cliente", respuesta: `🔎 ${fichaCorta(c.clave, leads[c.clave])}${recs.length ? `\n⏰ ${recs.map((r) => `${cuandoTexto(r.at, ahora, tz)}: ${r.texto}`).join(" · ")}` : ""}${ult ? `\n\nÚltimo:\n${ult}` : ""}${c.ambiguo ? `\n(Hay ${c.ambiguo} con ese nombre; te enseño el más reciente.)` : ""}` };
+    }
+    case "personal": case "cliente-si": {
+      const c = quien(o.texto);
+      if (!c) return { tipo: "cliente", respuesta: "¿Quién? Dime su nombre como está en WhatsApp o los últimos 4 dígitos." };
+      const personal = o.accion === "personal";
+      Object.assign(leads[c.clave], { personal, tipo: personal ? "personal" : "cliente", fondoMotor: "mario", tipoManual: true, ...(personal ? {} : { postventa: false }) });
+      await store.put("leads:index", leads);
+      const n = leads[c.clave].nombreCliente || leads[c.clave].nombre || "…" + c.clave.slice(-4);
+      return { tipo: "cliente", respuesta: personal ? `👥 Listo: ${n} es personal. Ya no le contesto ni le escribo.` : `💼 Listo: ${n} es cliente.` };
+    }
+    case "apagar": case "prender": {
+      const activo = o.accion === "prender";
+      await store.put("agente:config", normalizarConfig({ ...cfg, activo }));
+      if (!activo) { const ev = (await store.get("revivir:estado")) ?? {}; if (ev.activa) await store.put("revivir:estado", { ...ev, activa: false }); }
+      return { tipo: "estado", respuesta: activo ? "▶️ Prendida: contesto solo a prospectos nuevos que tú no has tocado (modo seguro)." : "⏸️ Apagada: no le contesto a nadie ni reviso clientes. Los avisos y recordatorios te siguen llegando." };
+    }
+    case "citas": {
+      const l = relojLocal(cfg, new Date(t0 + o.dia * DIA_MS)).fecha;
+      const citas = ((await store.get("agenda:citas")) ?? []).filter((x) => x.estado === "apartada" && relojLocal(cfg, new Date(x.id)).fecha === l).sort((a, b) => a.id.localeCompare(b.id));
+      return { tipo: "citas", respuesta: citas.length ? `📅 Citas ${o.dia ? "mañana" : "hoy"}:\n${citas.map((x) => `• ${cuandoTexto(Date.parse(x.id), ahora, tz).replace(/^(hoy|mañana) /, "")} — ${x.nombre || "Cliente"}${x.interes ? ` (${String(x.interes).replace(/^Honda /, "")})` : ""} · wa.me/${x.cliente}`).join("\n")}` : `No hay citas ${o.dia ? "mañana" : "hoy"}.` };
+    }
+    case "resumen": case "pendientes": {
+      const index = (await store.get("inbox:index")) ?? {};
+      const esperando = Object.entries(index).filter(([k, c]) => k.startsWith("wa:") && c.lastDir === "in" && t0 - Date.parse(c.lastAt) < 3 * DIA_MS && !leads[k]?.personal);
+      const recs = (await recordatoriosPendientes(store)).filter((r) => relojLocal(cfg, new Date(r.at)).fecha === relojLocal(cfg, ahora).fecha);
+      const calientes = Object.values(leads).filter((l) => l.calor === "caliente" && !l.personal && !l.postventa).length;
+      return { tipo: "resumen", respuesta: `☀️ Tu día:\n• ${esperando.length} chat(s) esperando respuesta (últimos 3 días)\n• ${recs.length} recordatorio(s) hoy\n• ${calientes} cliente(s) calientes\n• Sofía: ${cfg.activo ? "prendida (modo seguro)" : "apagada"}${esperando.length ? `\n\nEsperando:\n${esperando.sort((a, b) => String(b[1].lastAt).localeCompare(String(a[1].lastAt))).slice(0, 8).map(([k, c]) => `• ${leads[k]?.nombreCliente || c.name || "…" + k.slice(-4)}: ${String(c.lastText ?? "").slice(0, 70)}`).join("\n")}` : ""}` };
+    }
+  }
+  return { tipo: "no-entendi", respuesta: AYUDA_JARVIS };
+}
+
+/** Cada minuto: los recordatorios que ya tocan le llegan a Mario por WhatsApp. */
+async function dispararRecordatorios(env, store, ahora) {
+  const lista = (await store.get("jarvis:recordatorios")) ?? [];
+  const tocan = lista.filter((r) => !r.hecho && !r.avisado && r.at <= ahora.getTime());
+  if (!tocan.length || !env.WA_WEB?.estado?.().ok && !waReady(env)) return 0;
+  const leads = (await store.get("leads:index")) ?? {};
+  let n = 0;
+  for (const r of tocan) {
+    r.avisado = true; // se marca antes: si falla el envío no se repite cada minuto
+    await store.put("jarvis:recordatorios", lista);
+    const texto = `⏰ *Recordatorio:* ${r.texto}${r.clave ? `\n\n${fichaCorta(r.clave, leads[r.clave] ?? { nombre: r.nombre })}` : ""}\n\nCuando lo hagas: *sofia listo*`;
+    if (await avisarAMario(env, store, texto, ahora)) n++;
+  }
+  return n;
+}
+
+/**
+ * Cada mensaje nuevo de un cliente: si pide algo que solo Mario puede resolver (reembolso, valuación, factura, su crédito,
+ * que le marquen, descuento, entrega, queja, cambio de cita), le llega un aviso a Mario. Aunque Sofía esté apagada.
+ * Una vez por chat y tema cada 6 h; no si Mario está escribiendo en ese chat (contestó hace menos de 15 min).
+ */
+async function vigilarPeticion(env, store, e, ahora) {
+  if (e.canal !== "wa" || !String(e.texto ?? "").trim() || ahora - new Date(e.at) > 30 * 60e3) return 0;
+  const pide = peticionesDe(e.texto);
+  if (!pide.length) return 0;
+  const clave = `${e.canal}:${e.id}`;
+  const l = ((await store.get("leads:index")) ?? {})[clave] ?? {};
+  if (l.personal && l.tipoManual) return 0;
+  if (e.prev?.lastManualAt && ahora - new Date(e.prev.lastManualAt) < 15 * 60e3) return 0;
+  const nuevos = [];
+  for (const p of pide) {
+    const k = `aviso:pide:${p.id}:${clave}`;
+    const antes = await store.get(k);
+    if (antes && ahora - new Date(antes) < 6 * 3600e3) continue;
+    await store.put(k, ahora.toISOString());
+    nuevos.push(p);
+  }
+  if (!nuevos.length) return 0;
+  await store.put(`aviso:pide:ultimo:${clave}`, ahora.toISOString()); // el aviso de postventa de Sofía ya no se duplica
+  const texto = `🔔 *${nuevos.map((p) => p.titulo).join(" + ")}*\n«${String(e.texto).replace(/\s+/g, " ").slice(0, 300)}»\nEsto no lo puedo resolver yo: te toca a ti.\n\n${fichaCorta(clave, { nombre: e.nombre, ...l })}\n\nPara recordártelo: *sofia recuérdame marcarle a ${(l.nombreCliente || e.nombre || "este cliente").split(" ")[0]} en 1 hora*`;
+  return (await avisarAMario(env, store, texto, ahora)) ? nuevos.length : 0;
 }
 
 /** WhatsApp al asesor con el contexto del cliente (ASESOR_WHATSAPP en Conexiones). Si Meta no lo deja, queda en errores. */
@@ -817,6 +998,8 @@ async function procesarEventos(body, env, store, ahora, base, { autoResponder = 
     if (!r || propio) return; // reintento de Meta (ya se procesó) o mensaje de nuestro propio número
     if (!r.prev && !pruebaLocal) await addLead(store, canal, peer, nombre, msg);
     const clave = `${canal}:${peer}`;
+    // Lo que el cliente pide y solo Mario resuelve: aviso a Mario (también con Sofía apagada; nunca al importar historial).
+    if (autoResponder && !pruebaLocal) await vigilarPeticion(env, store, { canal, id: peer, nombre, texto: msg.text, at: msg.at, prev: r.prev }, ahora).catch((err) => console.warn("Vigilante:", err.message));
     if (!contestable || !autoResponder || contestados.has(clave)) return;
     try {
       const e = { canal, id: peer, nombre, texto: msg.text, at: msg.at, primero: !r.prev, prev: r.prev, pruebaLocal };
@@ -1683,6 +1866,7 @@ export async function runScheduled(envBase, store, ahoraISO = new Date().toISOSt
   const env = await conConexion(envBase, store);
   const ahora = new Date(ahoraISO);
   const recordatorios = soloId ? 0 : await recordarCitas(env, store, ahora);
+  if (!soloId) await dispararRecordatorios(env, store, ahora).catch((e) => console.error("Recordatorios de Mario:", e.message));
   if (!soloId) await trabajarSola(env, store, ahora).catch((e) => console.error("Trabajo solo:", e.message));
   if (!soloId && env.WA_WEB?.estado?.().ok) trabajoDeFondo(env, store, ahora).catch((e) => console.error("Fondo:", e.message)); // sin esperar: la IA local puede tardar
   const cola = (await store.get("social:cola")) ?? [];
@@ -1832,6 +2016,21 @@ export async function handle(req, envBase, store, opciones = {}) {
           return json({ ok: true, chats: plan.length, cuenta, existentes: (await env.WA_WEB.etiquetas()).map((l) => l.nombre) });
         }
         return json({ ok: true, ...(await env.WA_WEB.etiquetarTodo({ plan, alias: ALIAS_ETIQUETAS, crear: body.crear !== false })) });
+      }
+      case "POST /api/jarvis": {
+        const texto = String(body.texto ?? "").trim().slice(0, 1000);
+        if (!texto) return fail("Escribe qué quieres que haga Sofía.");
+        return json({ ok: true, ...(await ordenJarvis(env, store, texto, ahora)) });
+      }
+      case "GET /api/jarvis/recordatorios":
+        return json({ ok: true, recordatorios: await recordatoriosPendientes(store) });
+      case "POST /api/jarvis/recordatorio": {
+        const lista = (await store.get("jarvis:recordatorios")) ?? [];
+        const r = lista.find((x) => x.id === body.id);
+        if (!r) return fail("No encontré ese recordatorio.", 404);
+        if (body.hecho) r.hecho = true;
+        await store.put("jarvis:recordatorios", lista);
+        return json({ ok: true, recordatorio: r });
       }
       case "POST /api/revivir": {
         // ver: a quién y qué se le mandaría · iniciar: arranca (tope por día) · parar: se detiene en el acto.

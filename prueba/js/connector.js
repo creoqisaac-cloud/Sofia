@@ -49,6 +49,9 @@ export const syncPendingChats = () => call("/api/buzon/sincronizar", { method: "
 export const replyToPending = (clave) => call("/api/buzon/responder", { method: "POST", body: { clave } });
 export const revivir = (accion = "ver", extra = {}) => call("/api/revivir", { method: "POST", body: { accion, ...extra } });
 export const etiquetarTodo = (extra = {}) => call("/api/whatsapp/etiquetar-todo", { method: "POST", body: extra });
+export const jarvis = (texto) => call("/api/jarvis", { method: "POST", body: { texto } });
+export const recordatorios = () => call("/api/jarvis/recordatorios").then((r) => r.recordatorios ?? []);
+export const recordatorioHecho = (id) => call("/api/jarvis/recordatorio", { method: "POST", body: { id, hecho: true } });
 export const labelConversation = (clave, etiquetas) => call("/api/whatsapp/etiquetar", { method: "POST", body: { clave, etiquetas } });
 export const labelUnreadChats = () => call("/api/whatsapp/etiquetar-no-leidos", { method: "POST", body: {} });
 export const sendMessage = (msg) => call("/api/enviar", { method: "POST", body: msg });

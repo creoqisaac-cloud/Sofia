@@ -7,7 +7,7 @@ import { serverBase } from "./store.js";
 import {
   connectorReady, refreshStatus, lastStatus, inbox, conversation, syncPendingChats, replyToPending, sendMessage,
   listLeads, updateLead, getAgenda, salesInventory, saveInventory, uploadCarPhoto, getConnection, saveConnection,
-  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig, revivir, etiquetarTodo,
+  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig, revivir, etiquetarTodo, jarvis, recordatorios, recordatorioHecho,
 } from "./connector.js";
 import { interpretarOrden, mensajePara, modeloEn, MODELOS } from "./ordenes.js";
 
@@ -146,13 +146,43 @@ function filaChat(clave, c) {
 
 // ───────── «Dile a Sofía…» ─────────
 
+// Modo Jarvis: cualquier cosa (recordatorios, notas, «qué onda con Ana», «apágate»…). Solo los envíos a varios abren la hoja.
 function cajaOrden() {
-  const t = h("textarea", { class: "m-input", rows: 2, placeholder: "Dile a Sofía… (ej. «háblale a los interesados en CR-V de octubre»)" });
-  const ejemplos = ["Háblale a los interesados en CR-V", "A los calientes diles que ya llegó la promo del mes", "Revive a los que no contestaron de octubre", "Confírmales la cita a los de mañana"];
+  const t = h("textarea", { class: "m-input", rows: 2, placeholder: "Dile a Sofía lo que sea… (ej. «recuérdame marcarle a Juan mañana a las 10»)" });
+  const ejemplos = ["Recuérdame marcarle a … mañana a las 10", "Anota que … quiere la CR-V blanca", "¿Qué onda con …?", "Citas mañana", "Resumen", "Háblale a los interesados en CR-V", "Apágate"];
+  const respuesta = h("p", { class: "m-bubble out", style: "white-space:pre-wrap;display:none" });
+  const lista = h("div", { class: "m-list" });
+  const pintarLista = async () => {
+    try {
+      const rs = await recordatorios();
+      lista.replaceChildren(...(rs.length ? [h("b", {}, "⏰ Recordatorios"), ...rs.map((r) => h("div", { class: "m-row" },
+        h("div", { class: "m-grow" }, h("span", {}, r.texto), h("span", { class: "m-dim m-small", style: "display:block" }, `${fmtWhen(new Date(r.at).toISOString())}${r.avisado ? " · ya te avisé" : ""}`)),
+        h("button", { class: "m-btn small", onclick: async () => { try { await recordatorioHecho(r.id); toast("Hecho ✅"); pintarLista(); } catch (e) { toast(e.message); } } }, "✓ Listo")))] : []));
+    } catch { lista.replaceChildren(); }
+  };
+  const enviar = async (boton) => {
+    const texto = t.value.trim();
+    if (!texto) return;
+    boton.disabled = true;
+    try {
+      const r = await jarvis(texto);
+      if (r.tipo === "masivo") { abrirOrden(texto); return; }
+      respuesta.textContent = r.respuesta;
+      respuesta.style.display = "";
+      if (r.tipo !== "pregunta") t.value = "";
+      pintarLista();
+    } catch (e) { toast(e.message, 5000); } finally { boton.disabled = false; }
+  };
+  const boton = h("button", { class: "m-send", "aria-label": "Enviar orden", onclick: () => enviar(boton) }, "➤");
+  t.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(boton); } });
+  pintarLista();
   return card(
     h("h2", {}, "Dile a Sofía"),
-    h("div", { class: "m-orden" }, t, h("button", { class: "m-send", "aria-label": "Enviar orden", onclick: () => { if (t.value.trim()) abrirOrden(t.value.trim()); } }, "➤")),
-    h("div", { class: "m-chips" }, ejemplos.map((e) => h("button", { class: "m-chip", onclick: () => { t.value = e; t.focus(); } }, e))));
+    h("p", { class: "m-dim m-small" }, "Recordatorios, notas, preguntas de tus clientes o mensajes a varios. También desde tu chat «Tú» de WhatsApp empezando con «sofia». Te aviso por WhatsApp cuando un cliente pida algo que yo no puedo dar (reembolso, valuación, factura, su crédito…)."),
+    h("div", { class: "m-orden" }, t, boton),
+    respuesta,
+    h("div", { class: "m-chips" }, ejemplos.map((e) => h("button", { class: "m-chip", onclick: () => { t.value = e.replace(" … ", " ").replace("…", ""); t.focus(); } }, e))),
+    lista);
 }
 
 async function abrirOrden(orden) {
