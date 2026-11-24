@@ -700,7 +700,7 @@ describe("conector · vendedora (asistente de ventas de autos)", () => {
     { id: "crv", marca: "Honda", modelo: "CR-V", version: "Touring", anio: 2026, precio: "689,900", tipo: "nuevo" },
     { id: "versa", marca: "Nissan", modelo: "Versa", anio: 2022, precio: 269000, tipo: "seminuevo", km: 41000, palabras: "versita, versa gris" },
   ];
-  const vendedora = (extra: Record<string, unknown> = {}) => ({ activo: true, asesor: "Pedro", agencia: "Honda Ejemplo", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, ...extra });
+  const vendedora = (extra: Record<string, unknown> = {}) => ({ activo: true, asesor: "Pedro", agencia: "Honda Ejemplo", horario: { dias: [1, 2, 3, 4, 5, 6], inicio: "09:00", fin: "19:00" }, ...extra, ventas: { soloNuevos: false, ...(extra.ventas as object ?? {}) } });
   const subirFoto = async (store: ReturnType<typeof memStore>) => (await (await handle(post("/api/inventario/foto", { token: "clave", imagen: JPG }), env(), store)).json()).fotoId as string;
   const leadDe = async (store: ReturnType<typeof memStore>, clave = `wa:${CLIENTA}`) => ((await (await handle(req("/api/prospectos?token=clave"), env(), store)).json()).prospectos as Record<string, unknown>[]).find((l) => l.clave === clave);
 
@@ -1101,17 +1101,18 @@ describe("conector · coexistencia (el WhatsApp Business que el asesor ya usa en
     expect(mal.error).toContain("Invalid verification code");
   });
 
-  it("si Mario contesta desde su celular, Sofía espera la pausa breve y luego retoma", async () => {
+  it("modo seguro: si Mario ya escribió a mano en el chat, Sofía ya no se mete (aunque pase la pausa)", async () => {
     const store = memStore();
     await configurar(store, { activo: true, asesor: "Mario Abarca", agencia: "Honda" });
     const decir = async (id: string, texto: string, iso: string) => { calls.length = 0; await handle(signed(waMsg(id, texto, iso)), env(), store, { ahora: iso }); return waEnvios().filter((m) => m.to === CLIENTA); };
-    expect(await decir("wamid.C1", "Hola", LUNES_10)).toHaveLength(1);
+    expect(await decir("wamid.C0", "Hola", LUNES_10)).toHaveLength(0); // solo saludo: lo cubre el saludo de WhatsApp Business
+    expect(await decir("wamid.C1", "Busco una CR-V", mas(LUNES_10, 1))).toHaveLength(1);
     // Mario contesta desde su WhatsApp Business (llega como eco, a 52 + 10 dígitos aunque el chat es 521…).
     await handle(webhookDe("smb_message_echoes", { messaging_product: "whatsapp", metadata: { display_phone_number: NEGOCIO_TEL, phone_number_id: "777" },
       message_echoes: [{ from: NEGOCIO_TEL, to: CLIENTA.replace(/^521/, "52"), id: "wamid.ECO1", timestamp: String(Date.parse(mas(LUNES_10, 2)) / 1000), type: "text", text: { body: "Qué onda, aquí Mario. ¿Qué modelo buscas?" } }] }), env(), store, { ahora: mas(LUNES_10, 2) });
     expect((await charla(store)).at(-1)).toMatchObject({ dir: "out", text: "Qué onda, aquí Mario. ¿Qué modelo buscas?" });
     expect(await decir("wamid.C2", "La CR-V", mas(LUNES_10, 3))).toHaveLength(0); // ya lo atiende Mario
-    expect(await decir("wamid.C3", "¿sigues?", mas(LUNES_10, 45))).toHaveLength(1); // tras la pausa manual de 30 minutos, retoma
+    expect(await decir("wamid.C3", "¿sigues?", mas(LUNES_10, 45))).toHaveLength(0); // Mario ya lo lleva: Sofía no vuelve a entrar
     // Ediciones y borrados desde el celular no cuentan como mensaje nuevo.
     await handle(webhookDe("smb_message_echoes", { message_echoes: [{ from: NEGOCIO_TEL, to: CLIENTA, id: "wamid.ECO2", timestamp: "1", type: "revoke", revoke: { original_message_id: "wamid.ECO1" } }] }), env(), store);
     expect((await charla(store)).filter((m) => m.text.includes("revoke"))).toHaveLength(0);
@@ -1154,5 +1155,38 @@ describe("conector · coexistencia (el WhatsApp Business que el asesor ya usa en
     expect((await (await handle(req("/api/estado?token=clave"), env(), store)).json()).coexistencia.estado).toBe("conectado");
     await handle(webhookDe("smb_app_state_sync", { state_sync: [{ type: "contact", contact: { full_name: "Ana", phone_number: "5218100000002" }, action: "add" }] }), env(), store);
     expect(await store.get("inbox:index")).toBeNull(); // los contactos del celular no se vuelven chats ni prospectos
+  });
+});
+
+describe("modo seguro (casos reales del 23 de noviembre)", () => {
+  it("Sofía solo atiende prospectos nuevos que Mario no ha tocado", async () => {
+    const { esProspectoNuevo } = await import("../prueba/servidor/core.mjs");
+    const ahora = Date.parse("2026-11-24T00:00:00Z");
+    const m = (dir: string, text: string, at: string, auto = false) => ({ dir, text, at, ...(auto ? { auto: true } : {}) });
+    // Devolución en trámite desde hace semanas: nunca.
+    expect(esProspectoNuevo([m("in", "en espera de su apoyo", "2026-11-12T16:42:00Z"), m("in", "Siempre q le comentaron", "2026-11-23T23:58:00Z")], {}, ahora)).toBe(false);
+    // Amigo con el que Mario ya platica hoy: nunca.
+    expect(esProspectoNuevo([m("in", "Me la tendré que pelar", "2026-11-23T18:29:00Z"), m("out", "Pues ahí están las rutas", "2026-11-23T18:30:00Z"), m("in", "Me aproximo", "2026-11-23T19:16:00Z")], {}, ahora)).toBe(false);
+    // Mario solo mandó una foto/PDF (sin texto): también cuenta como que él lo lleva.
+    expect(esProspectoNuevo([m("in", "hola", "2026-11-23T18:00:00Z"), m("out", "", "2026-11-23T18:01:00Z")], {}, ahora)).toBe(false);
+    // Lead nuevo de anuncio con el saludo automático de WhatsApp Business: sí.
+    expect(esProspectoNuevo([m("in", "¡Hola! Quiero más información", "2026-11-23T19:12:00Z"), m("out", "👋 ¿Qué tal? Soy Mario Abarca, asesor comercial de Honda Valle Oriente. ¿Con quién tengo el gusto?", "2026-11-23T19:12:00Z"), m("in", "Me interesa una CR-V", "2026-11-23T19:17:00Z")], {}, ahora)).toBe(true);
+    // Lo que ya dijo Sofía no cuenta como Mario; personal o postventa: no.
+    expect(esProspectoNuevo([m("in", "CR-V", "2026-11-23T19:12:00Z"), m("out", "ficha", "2026-11-23T19:12:00Z", true)], {}, ahora)).toBe(true);
+    expect(esProspectoNuevo([m("in", "CR-V", "2026-11-23T19:12:00Z")], { personal: true }, ahora)).toBe(false);
+    expect(esProspectoNuevo([m("in", "CR-V", "2026-11-23T19:12:00Z")], { postventa: true }, ahora)).toBe(false);
+  });
+});
+
+describe("tipo de chat: las reglas corrigen a la IA chica", () => {
+  it("anuncio = cliente; postventa solo con trámite", async () => {
+    const { tipoConReglas } = await import("../prueba/servidor/core.mjs");
+    const de = (...t: string[]) => t.map((text, i) => ({ dir: i % 2 ? "out" : "in", text }));
+    expect(tipoConReglas("personal", de("¡Hola! Quiero más información", "¿Con quién tengo el gusto?", "Busco una CRV híbrida demo"))).toBe("cliente");
+    expect(tipoConReglas("postventa", de("¡Hola! Quiero más información", "Hola", "City 2026 en automático"))).toBe("cliente");
+    expect(tipoConReglas("postventa", de("Toman carro con adeudo", "Sí, cuál tiene"))).toBe("cliente");
+    expect(tipoConReglas("postventa", de("aún no veo reflejado el depósito de la devolución", "ya mero"))).toBe("postventa");
+    expect(tipoConReglas("personal", de("Me aproximo", "Ahí estaré soldado"))).toBe("personal");
+    expect(tipoConReglas("postventa", de("Pasa el wifi"))).toBe("otro");
   });
 });

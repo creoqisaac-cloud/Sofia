@@ -321,6 +321,7 @@ function normalizarVentas(v = {}) {
     ia: v.ia === undefined ? b.ia : Boolean(v.ia),
     seguimiento: v.seguimiento === undefined ? b.seguimiento : Boolean(v.seguimiento),
     resumenDiario: v.resumenDiario === undefined ? b.resumenDiario : Boolean(v.resumenDiario),
+    soloNuevos: v.soloNuevos !== false, // modo seguro: solo prospectos nuevos que Mario no ha tocado
   };
 }
 
@@ -406,6 +407,25 @@ async function responderSolo(env, store, cfg, e, ahora) {
 const MAX_AUTOS = 200;
 const MAX_FOTO_AUTO = 5 * 1024 * 1024; // límite de WhatsApp para imágenes
 
+// Respuestas que en chats reales hicieron más daño que bien: mejor callarse y avisar a Mario.
+const CALLA_SOFIA = new Set(["no-entendi", "menu"]);
+const DIAS_NUEVO = 3;
+/** El saludo automático que Mario tiene en WhatsApp Business (no cuenta como que él ya platicó). */
+const esSaludoDeMario = (m) => /soy mario abarca/i.test(m.text ?? "") && /asesor comercial|con qui[eé]n tengo el gusto|buen fin/i.test(m.text ?? "");
+
+/**
+ * Modo seguro: Sofía solo atiende prospectos NUEVOS que Mario no ha tocado.
+ * - Chat con historia de más de 3 días (cliente actual, trámite, devolución, amigo, familia) → no.
+ * - Mario ya escribió a mano (texto, foto, PDF, nota de voz; no su saludo automático) → él lo lleva, no.
+ * - Marcado como postventa o personal → no.
+ */
+export function esProspectoNuevo(platica, ficha, ahora) {
+  if (ficha?.postventa || ficha?.personal || ficha?.tipo === "postventa" || ficha?.tipo === "personal") return false;
+  const fechas = platica.map((m) => Date.parse(m.at)).filter(Number.isFinite);
+  if (fechas.length && ahora - Math.min(...fechas) > DIAS_NUEVO * DIA_MS) return false;
+  return !platica.some((m) => m.dir === "out" && !m.auto && !esSaludoDeMario(m));
+}
+
 /**
  * Contesta como vendedora (js/vendedor.js), si toca. Devuelve true si intentó mandar algo.
  * Las fotos del inventario solo se mandan con una dirección pública HTTPS (Meta las descarga de ahí).
@@ -421,14 +441,18 @@ async function responderVentas(env, store, cfg, e, ahora, base) {
   // Amigos, familia y compañeros (lo marcaron las reglas o la IA de fondo): Sofía no les contesta, los atiende Mario.
   const ficha = ((await store.get("leads:index")) ?? {})[`${e.canal}:${e.id}`];
   if (!e.pruebaLocal && ficha?.personal && ficha.fondoMotor) return false; // la IA leyó el chat completo: es personal
+  const plática = (await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? [];
+  if (!e.pruebaLocal && cfg.ventas.soloNuevos !== false && !esProspectoNuevo(plática, ficha, ahora)) return false;
   const inventario = await inventarioVendedora(store, publicBase(env, base), true);
-  const historial = async () => ((await store.get(`inbox:c:${e.canal}:${e.id}`)) ?? []).map((m) => ({ dir: m.dir, text: m.text }));
+  const historial = async () => plática.map((m) => ({ dir: m.dir, text: m.text }));
   const libres = await libresDe(store, cfg, ahora);
   const r = await pensarVenta(env, cfg, inventario, e.prev?.venta ?? {}, { texto: e.texto, nombre: e.nombre, primero: e.primero, pruebaLocal: e.pruebaLocal === true }, historial, ahora, libres);
   if (r.errorIA) await anotarError(store, e, `IA: ${r.errorIA}`, ahora);
   if (r.motivo === "personal") r.lead = { ...r.lead, personal: true, tipo: "personal" }; // la IA de fondo lo puede corregir
   // Lo marcaron como personal solo las reglas (por su primer mensaje): si luego pregunta por un auto, se le vende;
   // si no, Sofía sigue sin meterse en la plática.
+  // Si no entendió o solo saludaría, no manda nada: el saludo ya lo manda WhatsApp Business y Mario ve el aviso.
+  if (!e.pruebaLocal && cfg.ventas.soloNuevos !== false && CALLA_SOFIA.has(r.motivo)) r.respuestas = [];
   if (!e.pruebaLocal && ficha?.personal && !ficha.fondoMotor && r.motivo !== "personal") {
     if (["no-entendi", "menu", "gracias", "emoji", "nombre-dicho", "acuse", ""].includes(r.motivo)) { r.respuestas = []; r.lead = {}; }
     else r.lead = { ...r.lead, personal: false, tipo: "cliente" };
@@ -1382,6 +1406,38 @@ function paresDeMario(msgs) {
   return pares;
 }
 
+/**
+ * La IA chica se equivoca mucho con el tipo (el 23-nov marcó 0 clientes de 118 chats). Las reglas mandan:
+ * - el chat empezó con el anuncio («Quiero más información») → cliente, nunca personal ni «otro»;
+ * - postventa solo si en el chat hay un trámite (devolución, placas, factura, entrega…).
+ */
+export function tipoConReglas(tipo, msgs) {
+  const sa = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const todo = sa(msgs.map((m) => m.text).join(" "));
+  const anuncio = msgs.some((m) => m.dir === "in" && /quiero mas informacion/.test(sa(m.text)));
+  if (tipo === "postventa" && !TRAMITE_EN_CHAT.test(todo)) return anuncio || VENTA_EN_CHAT.test(todo) ? "cliente" : "otro";
+  if (anuncio && (tipo === "personal" || tipo === "otro")) return "cliente";
+  return tipo;
+}
+
+/** Arregla una sola vez las fichas que la IA de fondo ya había llenado antes de estas reglas. */
+async function corregirTiposViejos(store) {
+  if ((await store.get("fondo:tiposV1")) === true) return 0;
+  const todos = (await store.get("leads:index")) ?? {};
+  let n = 0;
+  for (const [clave, l] of Object.entries(todos)) {
+    if (l.tipoManual || !l.fondoMotor || l.fondoMotor === "mario") continue;
+    const msgs = ((await store.get(`inbox:c:${clave}`)) ?? []).filter((m) => String(m.text ?? "").trim());
+    const nuevo = tipoConReglas(l.tipo, msgs);
+    if (nuevo === l.tipo) continue;
+    l.tipo = nuevo; l.personal = nuevo === "personal"; l.postventa = nuevo === "postventa"; n++;
+  }
+  await store.put("leads:index", todos);
+  await store.put("fondo:tiposV1", true);
+  if (n) console.log(`Fondo: ${n} fichas corregidas con las reglas (la IA chica las había clasificado mal).`);
+  return n;
+}
+
 /** Lee un chat con la IA de fondo y llena su ficha (tipo, nombre, modelo, pago, calor, resumen). Devuelve { l, r }. */
 async function revisarChat(env, store, cfg, clave, c) {
   const msgs = ((await store.get(`inbox:c:${clave}`)) ?? []).filter((m) => String(m.text ?? "").trim());
@@ -1399,7 +1455,7 @@ async function revisarChat(env, store, cfg, clave, c) {
   const l = todos[clave] ?? { canal: "wa", id: clave.slice(3), nombre: c.name || "", primerMensaje: String(msgs.find((m) => m.dir === "in")?.text ?? "").slice(0, 300), at: c.lastAt, importado: false };
   l.fondoAt = c.lastAt;
   if (r) {
-    const tipo = l.tipoManual ? l.tipo : ["cliente", "postventa", "personal", "otro"].includes(r.tipo) ? r.tipo : "otro";
+    const tipo = l.tipoManual ? l.tipo : tipoConReglas(["cliente", "postventa", "personal", "otro"].includes(r.tipo) ? r.tipo : "otro", msgs);
     if (!l.tipoManual) {
       l.tipo = tipo;
       l.personal = tipo === "personal";
@@ -1427,6 +1483,7 @@ async function revisarChat(env, store, cfg, clave, c) {
 
 export async function trabajoDeFondo(env, store, ahora = new Date(), { max = 1 } = {}) {
   if (fondoOcupado) return { revisados: 0 };
+  await corregirTiposViejos(store);
   const cfg = await leerConfig(store);
   const motores = motoresIA(env, "fondo");
   if (!cfg.ventas.ia || !motores.length) return { revisados: 0 };
