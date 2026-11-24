@@ -866,7 +866,9 @@ async function preguntarLocal(env, { system, messages }, { esquema = ESQUEMA_IA,
 const motoresIA = (env, tarea = "chat") => {
   const cf = (env.AI?.run || iaPorApi({ cuenta: env.CF_ACCOUNT_ID, llave: env.CF_API_TOKEN })) && "cloudflare";
   const local = /^https?:\/\/\S+$/.test(String(env.LOCAL_AI_URL ?? "")) && "local";
-  return (tarea === "fondo" ? [local, cf] : [cf, local, env.ANTHROPIC_API_KEY && "claude"]).filter(Boolean);
+  // Fondo: con IA local, SOLO la local. Si se cae, el fondo espera; no se come la cuota diaria de Cloudflare
+  // (el 24-nov la gastó entera ordenando chats y Sofía se quedó sin IA para platicar).
+  return (tarea === "fondo" ? (local ? [local] : [cf]) : [cf, local, env.ANTHROPIC_API_KEY && "claude"]).filter(Boolean);
 };
 const motorIA = (env) => motoresIA(env)[0] ?? null;
 
