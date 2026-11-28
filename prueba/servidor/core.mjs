@@ -23,7 +23,7 @@
 
 import { decidir, VENTAS_BASE, contienePalabra, primerNombre, rellenar, promptIA, aplicarIA, ESQUEMA_IA, horariosLibres, pesos, cifras } from "../js/vendedor.js";
 import { iaPorApi } from "./ia-cloudflare.mjs";
-import { modeloEn } from "../js/ordenes.js";
+import { modeloEn, mensajePara } from "../js/ordenes.js";
 import { entenderOrden, leerCuando, cuandoTexto, buscarCliente, peticionesDe, AYUDA_JARVIS } from "../js/jarvis.js";
 
 export const VERSION = "conector-1.2";
@@ -1732,6 +1732,92 @@ export async function planDeEtiquetas(store, cfg, ahora = new Date()) {
   return plan;
 }
 
+// ───────── Difusión: Mario arma en la app a quién y qué; el servidor manda uno por uno, aunque la app esté cerrada ─────────
+// difusion:actual    → { id, mensaje, filtros, pendientes:[{clave,id,nombre,modelo}], enviados:[claves], fallidos:[claves], estado, creada, dia, hoy }
+// difusion:recientes → { clave: fecha } (a quien ya le llegó una difusión hace menos de 3 días no se le repite)
+// difusion:historial → [ { id, mensaje, total, enviados, fallidos, creada, terminada } ]
+const DIFUSION_TOPE_DIA = 200; // por número y por día: protege el WhatsApp de Mario
+const DIFUSION_POR_MINUTO = 3;
+const DIFUSION_MAX = 500;
+let difundiendo = false;
+
+/** A quiénes les llegaría la difusión con esos filtros (sin amigos, postventa ni quien pidió que no le escriban). */
+export async function audienciaDifusion(store, cfg, filtros = {}, ahora = new Date(), { propio = "" } = {}) {
+  const [leads, index, recientes] = await Promise.all([store.get("leads:index"), store.get("inbox:index"), store.get("difusion:recientes")]);
+  const tz = cfg.zonaHoraria || "America/Monterrey";
+  const mesDe = (iso) => Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "numeric" }).format(new Date(iso)));
+  const dias = (iso) => (ahora - new Date(iso)) / DIA_MS;
+  const out = [];
+  for (const [clave, c] of Object.entries(index ?? {})) {
+    if (!clave.startsWith("wa:") || clave.endsWith(":0") || (propio && clave.endsWith(propio.slice(-10)))) continue;
+    const l = leads?.[clave] ?? {};
+    if (l.personal || l.tipo === "personal" || l.tipo === "otro" || l.noPromociones || l.pideBorrar || ["cerrado", "perdido"].includes(l.calor)) continue;
+    if (!filtros.postventa && (l.postventa || l.tipo === "postventa")) continue;
+    if (recientes?.[clave] && dias(recientes[clave]) < 3) continue;
+    const msgs = filtros.mes || filtros.modelo ? (await store.get(`inbox:c:${clave}`)) ?? [] : [];
+    const primero = [l.at, msgs[0]?.at, c.lastAt].filter(Boolean).sort()[0];
+    if (filtros.mes && (!primero || mesDe(primero) !== Number(filtros.mes))) continue;
+    const modelo = modeloEn(l.interes || "") || (msgs.length ? modeloEn(msgs.filter((m) => m.dir === "in").map((m) => m.text).join(" ")) : null);
+    if (filtros.modelo && modelo !== filtros.modelo) continue;
+    const calor = l.calor || "frio";
+    if (filtros.calor && calor !== filtros.calor) continue;
+    if (filtros.situacion === "no-contestaron" && !(c.lastDir === "out" && dias(c.lastAt) > 2)) continue;
+    if (filtros.situacion === "esperan" && c.lastDir !== "in") continue;
+    if (Number(filtros.diasSinHablar) > 0 && dias(c.lastAt) < Number(filtros.diasSinHablar)) continue;
+    out.push({ clave, id: clave.slice(3), nombre: l.nombreCliente || c.name || l.nombre || "", modelo, calor, mes: primero ? mesDe(primero) : null, ultimo: c.lastAt });
+  }
+  return out.sort((a, b) => String(b.ultimo).localeCompare(String(a.ultimo)));
+}
+
+const resumenDifusion = (d) => d && { id: d.id, mensaje: d.mensaje, estado: d.estado, total: d.pendientes.length + d.enviados.length + d.fallidos.length, enviados: d.enviados.length, fallidos: d.fallidos.length, creada: d.creada, hoy: d.hoy ?? 0, tope: DIFUSION_TOPE_DIA };
+
+/** Cada minuto: si hay una difusión en marcha, manda los siguientes (3 por minuto, en horario, con tope diario). */
+export async function difundirUnos(env, store, ahora = new Date()) {
+  if (difundiendo) return 0;
+  let d = await store.get("difusion:actual");
+  if (!d || d.estado !== "enviando" || !env.WA_WEB?.estado?.().ok) return 0;
+  const cfg = await leerConfig(store);
+  if (!horaDeEscribir(cfg, ahora)) return 0;
+  const hoy = relojLocal(cfg, ahora).fecha;
+  difundiendo = true;
+  let n = 0;
+  try {
+    for (let i = 0; i < DIFUSION_POR_MINUTO; i++) {
+      d = await store.get("difusion:actual"); // Mario pudo pararla mientras tanto
+      if (!d || d.estado !== "enviando") break;
+      if (d.dia !== hoy) Object.assign(d, { dia: hoy, hoy: 0 });
+      if (d.hoy >= DIFUSION_TOPE_DIA) break;
+      const sig = d.pendientes.shift();
+      if (!sig) {
+        d.estado = "terminada"; d.terminada = ahora.toISOString();
+        const hist = (await store.get("difusion:historial")) ?? [];
+        await store.put("difusion:historial", [{ id: d.id, mensaje: d.mensaje, total: d.enviados.length + d.fallidos.length, enviados: d.enviados.length, fallidos: d.fallidos.length, creada: d.creada, terminada: d.terminada }, ...hist].slice(0, 50));
+        await store.put("difusion:actual", d);
+        await avisarAMario(env, store, `📣 Difusión terminada: le llegó a ${d.enviados.length}${d.fallidos.length ? ` (${d.fallidos.length} no se pudieron)` : ""}.`, ahora);
+        break;
+      }
+      const l = ((await store.get("leads:index")) ?? {})[sig.clave] ?? {};
+      if (l.noPromociones || l.pideBorrar || l.personal) { await store.put("difusion:actual", d); continue; } // cambió mientras tanto
+      d.hoy += 1;
+      await store.put("difusion:actual", d); // se marca antes de mandar: si algo falla no se le repite
+      try {
+        await sendMessage(env, store, { channel: "wa", to: sig.id, text: mensajePara(d.mensaje, sig) }, { ahora, autoKey: `difusion:${d.id}` });
+        d.enviados.push(sig.clave);
+        const rec = (await store.get("difusion:recientes")) ?? {};
+        rec[sig.clave] = ahora.toISOString();
+        await store.put("difusion:recientes", rec);
+        n++;
+      } catch (err) {
+        d.fallidos.push(sig.clave);
+        console.warn(`Difusión (…${sig.id.slice(-4)}): ${err.message ?? err}`);
+      }
+      await store.put("difusion:actual", d);
+      if (i < DIFUSION_POR_MINUTO - 1 && !env.SIN_ESPERA) await new Promise((r) => setTimeout(r, 12000 + Math.random() * 6000)); // ritmo de persona
+    }
+  } finally { difundiendo = false; }
+  return n;
+}
+
 // ───────── Revivir clientes: escribirle a quien se enfrió para sacar citas ─────────
 // Mario la arranca desde la app (con la lista a la vista). Uno por minuto, en horario de trabajo, con tope diario.
 // Antes de escribir, la IA lee el chat: si no es cliente (amigo, postventa…) se lo salta. El mensaje lleva dos horarios
@@ -1855,6 +1941,7 @@ async function trabajarSola(env, store, ahora) {
   const resumen = await resumenDelDia(env, store, cfg, ahora);
   const seguimientos = await darSeguimiento(env, store, cfg, ahora);
   const revividos = await revivirUno(env, store, ahora);
+  difundirUnos(env, store, ahora).catch((e) => console.error("Difusión:", e.message)); // sin esperar: tarda ~40 s
   return { resumen, seguimientos, revividos };
 }
 
@@ -2018,6 +2105,37 @@ export async function handle(req, envBase, store, opciones = {}) {
           return json({ ok: true, chats: plan.length, cuenta, existentes: (await env.WA_WEB.etiquetas()).map((l) => l.nombre) });
         }
         return json({ ok: true, ...(await env.WA_WEB.etiquetarTodo({ plan, alias: ALIAS_ETIQUETAS, crear: body.crear !== false })) });
+      }
+      case "POST /api/difusion": {
+        // ver: cuántos y quiénes con esos filtros · iniciar: arranca (solo con la lista que Mario vio) · parar / seguir · estado
+        const accion = body.accion ?? "estado";
+        const actual = await store.get("difusion:actual");
+        if (accion === "estado") return json({ ok: true, actual: resumenDifusion(actual), historial: ((await store.get("difusion:historial")) ?? []).slice(0, 10) });
+        if (accion === "parar" || accion === "seguir") {
+          if (!actual || actual.estado === "terminada") return fail("No hay una difusión en marcha.", 409);
+          actual.estado = accion === "parar" ? "parada" : "enviando";
+          await store.put("difusion:actual", actual);
+          return json({ ok: true, actual: resumenDifusion(actual) });
+        }
+        const cfg = await leerConfig(store);
+        const propio = String(env.WA_WEB?.estado?.()?.phone ?? "").replace(/\D/g, "");
+        const lista = await audienciaDifusion(store, cfg, body.filtros ?? {}, ahora, { propio });
+        const mensaje = String(body.mensaje ?? "").trim().slice(0, 1500);
+        if (accion === "ver") {
+          return json({ ok: true, total: lista.length, lista: lista.slice(0, DIFUSION_MAX).map(({ clave, nombre, modelo, calor, mes }) => ({ clave, nombre, modelo, calor, mes, final: clave.slice(-4) })), ejemplo: mensaje && lista[0] ? mensajePara(mensaje, lista[0]) : "", actual: resumenDifusion(actual) });
+        }
+        if (accion === "iniciar") {
+          if (actual && ["enviando", "parada"].includes(actual.estado)) return fail("Ya hay una difusión en marcha: párala o espera a que termine.", 409);
+          if (mensaje.length < 5) return fail("Escribe el mensaje.");
+          if (!env.WA_WEB?.estado?.().ok) return fail("WhatsApp no está vinculado en el servidor.", 409);
+          const elegidos = Array.isArray(body.claves) ? new Set(body.claves) : null;
+          const pendientes = lista.filter((x) => !elegidos || elegidos.has(x.clave)).slice(0, DIFUSION_MAX).map(({ clave, id, nombre, modelo }) => ({ clave, id, nombre, modelo }));
+          if (!pendientes.length) return fail("No hay a quién mandarle con esos filtros.");
+          const d = { id: `d${ahora.getTime().toString(36)}`, mensaje, filtros: body.filtros ?? {}, pendientes, enviados: [], fallidos: [], estado: "enviando", creada: ahora.toISOString(), dia: relojLocal(cfg, ahora).fecha, hoy: 0 };
+          await store.put("difusion:actual", d);
+          return json({ ok: true, actual: resumenDifusion(d), enHorario: horaDeEscribir(cfg, ahora) });
+        }
+        return fail("Acción desconocida.");
       }
       case "POST /api/jarvis": {
         const texto = String(body.texto ?? "").trim().slice(0, 1000);

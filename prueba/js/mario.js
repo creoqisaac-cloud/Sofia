@@ -7,7 +7,7 @@ import { serverBase } from "./store.js";
 import {
   connectorReady, refreshStatus, lastStatus, inbox, conversation, syncPendingChats, replyToPending, sendMessage,
   listLeads, updateLead, getAgenda, salesInventory, saveInventory, uploadCarPhoto, getConnection, saveConnection,
-  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig, revivir, etiquetarTodo, jarvis, recordatorios, recordatorioHecho,
+  testCloudflareAI, testLocalAI, getAgentConfig, setAgentConfig, revivir, etiquetarTodo, jarvis, recordatorios, recordatorioHecho, difusion,
 } from "./connector.js";
 import { interpretarOrden, mensajePara, modeloEn, MODELOS } from "./ordenes.js";
 
@@ -80,6 +80,100 @@ function cajaRevivir() {
   return caja;
 }
 
+// ───────── DIFUSIÓN (Mario elige a quién y qué; el servidor manda uno por uno) ─────────
+
+const MESES_UI = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+function cajaDifusion() {
+  const caja = card(cargando());
+  const pintar = async () => {
+    const { actual, historial } = await difusion("estado");
+    const enMarcha = actual && ["enviando", "parada"].includes(actual.estado);
+    caja.replaceChildren(
+      h("h2", {}, "📣 Difusión"),
+      enMarcha
+        ? h("div", {},
+          h("p", {}, `${actual.estado === "enviando" ? "🟢 Enviando" : "⏸ Parada"}: ${actual.enviados} de ${actual.total}${actual.fallidos ? ` · ${actual.fallidos} fallaron` : ""}. Hoy van ${actual.hoy} (tope ${actual.tope}).`),
+          h("p", { class: "m-dim m-small" }, `«${actual.mensaje.slice(0, 140)}${actual.mensaje.length > 140 ? "…" : ""}»`),
+          h("p", { class: "m-dim m-small" }, "3 por minuto, de 10 am a 7 pm, aunque cierres la app."),
+          h("button", { class: "m-btn", onclick: async () => { try { await difusion(actual.estado === "enviando" ? "parar" : "seguir"); pintar(); } catch (e) { toast(e.message); } } }, actual.estado === "enviando" ? "⏸ Parar" : "▶ Seguir"))
+        : h("div", {},
+          h("p", { class: "m-dim m-small" }, "Elige a quiénes (mes, modelo, fríos…), escribe el mensaje, revisa la lista y confirma. Sofía los manda uno por uno, con el nombre de cada quien."),
+          h("button", { class: "m-btn primary", onclick: () => abrirDifusion(pintar) }, "📣 Nueva difusión")),
+      historial?.length ? h("p", { class: "m-dim m-small" }, `Últimas: ${historial.slice(0, 3).map((x) => `${fmtWhen(x.creada)} → ${x.enviados}`).join(" · ")}`) : null);
+  };
+  pintar().catch((e) => caja.replaceChildren(h("h2", {}, "📣 Difusión"), h("p", { class: "m-dim" }, e.message)));
+  return caja;
+}
+
+function abrirDifusion(alTerminar) {
+  const capa = h("div", { class: "m-sheet-bg" });
+  const hoja = h("div", { class: "m-sheet" });
+  const cerrar = () => capa.remove();
+  capa.addEventListener("click", (e) => { if (e.target === capa) cerrar(); });
+  const sel = (opciones) => h("select", { class: "m-input" }, opciones.map(([v, t]) => h("option", { value: v }, t)));
+  const mes = sel([["", "Todos los meses"], ...MESES_UI.map((m, i) => [String(i + 1), m])]);
+  const modelo = sel([["", "Todos los modelos"], ...MODELOS.map(([m]) => [m, m])]);
+  const calor = sel([["", "Fríos, tibios y calientes"], ["frio", "Solo fríos"], ["tibio", "Solo tibios"], ["caliente", "Solo calientes"]]);
+  const situacion = sel([["", "Todos"], ["no-contestaron", "Los que ya no contestaron"], ["esperan", "Los que esperan respuesta"]]);
+  const msg = h("textarea", { class: "m-input", rows: 4 });
+  msg.value = "¡Hola {nombre}! Soy Mario de Honda Valle Oriente. ¿Sigues buscando {modelo}? Esta semana tengo promociones que te pueden acomodar. ¿Te paso la corrida o te aparto una prueba de manejo?";
+  const cuenta = h("p", {}, "Buscando…");
+  const ejemplo = h("p", { class: "m-bubble out", style: "white-space:pre-wrap" });
+  const lista = h("div", { class: "m-list m-scroll" });
+  const boton = h("button", { class: "m-btn primary" }, "…");
+  let datos = { lista: [] };
+  const elegidos = new Set();
+  const filtros = () => ({ mes: mes.value || undefined, modelo: modelo.value || undefined, calor: calor.value || undefined, situacion: situacion.value || undefined });
+  const contar = () => { boton.textContent = elegidos.size ? `Mandar a ${elegidos.size}` : "Elige al menos uno"; boton.disabled = !elegidos.size; };
+  let turno = 0;
+  const buscar = async () => {
+    const mio = ++turno;
+    cuenta.textContent = "Buscando…";
+    try {
+      const r = await difusion("ver", { filtros: filtros(), mensaje: msg.value });
+      if (mio !== turno) return;
+      datos = r;
+      elegidos.clear();
+      r.lista.forEach((d) => elegidos.add(d.clave));
+      cuenta.textContent = r.total ? `${r.total} cliente(s) · sin amigos, postventa ni quien pidió que no le escriban${r.total > r.lista.length ? ` (se mandan los primeros ${r.lista.length})` : ""}` : "Nadie con esos filtros.";
+      ejemplo.textContent = r.ejemplo || "";
+      ejemplo.style.display = r.ejemplo ? "" : "none";
+      lista.replaceChildren(...r.lista.map((d) => {
+        const cb = h("input", { type: "checkbox", checked: true, onchange: () => { cb.checked ? elegidos.add(d.clave) : elegidos.delete(d.clave); contar(); } });
+        return h("label", { class: "m-row" }, cb, h("div", { class: "m-grow" }, h("b", {}, d.nombre || `…${d.final}`), h("span", { class: "m-dim m-small" }, [d.modelo, d.calor, d.mes && MESES_UI[d.mes - 1]].filter(Boolean).join(" · "))));
+      }));
+      contar();
+    } catch (e) { cuenta.textContent = e.message; }
+  };
+  let espera;
+  const despues = () => { clearTimeout(espera); espera = setTimeout(buscar, 400); };
+  [mes, modelo, calor, situacion].forEach((s) => s.addEventListener("change", buscar));
+  msg.addEventListener("input", () => { despues(); });
+  boton.onclick = async () => {
+    if (msg.value.trim().length < 5) return toast("Escribe el mensaje");
+    if (!(await confirmBox("¿Arranco la difusión?", `Sofía le va a escribir a ${elegidos.size} cliente(s) desde el WhatsApp de Mario, 3 por minuto, de 10 am a 7 pm (máximo 200 al día). Puedes pararla cuando quieras desde Hoy.`, "Sí, mandar"))) return;
+    boton.disabled = true;
+    try {
+      const r = await difusion("iniciar", { filtros: filtros(), mensaje: msg.value.trim(), claves: [...elegidos] });
+      toast(r.enHorario ? `📣 Arrancó: ${r.actual.total} en cola` : `📣 Quedó en cola (${r.actual.total}); empieza a las 10 am`, 6000);
+      cerrar();
+      alTerminar?.();
+    } catch (e) { toast(e.message, 6000); boton.disabled = false; }
+  };
+  const chip = (t) => h("button", { class: "m-chip", onclick: () => { msg.setRangeText(t, msg.selectionStart, msg.selectionEnd, "end"); msg.focus(); despues(); } }, t);
+  hoja.append(
+    h("div", { class: "m-between" }, h("h2", {}, "📣 Nueva difusión"), h("button", { class: "m-icon", "aria-label": "Cerrar", onclick: cerrar }, "✕")),
+    h("label", { class: "m-label" }, "¿A quiénes?"), mes, modelo, calor, situacion,
+    h("label", { class: "m-label" }, "Mensaje"), msg,
+    h("div", { class: "m-chips" }, chip("{nombre}"), chip("{modelo}")),
+    h("label", { class: "m-label" }, "Así le llega al primero:"), ejemplo,
+    cuenta, lista, boton);
+  capa.append(hoja);
+  document.body.append(capa);
+  buscar();
+}
+
 // ───────── HOY ─────────
 
 export function renderHoyMario(root) {
@@ -87,7 +181,7 @@ export function renderHoyMario(root) {
   const cuerpo = page();
   root.append(cuerpo);
   if (!connectorReady()) return sinConectar(cuerpo);
-  cuerpo.append(cajaOrden(), cajaRevivir());
+  cuerpo.append(cajaOrden(), cajaDifusion(), cajaRevivir());
   const datos = h("div", { class: "m-stack" }, cargando());
   cuerpo.append(datos);
   (async () => {
